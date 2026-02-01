@@ -1,9 +1,12 @@
 /**
  * Stream Extract API - Multi-Provider Stream Extraction
  * 
- * Provider Priority:
+ * Provider Priority (January 2026):
  * - For ANIME content: AnimeKai (PRIMARY) → Videasy (fallback)
- * - For other content: VidSrc (PRIMARY) → Flixer → 1movies → Videasy → SmashyStream → MultiMovies → MultiEmbed
+ * - For other content: Flixer (PRIMARY) → 1movies → VidSrc → Videasy → SmashyStream → MultiMovies → MultiEmbed
+ * 
+ * NOTE: VidSrc deprioritized due to Cloudflare Turnstile blocking ~80% of content.
+ *       Set CAPSOLVER_API_KEY to enable Turnstile bypass (~$2-3 per 1000 solves).
  * 
  * GET /api/stream/extract?tmdbId=550&type=movie
  * GET /api/stream/extract?tmdbId=1396&type=tv&season=1&episode=1
@@ -688,30 +691,12 @@ export async function GET(request: NextRequest) {
         throw new Error(multiEmbedResult.error || 'MultiEmbed returned no sources');
       }
       
-      // Default behavior: VidSrc FIRST, then Flixer, then 1movies, then others
+      // Default behavior: Flixer FIRST, then 1movies, then VidSrc (deprioritized due to Turnstile), then others
+      // NOTE: VidSrc moved to 3rd position because Cloudflare Turnstile blocks most content (Jan 2026)
       
-      // Try VidSrc FIRST - it's the primary source
-      if (VIDSRC_ENABLED) {
-        console.log('[EXTRACT] Trying PRIMARY source: VidSrc...');
-        try {
-          const vidsrcResult = await extractVidSrcStreams(tmdbId, type, season, episode);
-          const workingVidsrc = vidsrcResult.sources.filter(s => s.status === 'working');
-          
-          if (workingVidsrc.length > 0) {
-            console.log(`[EXTRACT] ✓ VidSrc succeeded with ${workingVidsrc.length} working source(s)`);
-            return { sources: vidsrcResult.sources, provider: 'vidsrc' };
-          }
-          console.log(`[EXTRACT] VidSrc: ${vidsrcResult.error || 'No working sources'}`);
-        } catch (vidsrcError) {
-          console.warn('[EXTRACT] VidSrc failed:', vidsrcError instanceof Error ? vidsrcError.message : vidsrcError);
-        }
-      } else {
-        console.log('[EXTRACT] VidSrc is DISABLED, skipping...');
-      }
-      
-      // Try Flixer as SECOND option (via RPI residential proxy)
+      // Try Flixer FIRST (via RPI residential proxy) - most reliable
       if (FLIXER_ENABLED) {
-        console.log('[EXTRACT] Trying fallback source: Flixer...');
+        console.log('[EXTRACT] Trying PRIMARY source: Flixer...');
         try {
           const flixerResult = await extractFlixerStreams(tmdbId, type, season, episode);
           const workingFlixer = flixerResult.sources.filter(s => s.status === 'working');
@@ -728,7 +713,7 @@ export async function GET(request: NextRequest) {
         console.log('[EXTRACT] Flixer is DISABLED, skipping...');
       }
       
-      // Try 1movies as third option
+      // Try 1movies as SECOND option
       if (ONEMOVIES_ENABLED) {
         console.log('[EXTRACT] Trying fallback source: 1movies...');
         try {
@@ -745,6 +730,32 @@ export async function GET(request: NextRequest) {
         }
       } else {
         console.log('[EXTRACT] 1movies is DISABLED, skipping...');
+      }
+      
+      // Try VidSrc as THIRD option (deprioritized due to Cloudflare Turnstile blocking most content)
+      // NOTE: As of Jan 2026, VidSrc has Turnstile protection on ~80% of content
+      // Only older/less popular content works without CAPSOLVER_API_KEY
+      if (VIDSRC_ENABLED) {
+        console.log('[EXTRACT] Trying fallback source: VidSrc (may be Turnstile-blocked)...');
+        try {
+          const vidsrcResult = await extractVidSrcStreams(tmdbId, type, season, episode);
+          const workingVidsrc = vidsrcResult.sources.filter(s => s.status === 'working');
+          
+          if (workingVidsrc.length > 0) {
+            console.log(`[EXTRACT] ✓ VidSrc succeeded with ${workingVidsrc.length} working source(s)`);
+            return { sources: vidsrcResult.sources, provider: 'vidsrc' };
+          }
+          // Log Turnstile blocks specifically
+          if (vidsrcResult.error?.includes('Turnstile')) {
+            console.log(`[EXTRACT] VidSrc: Blocked by Cloudflare Turnstile`);
+          } else {
+            console.log(`[EXTRACT] VidSrc: ${vidsrcResult.error || 'No working sources'}`);
+          }
+        } catch (vidsrcError) {
+          console.warn('[EXTRACT] VidSrc failed:', vidsrcError instanceof Error ? vidsrcError.message : vidsrcError);
+        }
+      } else {
+        console.log('[EXTRACT] VidSrc is DISABLED, skipping...');
       }
       
       // Try Videasy as fourth option (multi-language support)

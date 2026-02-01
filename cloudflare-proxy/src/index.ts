@@ -35,6 +35,7 @@ import { handleTMDBRequest } from './tmdb-proxy';
 import { handleCDNLiveRequest } from './cdn-live-proxy';
 import { handlePPVRequest } from './ppv-proxy';
 import { handleVIPRowRequest } from './viprow-proxy';
+import { handleVidSrcRequest } from './vidsrc-proxy';
 import { createLogger, generateRequestId, type LogLevel } from './logger';
 
 export interface Env {
@@ -79,6 +80,7 @@ const metrics = {
   analyticsRequests: 0,
   tmdbRequests: 0,
   viprowRequests: 0,
+  vidsrcRequests: 0,
   startTime: Date.now(),
 };
 
@@ -134,6 +136,7 @@ export default {
           analyticsRequests: metrics.analyticsRequests,
           tmdbRequests: metrics.tmdbRequests,
           viprowRequests: metrics.viprowRequests,
+          vidsrcRequests: metrics.vidsrcRequests,
         },
         timestamp: new Date().toISOString(),
       }, null, 2), {
@@ -360,6 +363,21 @@ export default {
       }
     }
 
+    // Route to VidSrc proxy (2embed.stream API)
+    // Extracts m3u8 from v1.2embed.stream API - NO TURNSTILE!
+    if (path.startsWith('/vidsrc')) {
+      metrics.vidsrcRequests++;
+      logger.info('Routing to VidSrc proxy', { path });
+      
+      try {
+        return await handleVidSrcRequest(request, env);
+      } catch (error) {
+        metrics.errors++;
+        logger.error('VidSrc proxy error', error as Error);
+        return errorResponse('VidSrc proxy error', 500);
+      }
+    }
+
     // Route to IPTV proxy (Stalker portals)
     // Handle both /iptv/* and /tv/iptv/* (legacy path from NEXT_PUBLIC_CF_TV_PROXY_URL)
     if (path.startsWith('/iptv') || path.startsWith('/tv/iptv')) {
@@ -582,6 +600,22 @@ export default {
             'Automatic token refresh via boanki.net',
             'URL rewriting for browser playback',
             'AES-128 key proxying',
+          ],
+        },
+        vidsrc: {
+          path: '/vidsrc/',
+          description: 'VidSrc stream extraction via 2embed.stream API (NO TURNSTILE!)',
+          usage: '/vidsrc/extract?tmdbId=<id>&type=<movie|tv>&season=<n>&episode=<n>',
+          subRoutes: {
+            extract: '/vidsrc/extract - Extract m3u8 URL from 2embed.stream API',
+            stream: '/vidsrc/stream?url=<encoded_url> - Proxy m3u8/ts segments',
+            health: '/vidsrc/health - Health check (tests API reachability)',
+          },
+          features: [
+            'Direct API access - NO Turnstile/captcha',
+            'Multiple quality streams (480p, 720p, 1080p)',
+            'URL rewriting for browser playback',
+            'Source: lk21_database',
           ],
         },
         analytics: {

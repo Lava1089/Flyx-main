@@ -1,22 +1,22 @@
 /**
  * VidSrc Extractor
- * Extracts streams from vidsrc-embed.ru → cloudnestra.com
+ * Extracts streams from multiple sources:
+ * 1. Cloudflare Worker /vidsrc endpoint (PRIMARY - NO TURNSTILE!)
+ * 2. v1.2embed.stream API direct (FALLBACK)
+ * 3. vidsrc-embed.ru → cloudnestra.com (LAST RESORT - has Turnstile)
  *
- * ✅ STATUS: WORKING - January 2026
- * Updated to extract file URLs directly from PlayerJS initialization.
- * No decoding required - URLs are embedded in the page source.
+ * ✅ STATUS: WORKING - February 2026
+ * BREAKTHROUGH: Found v1.2embed.stream API that returns m3u8 URLs directly!
+ * No Turnstile, no captcha, just a simple JSON API.
+ * 
+ * The Cloudflare Worker at media-proxy.vynx.workers.dev/vidsrc handles:
+ * - API calls to 2embed.stream
+ * - URL rewriting for browser playback
+ * - Segment proxying
  *
- * IMPROVEMENTS (Jan 2026):
- * - Multiple embed domain fallbacks (vidsrc-embed.ru, vidsrc.cc, vidsrc.me)
- * - Expanded CDN domain list for better URL resolution
- * - More robust file URL extraction with multiple regex patterns
- * - Parallel URL testing for faster availability checks
- * - Reduced timeout for faster fallback to other providers
- *
- * TURNSTILE BYPASS:
- * If Cloudflare Turnstile appears, you can optionally use a captcha solving service.
- * Set CAPSOLVER_API_KEY in your environment to enable automatic Turnstile solving.
- * Cost: ~$2-3 per 1000 solves at https://capsolver.com
+ * API ENDPOINTS DISCOVERED:
+ * - /api/m3u8/movie/{tmdbId} - Returns m3u8_url for movies
+ * - /api/m3u8/tv/{tmdbId}/{season}/{episode} - Returns m3u8_url for TV
  */
 
 interface StreamSource {
@@ -38,8 +38,16 @@ interface ExtractionResult {
 // ✅ VidSrc is now ENABLED by default - no security risk as we don't execute remote code
 export const VIDSRC_ENABLED = process.env.ENABLE_VIDSRC_PROVIDER !== 'false';
 
-// Optional: Captcha solving service API key for Turnstile bypass
+// Optional: Captcha solving service API key for Turnstile bypass (fallback only)
 const CAPSOLVER_API_KEY = process.env.CAPSOLVER_API_KEY;
+
+// Cloudflare Worker VidSrc endpoint (PRIMARY - handles everything)
+const CF_VIDSRC_PROXY = process.env.NEXT_PUBLIC_CF_PROXY_URL 
+  ? `${process.env.NEXT_PUBLIC_CF_PROXY_URL}/vidsrc`
+  : 'https://media-proxy.vynx.workers.dev/vidsrc';
+
+// 2embed.stream API base URL (FALLBACK - direct access)
+const EMBED_API_BASE = 'https://v1.2embed.stream';
 
 // Rate limiting configuration - reduced for faster response
 const VIDSRC_MIN_DELAY_MS = 300;  // Minimum delay between requests (reduced from 500)
@@ -355,7 +363,8 @@ async function checkStreamAvailability(url: string): Promise<'working' | 'down'>
  * ✅ ENABLED BY DEFAULT - No security risk as we extract URLs directly from page
  * 
  * Improvements:
- * - Tries multiple embed domains for better reliability
+ * - PRIMARY: Uses v1.2embed.stream API (no Turnstile!)
+ * - FALLBACK: Tries cloudnestra extraction if API fails
  * - Multiple regex patterns for file URL extraction
  * - Parallel URL testing for faster results
  * - Better error messages for debugging
@@ -377,7 +386,23 @@ export async function extractVidSrcStreams(
 
   console.log(`[VidSrc] Extracting streams for ${type} ID ${tmdbId}...`);
 
-  // Try each embed domain until one works
+  // PRIMARY: Try v1.2embed.stream API first (no Turnstile!)
+  try {
+    const apiResult = await extractFrom2EmbedApi(tmdbId, type, season, episode);
+    if (apiResult.success && apiResult.sources.length > 0) {
+      const workingSources = apiResult.sources.filter(s => s.status === 'working');
+      if (workingSources.length > 0) {
+        console.log(`[VidSrc] ✓ Success with 2embed.stream API: ${workingSources.length} working sources`);
+        return apiResult;
+      }
+    }
+    console.log(`[VidSrc] 2embed.stream API: ${apiResult.error || 'No working sources'}, trying fallback...`);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.log(`[VidSrc] 2embed.stream API failed: ${errorMsg}, trying fallback...`);
+  }
+
+  // FALLBACK: Try cloudnestra extraction (may have Turnstile)
   let lastError = '';
   
   for (const embedDomain of EMBED_DOMAINS) {
@@ -401,8 +426,96 @@ export async function extractVidSrcStreams(
   return {
     success: false,
     sources: [],
-    error: `All embed domains failed. Last error: ${lastError}`
+    error: `All extraction methods failed. Last error: ${lastError}`
   };
+}
+
+/**
+ * Extract from v1.2embed.stream API via Cloudflare Worker (PRIMARY METHOD - NO TURNSTILE!)
+ * 
+ * The CF Worker at /vidsrc handles:
+ * - API calls to 2embed.stream
+ * - URL rewriting for browser playback
+ * - Segment proxying
+ */
+async function extractFrom2EmbedApi(
+  tmdbId: string,
+  type: 'movie' | 'tv',
+  season?: number,
+  episode?: number
+): Promise<ExtractionResult> {
+  try {
+    // Build CF Worker URL
+    const params = new URLSearchParams({
+      tmdbId,
+      type,
+    });
+    if (type === 'tv' && season && episode) {
+      params.set('season', season.toString());
+      params.set('episode', episode.toString());
+    }
+    
+    const cfUrl = `${CF_VIDSRC_PROXY}/extract?${params}`;
+    console.log('[VidSrc] Fetching via CF Worker:', cfUrl);
+    
+    const response = await fetch(cfUrl, {
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`CF Worker returned ${response.status}`);
+    }
+    
+    const data = await response.json() as {
+      success?: boolean;
+      m3u8_url?: string;
+      proxied_url?: string;
+      source?: string;
+      error?: string;
+    };
+    
+    if (!data.success || !data.m3u8_url) {
+      throw new Error(data.error || 'No m3u8_url in response');
+    }
+    
+    console.log('[VidSrc] Got m3u8 URL from CF Worker, source:', data.source);
+    
+    // Use the proxied URL from CF Worker (already rewritten for browser playback)
+    // The proxied_url is relative to the CF Worker, so we need to make it absolute
+    const cfProxyBase = CF_VIDSRC_PROXY.replace('/vidsrc', '');
+    const m3u8Url = data.proxied_url 
+      ? `${cfProxyBase}${data.proxied_url}`
+      : data.m3u8_url;
+    
+    const sources: StreamSource[] = [{
+      quality: 'auto',
+      title: '2Embed Stream',
+      url: m3u8Url,
+      type: 'hls',
+      referer: EMBED_API_BASE + '/',
+      requiresSegmentProxy: false, // CF Worker handles proxying
+      status: 'working' // CF Worker already verified it works
+    }];
+    
+    console.log('[VidSrc] ✓ CF Worker returned working stream');
+    
+    return {
+      success: true,
+      sources,
+    };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[VidSrc] CF Worker error:', errorMessage);
+    
+    return {
+      success: false,
+      sources: [],
+      error: errorMessage
+    };
+  }
 }
 
 /**

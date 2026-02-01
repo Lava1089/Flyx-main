@@ -1047,27 +1047,37 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     // Reset source confirmation flag for new stream
     sourceConfirmedWorkingRef.current = false;
 
-    if (streamUrl.includes('.m3u8') || streamUrl.includes('stream-proxy') || streamUrl.includes('/stream/') || streamUrl.includes('/animekai')) {
+    if (streamUrl.includes('.m3u8') || streamUrl.includes('stream-proxy') || streamUrl.includes('/stream/') || streamUrl.includes('/animekai') || streamUrl.includes('/vidsrc')) {
       if (Hls.isSupported()) {
+        // Check if this is a Flixer source (needs more aggressive buffering)
+        const isFlixerSource = streamUrl.includes('flixer') || streamUrl.includes('p.10015.workers.dev') || streamUrl.includes('afc7d47f');
+        
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: true,
+          lowLatencyMode: false, // Disable low latency for VOD - improves buffering
           backBufferLength: 90,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 60,
-          maxBufferSize: 60 * 1000 * 1000,
+          // Increase buffer sizes for Flixer sources to handle variable speeds
+          maxBufferLength: isFlixerSource ? 60 : 30,
+          maxMaxBufferLength: isFlixerSource ? 120 : 60,
+          maxBufferSize: isFlixerSource ? 120 * 1000 * 1000 : 60 * 1000 * 1000,
           maxBufferHole: 0.5,
           highBufferWatchdogPeriod: 2,
           nudgeOffset: 0.1,
-          nudgeMaxRetry: 3,
-          manifestLoadingTimeOut: 10000,
-          manifestLoadingMaxRetry: 2,
+          nudgeMaxRetry: 5, // Increase retry count
+          manifestLoadingTimeOut: 15000, // Increase timeout
+          manifestLoadingMaxRetry: 3,
           manifestLoadingRetryDelay: 500,
-          levelLoadingTimeOut: 10000,
-          levelLoadingMaxRetry: 2,
-          fragLoadingTimeOut: 20000,
-          fragLoadingMaxRetry: 3,
-          startLevel: -1,
+          levelLoadingTimeOut: 15000,
+          levelLoadingMaxRetry: 3,
+          fragLoadingTimeOut: 30000, // Increase fragment timeout for slow segments
+          fragLoadingMaxRetry: 5, // More retries for fragments
+          fragLoadingRetryDelay: 1000, // Wait longer between retries
+          startLevel: -1, // Auto-select quality
+          // ABR settings for better quality adaptation
+          abrEwmaDefaultEstimate: 1000000, // 1 Mbps default estimate
+          abrBandWidthFactor: 0.8, // Be more conservative with bandwidth
+          abrBandWidthUpFactor: 0.5, // Slower to upgrade quality
+          abrMaxWithRealBitrate: true,
           // @ts-ignore
           xhrSetup: (xhr: any, url: any) => {
             xhr.withCredentials = false;
@@ -1165,6 +1175,27 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           const level = hls.levels[data.level];
           if (level && level.height) {
             setCurrentResolution(`${level.height}p`);
+          }
+        });
+
+        // Handle buffer stalling - log for debugging
+        hls.on(Hls.Events.BUFFER_STALLED_ERROR, () => {
+          console.warn('[HLS] Buffer stalled - playback may pause');
+        });
+
+        // Handle fragment loading progress for debugging slow segments
+        hls.on(Hls.Events.FRAG_LOAD_PROGRESS, (_event, data) => {
+          // Log if a fragment is taking too long (> 5 seconds)
+          if (data.stats && data.stats.loading && data.stats.loading.start) {
+            const loadTime = performance.now() - data.stats.loading.start;
+            if (loadTime > 5000) {
+              console.warn('[HLS] Slow fragment load:', {
+                sn: data.frag?.sn,
+                loadTime: Math.round(loadTime) + 'ms',
+                loaded: data.stats.loaded,
+                total: data.stats.total,
+              });
+            }
           }
         });
 

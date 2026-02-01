@@ -5,6 +5,7 @@ A Cloudflare Worker that proxies HLS streams and live TV with proper headers and
 ## Features
 
 - **Stream Proxy** (`/stream/`) - Proxies HLS streams for 2embed/vidsrc
+- **VidSrc Proxy** (`/vidsrc/`) - Extracts streams from 2embed.stream API (NO Turnstile!)
 - **AnimeKai Proxy** (`/animekai/`) - Proxies MegaUp CDN streams via RPI residential IP
 - **TV Proxy** (`/tv/`) - Proxies DLHD live TV streams
 - **IPTV Proxy** (`/iptv/`) - Proxies Stalker portal IPTV streams
@@ -116,6 +117,63 @@ Parameters:
 - `url` (required) - URL-encoded target stream URL
 - `source` - Source identifier (default: `2embed`)
 - `referer` - URL-encoded referer header
+
+### VidSrc Proxy
+
+Extracts movie/TV streams from 2embed.stream API without Turnstile/captcha.
+
+**Endpoints:**
+```
+GET /vidsrc/extract?tmdbId=<id>&type=<movie|tv>&season=<n>&episode=<n>
+GET /vidsrc/stream?url=<encoded_url>
+GET /vidsrc/health
+```
+
+**Parameters:**
+- `tmdbId` (required) - TMDB ID of the movie or TV show
+- `type` (required) - Content type: `movie` or `tv`
+- `season` (required for TV) - Season number
+- `episode` (required for TV) - Episode number
+
+**Features:**
+- ✅ Direct API access - NO Turnstile/captcha required
+- ✅ Multiple quality streams (480p, 720p, 1080p)
+- ✅ URL rewriting for browser playback
+- ✅ Source: lk21_database via 2embed.stream
+
+**Example Usage:**
+```bash
+# Extract movie stream
+curl "https://media-proxy.xxx.workers.dev/vidsrc/extract?tmdbId=550&type=movie"
+
+# Extract TV episode stream
+curl "https://media-proxy.xxx.workers.dev/vidsrc/extract?tmdbId=1396&type=tv&season=1&episode=1"
+
+# Proxy the m3u8/ts segments
+curl "https://media-proxy.xxx.workers.dev/vidsrc/stream?url=<encoded_m3u8_url>"
+```
+
+**Response Format (Extract):**
+```json
+{
+  "success": true,
+  "m3u8_url": "https://v1.2embed.stream/...",
+  "proxied_url": "/vidsrc/stream?url=...",
+  "source": "lk21_database",
+  "duration_ms": 450,
+  "timestamp": "2026-02-01T12:00:00.000Z"
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "No m3u8_url in response",
+  "duration_ms": 200,
+  "timestamp": "2026-02-01T12:00:00.000Z"
+}
+```
 
 ### TV Proxy
 
