@@ -576,3 +576,22 @@
   font-size: 0.875rem;
   margin: 0;
 }
+
+/* Backend Status Indicators */
+.statusOnline {
+  color: #22c55e;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.statusOffline {
+  color: #ef4444;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.statusTimeout {
+  color: #f59e0b;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}

@@ -79,27 +79,55 @@ export function getTvPlaylistUrl(channel: string, backend?: string): string {
 }
 
 // Get available backends for a channel
+// SECURITY: Returns obfuscated backend IDs - actual server/domain names are NOT exposed to client
+// The /play endpoint accepts these obfuscated IDs and resolves them server-side
 export async function getAvailableBackends(channel: string): Promise<Array<{
   id: string;
-  server: string;
-  domain: string;
   isPrimary: boolean;
   label: string;
+  status?: 'online' | 'offline' | 'timeout' | 'unknown';
 }>> {
   const dlhdWorkerUrl = process.env.NEXT_PUBLIC_DLHD_WORKER_URL || 'https://dlhd.vynx.workers.dev';
+  const apiKey = process.env.NEXT_PUBLIC_DLHD_API_KEY || 'vynx';
   
   try {
-    const response = await fetch(`${dlhdWorkerUrl}/backends/${channel}`);
+    // Request with testing enabled to get online status
+    // Include API key for authentication
+    const response = await fetch(`${dlhdWorkerUrl}/backends/${channel}?test=true&key=${apiKey}`);
     if (!response.ok) {
       console.error('[proxy-config] Failed to fetch backends:', response.status);
       return [];
     }
     const data = await response.json();
+    
+    // SECURITY: The _m field contains base64-encoded mapping of obfuscated IDs to actual server.domain
+    // Store this mapping for use when switching backends - resolution happens via resolveBackendId()
+    if (data._m && typeof window !== 'undefined') {
+      try {
+        const mapping = JSON.parse(atob(data._m));
+        (window as any).__dlhdBackendMapping = mapping;
+      } catch (e) {
+        console.error('[proxy-config] Failed to decode backend mapping:', e);
+      }
+    }
+    
     return data.backends || [];
   } catch (error) {
     console.error('[proxy-config] Error fetching backends:', error);
     return [];
   }
+}
+
+// Resolve an obfuscated backend ID to the actual server.domain for the /play endpoint
+// SECURITY: This mapping is only available after calling getAvailableBackends
+// The actual server names are never exposed in the UI - only used internally for API calls
+export function resolveBackendId(obfuscatedId: string): string | null {
+  if (typeof window === 'undefined') return null;
+  
+  const mapping = (window as any).__dlhdBackendMapping;
+  if (!mapping) return null;
+  
+  return mapping[obfuscatedId] || null;
 }
 
 // Get TV key proxy URL

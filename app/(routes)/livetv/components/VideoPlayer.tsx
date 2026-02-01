@@ -11,7 +11,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
 import { LiveEvent, TVChannel } from '../hooks/useLiveTVData';
-import { getTvPlaylistUrl, getAvailableBackends } from '@/app/lib/proxy-config';
+import { getTvPlaylistUrl, getAvailableBackends, resolveBackendId } from '@/app/lib/proxy-config';
 import styles from './VideoPlayer.module.css';
 
 interface VideoPlayerProps {
@@ -42,12 +42,13 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
   const [retryCount, setRetryCount] = useState(0);
   
   // Backend switching state
+  // SECURITY: Backend IDs are obfuscated - actual server/domain names are NOT exposed to client
+  // The resolveBackendId() function maps obfuscated IDs to actual values for API calls only
   const [availableBackends, setAvailableBackends] = useState<Array<{
     id: string;
-    server: string;
-    domain: string;
     isPrimary: boolean;
     label: string;
+    status?: 'online' | 'offline' | 'timeout' | 'unknown';
   }>>([]);
   const [selectedBackend, setSelectedBackend] = useState<string | undefined>(undefined);
   const [showBackendMenu, setShowBackendMenu] = useState(false);
@@ -298,10 +299,17 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     }
   }, [channel, event, selectedChannelIndex]);
 
-  // Switch backend
-  const switchBackend = useCallback((backendId: string) => {
-    console.log('[VideoPlayer] Switching to backend:', backendId);
-    setSelectedBackend(backendId);
+  // Switch backend - uses obfuscated ID which gets resolved to server.domain for the /play endpoint
+  // SECURITY: The actual server.domain is resolved internally, never exposed in UI
+  const switchBackend = useCallback((obfuscatedId: string) => {
+    // Resolve the obfuscated ID to actual server.domain for the API call
+    const resolvedBackend = resolveBackendId(obfuscatedId);
+    if (!resolvedBackend) {
+      console.error('[VideoPlayer] Failed to resolve backend ID:', obfuscatedId);
+      return;
+    }
+    console.log('[VideoPlayer] Switching to backend (resolved internally)');
+    setSelectedBackend(resolvedBackend);
     setShowBackendMenu(false);
     setError(null);
     setRetryCount(0);
@@ -319,6 +327,8 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     if (isOpen && (event || channel)) {
       setSelectedChannelIndex(0);
       setRetryCount(0);
+      setSelectedBackend(undefined); // Reset backend when opening new channel
+      setAvailableBackends([]); // Clear cached backends
       initPlayer();
     }
 
@@ -552,9 +562,12 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
                   <button
                     key={backend.id}
                     onClick={() => switchBackend(backend.id)}
-                    className={`${styles.backendOption} ${selectedBackend === backend.id ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
+                    className={`${styles.backendOption} ${selectedBackend === resolveBackendId(backend.id) ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
                   >
                     {backend.label}
+                    {backend.status === 'online' && <span className={styles.statusOnline}>●</span>}
+                    {backend.status === 'offline' && <span className={styles.statusOffline}>●</span>}
+                    {backend.status === 'timeout' && <span className={styles.statusTimeout}>●</span>}
                   </button>
                 ))}
               </div>
@@ -681,9 +694,12 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
                           <button
                             key={backend.id}
                             onClick={() => switchBackend(backend.id)}
-                            className={`${styles.backendOption} ${selectedBackend === backend.id ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
+                            className={`${styles.backendOption} ${selectedBackend === resolveBackendId(backend.id) ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
                           >
                             {backend.label}
+                            {backend.status === 'online' && <span className={styles.statusOnline}>●</span>}
+                            {backend.status === 'offline' && <span className={styles.statusOffline}>●</span>}
+                            {backend.status === 'timeout' && <span className={styles.statusTimeout}>●</span>}
                           </button>
                         ))}
                       </>
