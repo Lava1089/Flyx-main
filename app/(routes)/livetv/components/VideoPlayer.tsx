@@ -85,20 +85,37 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 30,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 10,
-        manifestLoadingMaxRetry: 6,
-        manifestLoadingRetryDelay: 2000,
-        levelLoadingMaxRetry: 6,
-        levelLoadingRetryDelay: 2000,
-        fragLoadingMaxRetry: 8,
-        fragLoadingRetryDelay: 2000,
+        lowLatencyMode: false, // Disable for better stability
+        // Improved buffering configuration for live streams
+        backBufferLength: 60, // Keep 60s of back buffer for seeking
+        maxBufferLength: 45, // Buffer up to 45s ahead
+        maxMaxBufferLength: 90, // Allow up to 90s in good conditions
+        maxBufferSize: 60 * 1000 * 1000, // 60MB buffer size
+        maxBufferHole: 0.5, // Max gap to skip
+        // Live stream sync settings
+        liveSyncDurationCount: 4, // Sync to 4 segments behind live edge
+        liveMaxLatencyDurationCount: 12, // Max 12 segments behind before seeking
+        liveDurationInfinity: true, // Treat live streams as infinite
+        // Aggressive retry settings for better stall recovery
+        manifestLoadingMaxRetry: 8,
+        manifestLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetryTimeout: 30000,
+        levelLoadingMaxRetry: 8,
+        levelLoadingRetryDelay: 1000,
+        levelLoadingMaxRetryTimeout: 30000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        fragLoadingMaxRetryTimeout: 45000,
+        // ABR settings for smoother playback
+        abrEwmaDefaultEstimate: 1000000, // 1Mbps default estimate
+        abrBandWidthFactor: 0.7, // Conservative bandwidth factor
+        abrBandWidthUpFactor: 0.5, // Even more conservative for upgrades
+        abrMaxWithRealBitrate: true, // Use real bitrate for ABR decisions
+        // Stall recovery
+        nudgeOffset: 0.1, // Small nudge to recover from stalls
+        nudgeMaxRetry: 5, // Max nudge retries
+        // Custom loader to handle X-Real-IV header for dvalna.ru segments
         xhrSetup: (xhr) => {
-          // Add timeout for requests
           xhr.timeout = 30000;
         },
       });
@@ -129,11 +146,22 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error('[VideoPlayer] HLS Error:', data.type, data.details, data.fatal);
+        
+        // Handle buffer stalls (non-fatal)
+        if (data.details === 'bufferStalledError') {
+          console.log('[VideoPlayer] Buffer stalled, attempting recovery...');
+          if (video.currentTime > 0 && !video.paused) {
+            video.currentTime = video.currentTime + 0.1;
+          }
+          return;
+        }
+        
         if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retryCount < 3) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retryCount < 5) {
             console.log('[VideoPlayer] Network error, retrying...', retryCount + 1);
             setRetryCount(prev => prev + 1);
-            setTimeout(() => hls.startLoad(), 2000);
+            // Exponential backoff
+            setTimeout(() => hls.startLoad(), Math.min(1000 * Math.pow(2, retryCount), 10000));
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             console.log('[VideoPlayer] Media error, recovering...');
             hls.recoverMediaError();
@@ -143,6 +171,14 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
             setIsLoading(false);
             hls.destroy();
           }
+        }
+      });
+
+      // Monitor buffer health
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        // Reset retry count on successful fragment load
+        if (retryCount > 0) {
+          setRetryCount(0);
         }
       });
 

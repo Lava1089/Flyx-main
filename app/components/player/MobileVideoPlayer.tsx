@@ -529,20 +529,31 @@ export default function MobileVideoPlayer({
   const hlsConfig = useMemo(() => ({
     enableWorker: true,
     lowLatencyMode: false,
-    backBufferLength: 30,
-    maxBufferLength: 20,
-    maxMaxBufferLength: 40,
-    maxBufferSize: 30 * 1000 * 1000,
-    maxBufferHole: 0.5,
-    manifestLoadingTimeOut: 15000,
-    manifestLoadingMaxRetry: 4,
-    levelLoadingTimeOut: 15000,
-    fragLoadingTimeOut: 25000,
-    fragLoadingMaxRetry: 6,
+    // Improved buffering for VOD content
+    backBufferLength: 60, // Keep 60s of back buffer for seeking
+    maxBufferLength: 45, // Buffer up to 45s ahead
+    maxMaxBufferLength: 90, // Allow up to 90s in good conditions
+    maxBufferSize: 60 * 1000 * 1000, // 60MB buffer size
+    maxBufferHole: 0.5, // Max gap to skip
+    // Aggressive retry settings for better stall recovery
+    manifestLoadingTimeOut: 20000,
+    manifestLoadingMaxRetry: 6,
+    manifestLoadingRetryDelay: 1000,
+    levelLoadingTimeOut: 20000,
+    levelLoadingMaxRetry: 6,
+    levelLoadingRetryDelay: 1000,
+    fragLoadingTimeOut: 30000,
+    fragLoadingMaxRetry: 8,
+    fragLoadingRetryDelay: 1000,
+    // ABR settings for smoother playback
     startLevel: -1,
-    abrEwmaDefaultEstimate: 500000,
-    abrBandWidthFactor: 0.8,
-    abrBandWidthUpFactor: 0.5,
+    abrEwmaDefaultEstimate: 1000000, // 1Mbps default estimate
+    abrBandWidthFactor: 0.7, // Conservative bandwidth factor
+    abrBandWidthUpFactor: 0.5, // Even more conservative for upgrades
+    abrMaxWithRealBitrate: true, // Use real bitrate for ABR decisions
+    // Stall recovery
+    nudgeOffset: 0.1, // Small nudge to recover from stalls
+    nudgeMaxRetry: 5, // Max nudge retries
   }), []);
 
   // Track the last initialized stream URL to prevent re-initialization on rotation
