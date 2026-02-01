@@ -62,14 +62,44 @@ export function getTvProxyBaseUrl(): string {
 // Get TV playlist URL
 // NEW: Uses the dedicated DLHD extractor worker at dlhd.vynx.workers.dev
 // The /play/:channelId endpoint returns decrypted HLS streams directly
-export function getTvPlaylistUrl(channel: string): string {
+export function getTvPlaylistUrl(channel: string, backend?: string): string {
   // Use the new DLHD extractor worker - it handles everything:
   // JWT generation, M3U8 fetch, URL rewriting, segment decryption
   const dlhdWorkerUrl = process.env.NEXT_PUBLIC_DLHD_WORKER_URL || 'https://dlhd.vynx.workers.dev';
   const apiKey = process.env.NEXT_PUBLIC_DLHD_API_KEY || 'vynx';
-  const url = `${dlhdWorkerUrl}/play/${channel}?key=${apiKey}`;
+  let url = `${dlhdWorkerUrl}/play/${channel}?key=${apiKey}`;
+  
+  // Add backend parameter if specified (for manual backend switching)
+  if (backend) {
+    url += `&backend=${encodeURIComponent(backend)}`;
+  }
+  
   console.log('[proxy-config] getTvPlaylistUrl (DLHD Worker):', url);
   return url;
+}
+
+// Get available backends for a channel
+export async function getAvailableBackends(channel: string): Promise<Array<{
+  id: string;
+  server: string;
+  domain: string;
+  isPrimary: boolean;
+  label: string;
+}>> {
+  const dlhdWorkerUrl = process.env.NEXT_PUBLIC_DLHD_WORKER_URL || 'https://dlhd.vynx.workers.dev';
+  
+  try {
+    const response = await fetch(`${dlhdWorkerUrl}/backends/${channel}`);
+    if (!response.ok) {
+      console.error('[proxy-config] Failed to fetch backends:', response.status);
+      return [];
+    }
+    const data = await response.json();
+    return data.backends || [];
+  } catch (error) {
+    console.error('[proxy-config] Error fetching backends:', error);
+    return [];
+  }
 }
 
 // Get TV key proxy URL

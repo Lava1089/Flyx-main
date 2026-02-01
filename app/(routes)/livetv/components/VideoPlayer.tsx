@@ -11,7 +11,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
 import { LiveEvent, TVChannel } from '../hooks/useLiveTVData';
-import { getTvPlaylistUrl } from '@/app/lib/proxy-config';
+import { getTvPlaylistUrl, getAvailableBackends } from '@/app/lib/proxy-config';
 import styles from './VideoPlayer.module.css';
 
 interface VideoPlayerProps {
@@ -40,6 +40,18 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
   const [showChannelMenu, setShowChannelMenu] = useState(false);
   const [selectedChannelIndex, setSelectedChannelIndex] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
+  
+  // Backend switching state
+  const [availableBackends, setAvailableBackends] = useState<Array<{
+    id: string;
+    server: string;
+    domain: string;
+    isPrimary: boolean;
+    label: string;
+  }>>([]);
+  const [selectedBackend, setSelectedBackend] = useState<string | undefined>(undefined);
+  const [showBackendMenu, setShowBackendMenu] = useState(false);
+  const [loadingBackends, setLoadingBackends] = useState(false);
 
   // Get current channel from event
   const currentEventChannel = event?.channels?.[selectedChannelIndex];
@@ -49,7 +61,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     // Channel playback (DLHD or CDN Live)
     if (channel) {
       if (channel.source === 'dlhd') {
-        return getTvPlaylistUrl(channel.channelId);
+        return getTvPlaylistUrl(channel.channelId, selectedBackend);
       }
       if (channel.source === 'cdnlive') {
         const [name, country] = channel.channelId.split('|');
@@ -62,7 +74,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       if (event.source === 'dlhd' && event.channels.length > 0) {
         const ch = event.channels[selectedChannelIndex] || event.channels[0];
         console.log('[LiveTV Player] Using channel:', ch.channelId, ch.name);
-        return getTvPlaylistUrl(ch.channelId);
+        return getTvPlaylistUrl(ch.channelId, selectedBackend);
       }
 
       if (event.source === 'viprow' && event.viprowUrl) {
@@ -76,7 +88,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     }
 
     return null;
-  }, [event, channel, selectedChannelIndex]);
+  }, [event, channel, selectedChannelIndex, selectedBackend]);
 
   // Load HLS stream
   const loadHlsStream = useCallback((video: HTMLVideoElement, url: string) => {
@@ -266,14 +278,41 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     setSelectedChannelIndex(index);
     setShowChannelMenu(false);
     setRetryCount(0);
+    setSelectedBackend(undefined); // Reset backend when switching channels
+    setAvailableBackends([]);
   }, []);
 
-  // Re-init when channel changes
+  // Fetch available backends for current channel
+  const fetchBackends = useCallback(async () => {
+    const channelId = channel?.channelId || event?.channels?.[selectedChannelIndex]?.channelId;
+    if (!channelId) return;
+    
+    setLoadingBackends(true);
+    try {
+      const backends = await getAvailableBackends(channelId);
+      setAvailableBackends(backends);
+    } catch (e) {
+      console.error('[VideoPlayer] Failed to fetch backends:', e);
+    } finally {
+      setLoadingBackends(false);
+    }
+  }, [channel, event, selectedChannelIndex]);
+
+  // Switch backend
+  const switchBackend = useCallback((backendId: string) => {
+    console.log('[VideoPlayer] Switching to backend:', backendId);
+    setSelectedBackend(backendId);
+    setShowBackendMenu(false);
+    setError(null);
+    setRetryCount(0);
+  }, []);
+
+  // Re-init when channel or backend changes
   useEffect(() => {
     if (isOpen && (event || channel)) {
       initPlayer();
     }
-  }, [selectedChannelIndex]);
+  }, [selectedChannelIndex, selectedBackend]);
 
   // Initialize when opened
   useEffect(() => {
@@ -347,15 +386,15 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       clearTimeout(controlsTimeoutRef.current);
     }
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying && !showQualityMenu && !showChannelMenu) {
+      if (isPlaying && !showQualityMenu && !showChannelMenu && !showBackendMenu) {
         setShowControls(false);
       }
     }, 3000);
-  }, [isPlaying, showQualityMenu, showChannelMenu]);
+  }, [isPlaying, showQualityMenu, showChannelMenu, showBackendMenu]);
 
   // Hide controls when menus close
   useEffect(() => {
-    if (!showQualityMenu && !showChannelMenu && isPlaying) {
+    if (!showQualityMenu && !showChannelMenu && !showBackendMenu && isPlaying) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
       }, 2000);
@@ -363,7 +402,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     return () => {
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
-  }, [showQualityMenu, showChannelMenu, isPlaying]);
+  }, [showQualityMenu, showChannelMenu, showBackendMenu, isPlaying]);
 
   // Keyboard controls
   useEffect(() => {
@@ -491,9 +530,35 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
           <div className={styles.errorOverlay}>
             <div className={styles.errorIcon}>⚠️</div>
             <p className={styles.errorMessage}>{error}</p>
-            <button onClick={() => { setRetryCount(0); initPlayer(); }} className={styles.retryButton}>
-              Retry
-            </button>
+            <div className={styles.errorActions}>
+              <button onClick={() => { setRetryCount(0); initPlayer(); }} className={styles.retryButton}>
+                Retry
+              </button>
+              <button 
+                onClick={() => { 
+                  if (availableBackends.length === 0) fetchBackends();
+                  setShowBackendMenu(!showBackendMenu);
+                }} 
+                className={styles.switchBackendButton}
+              >
+                {loadingBackends ? 'Loading...' : 'Switch Server'}
+              </button>
+            </div>
+            
+            {showBackendMenu && availableBackends.length > 0 && (
+              <div className={styles.backendMenu}>
+                <p className={styles.backendMenuTitle}>Select a different server:</p>
+                {availableBackends.map((backend) => (
+                  <button
+                    key={backend.id}
+                    onClick={() => switchBackend(backend.id)}
+                    className={`${styles.backendOption} ${selectedBackend === backend.id ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
+                  >
+                    {backend.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -557,7 +622,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
             {hasMultipleChannels && (
               <div className={styles.channelSelector}>
                 <button 
-                  onClick={() => { setShowChannelMenu(!showChannelMenu); setShowQualityMenu(false); }}
+                  onClick={() => { setShowChannelMenu(!showChannelMenu); setShowQualityMenu(false); setShowBackendMenu(false); }}
                   className={styles.controlButton}
                 >
                   📺
@@ -582,11 +647,59 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
               </div>
             )}
 
+            {/* Backend/Server Selector - only for DLHD sources */}
+            {(channel?.source === 'dlhd' || event?.source === 'dlhd') && (
+              <div className={styles.backendSelector}>
+                <button 
+                  onClick={() => { 
+                    if (availableBackends.length === 0) fetchBackends();
+                    setShowBackendMenu(!showBackendMenu); 
+                    setShowQualityMenu(false); 
+                    setShowChannelMenu(false); 
+                  }}
+                  className={styles.controlButton}
+                >
+                  🖥️
+                  <span className={styles.backendLabel}>
+                    {selectedBackend ? selectedBackend.split('.')[0].toUpperCase() : 'Auto'}
+                  </span>
+                </button>
+                
+                {showBackendMenu && (
+                  <div className={styles.backendMenuPopup}>
+                    {loadingBackends ? (
+                      <p className={styles.backendLoading}>Loading servers...</p>
+                    ) : availableBackends.length > 0 ? (
+                      <>
+                        <button
+                          onClick={() => { setSelectedBackend(undefined); setShowBackendMenu(false); }}
+                          className={`${styles.backendOption} ${!selectedBackend ? styles.active : ''}`}
+                        >
+                          Auto (Default)
+                        </button>
+                        {availableBackends.map((backend) => (
+                          <button
+                            key={backend.id}
+                            onClick={() => switchBackend(backend.id)}
+                            className={`${styles.backendOption} ${selectedBackend === backend.id ? styles.active : ''} ${backend.isPrimary ? styles.primary : ''}`}
+                          >
+                            {backend.label}
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <p className={styles.backendLoading}>No servers available</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Quality Selector */}
             {qualities.length > 0 && (
               <div className={styles.qualitySelector}>
                 <button 
-                  onClick={() => { setShowQualityMenu(!showQualityMenu); setShowChannelMenu(false); }}
+                  onClick={() => { setShowQualityMenu(!showQualityMenu); setShowChannelMenu(false); setShowBackendMenu(false); }}
                   className={styles.controlButton}
                 >
                   ⚙️

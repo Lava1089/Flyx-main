@@ -456,3 +456,123 @@
     width: 70px;
   }
 }
+
+
+/* Error Actions */
+.errorActions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.switchBackendButton {
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.switchBackendButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Backend Menu */
+.backendMenu {
+  margin-top: 1.5rem;
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
+  max-width: 400px;
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.backendMenuTitle {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0 0 0.75rem 0;
+  text-align: left;
+}
+
+.backendOption {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+  margin-bottom: 0.25rem;
+}
+
+.backendOption:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.backendOption.active {
+  background: #6366f1;
+}
+
+.backendOption.primary {
+  border-left: 3px solid #22c55e;
+  padding-left: calc(1rem - 3px);
+}
+
+.backendOption.primary::after {
+  content: '✓';
+  float: right;
+  color: #22c55e;
+}
+
+
+/* Backend Selector in Controls */
+.backendSelector {
+  position: relative;
+}
+
+.backendLabel {
+  font-size: 0.875rem;
+  font-weight: 600;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendMenuPopup {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.75rem;
+  background: rgba(20, 20, 20, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 0.5rem;
+  min-width: 200px;
+  max-width: 300px;
+  max-height: 350px;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.backendLoading {
+  padding: 0.75rem 1rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.875rem;
+  margin: 0;
+}
