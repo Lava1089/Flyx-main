@@ -70,8 +70,13 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
   const currentEpisodes = currentSeason ? episodeData[currentSeason.malId] : null;
   const episodeCount = currentSeason?.episodes || 0;
   
+  // For ongoing anime (episodes === null), we need to fetch the episode list from API
+  // The API will return the actual aired episodes
+  const isOngoing = currentSeason?.status === 'Currently Airing' && !currentSeason?.episodes;
+  
   // Generate episode list - use fetched data if available, otherwise generate placeholders
-  const episodes = currentEpisodes || Array.from({ length: episodeCount }, (_, i) => ({
+  // For ongoing anime with no episode count, show loading until API returns data
+  const episodes = currentEpisodes || (episodeCount > 0 ? Array.from({ length: episodeCount }, (_, i) => ({
     number: i + 1,
     title: `Episode ${i + 1}`,
     titleJapanese: null,
@@ -79,7 +84,7 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
     score: null,
     filler: false,
     recap: false,
-  }));
+  })) : []);
 
   // Get thumbnail for current season (use the season's image or main anime image)
   const getSeasonThumbnail = () => {
@@ -155,10 +160,16 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
                   <span className={styles.seasons}>{allSeasons.length} Seasons</span>
                 </>
               )}
-              {!isMovie && (
+              {!isMovie && totalEpisodes > 0 && (
                 <>
                   <span className={styles.separator}>•</span>
-                  <span className={styles.episodes}>{totalEpisodes} Episodes</span>
+                  <span className={styles.episodes}>{totalEpisodes}+ Episodes</span>
+                </>
+              )}
+              {!isMovie && totalEpisodes === 0 && (
+                <>
+                  <span className={styles.separator}>•</span>
+                  <span className={styles.episodes}>Ongoing</span>
                 </>
               )}
             </div>
@@ -201,7 +212,9 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
                   className={`${styles.seasonButton} ${selectedSeason === index ? styles.active : ''}`}
                 >
                   {season.titleEnglish || season.title}
-                  <span className={styles.episodeCount}>{season.episodes} eps</span>
+                  <span className={styles.episodeCount}>
+                    {season.episodes ? `${season.episodes} eps` : 'Ongoing'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -212,7 +225,7 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
             <div className={styles.seasonInfo}>
               <h3>{currentSeason.titleEnglish || currentSeason.title}</h3>
               <p className={styles.seasonMeta}>
-                ⭐ {currentSeason.score?.toFixed(2) || 'N/A'} • {currentSeason.episodes} Episodes • {currentSeason.status}
+                ⭐ {currentSeason.score?.toFixed(2) || 'N/A'} • {currentSeason.episodes ? `${currentSeason.episodes} Episodes` : 'Ongoing'} • {currentSeason.status}
               </p>
             </div>
           )}
@@ -222,6 +235,13 @@ export default function AnimeDetailsClient({ anime, allSeasons, totalEpisodes }:
             <div className={styles.loadingEpisodes}>
               <div className={styles.spinner} />
               <p>Loading episode details...</p>
+            </div>
+          )}
+
+          {/* No episodes message for ongoing anime while loading */}
+          {!loadingEpisodes && episodes.length === 0 && isOngoing && (
+            <div className={styles.loadingEpisodes}>
+              <p>Episode data is being fetched...</p>
             </div>
           )}
 

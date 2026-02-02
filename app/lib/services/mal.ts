@@ -562,12 +562,22 @@ export async function getMALSeriesSeasons(malId: number): Promise<MALAnimeDetail
       aired: a.aired.from
     })));
     
-    // Filter out entries with null episodes (not yet aired)
-    const filteredSeries = tvSeries.filter(a => a.episodes !== null && a.episodes > 0);
+    // For ongoing anime (episodes === null), we still want to show them
+    // Only filter out entries that are truly empty (0 episodes and not airing)
+    const filteredSeries = tvSeries.filter(a => {
+      // Keep entries with episodes defined
+      if (a.episodes !== null && a.episodes > 0) return true;
+      // Keep ongoing/airing anime even if episodes is null
+      if (a.status === 'Currently Airing' || a.status === 'Not yet aired') return true;
+      // Filter out completed anime with no episodes (likely bad data)
+      return false;
+    });
     
     if (isTYBW && filteredSeries.length !== tvSeries.length) {
       console.log(`[MAL] Filtered to TYBW entries only: ${filteredSeries.length}`);
     }
+    
+    console.log(`[MAL] After filtering: ${filteredSeries.length} entries (kept ongoing anime with null episodes)`);
     
     // Convert to MALSeason format
     const seasons: MALSeason[] = filteredSeries.map((anime, index) => ({
