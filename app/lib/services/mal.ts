@@ -802,7 +802,8 @@ export async function getAllMALAnimeEpisodes(malId: number): Promise<MALEpisode[
   let page = 1;
   let hasNextPage = true;
   
-  while (hasNextPage && page <= 10) { // Max 10 pages (1000 episodes)
+  // Max 15 pages (1500 episodes) - enough for One Piece (1100+ eps)
+  while (hasNextPage && page <= 15) {
     const result = await getMALAnimeEpisodes(malId, page);
     allEpisodes.push(...result.episodes);
     hasNextPage = result.hasNextPage;
