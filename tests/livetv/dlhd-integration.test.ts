@@ -12,7 +12,7 @@
 import { describe, test, expect } from 'bun:test';
 import { createHmac, createHash } from 'crypto';
 
-const PLAYER_DOMAIN = 'epicplayplay.cfd';
+const PLAYER_DOMAIN = 'epaly.fun';
 const PARENT_DOMAIN = 'daddyhd.com';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 

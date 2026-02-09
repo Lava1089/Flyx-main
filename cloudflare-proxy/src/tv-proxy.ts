@@ -62,15 +62,15 @@ const ALLOWED_ORIGINS = [
   '.workers.dev',
 ];
 
-// UPDATED January 2026: epicplayplay.cfd is DEAD! Using topembed.pw instead
-const PLAYER_DOMAIN = 'topembed.pw';
+// UPDATED February 2026: epaly.fun is the new player domain (was codepcplay.fun, before that epicplayplay.cfd)
+const PLAYER_DOMAIN = 'epaly.fun';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 
 // UPDATED January 2026: ONLY USE ddy6 server for DLHD live TV
 // All other servers disabled - ddy6 is the most reliable for our use case
 const ALL_SERVER_KEYS = [
-  'ddy6',     // ONLY server we use - most reliable with hitsplay.fun premium keys
+  'ddy6',     // ONLY server we use - most reliable with epaly.fun premium keys
 ];
 const CDN_DOMAIN = 'dvalna.ru';
 
@@ -295,13 +295,13 @@ const channelKeyToTopembed = new Map<string, string>();
 const dlhdIdToChannelKey = new Map<string, string>();
 
 /**
- * Fetch JWT from topembed.pw or hitsplay.fun player page - this is the REAL auth token needed for key requests
+ * Fetch JWT from epaly.fun, topembed.pw, or hitsplay.fun player page - this is the REAL auth token needed for key requests
  * 
- * UPDATED January 2026: 
- * - epicplayplay.cfd is DEAD! 
+ * UPDATED February 2026: 
+ * - epaly.fun is the new primary player domain (replaces codepcplay.fun)
  * - topembed.pw uses the same dvalna.ru backend but with CORRECT channel naming (e.g., 'skyaction' not 'premium37')
  * - hitsplay.fun provides JWT directly but uses 'premium{id}' keys which don't work on all servers
- * - PRIORITY: topembed.pw first (correct keys), then hitsplay.fun (fallback)
+ * - PRIORITY: epaly.fun first (fast), then hitsplay.fun (fallback)
  */
 async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<string | null> {
   const cacheKey = channel;
@@ -318,6 +318,58 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
   
   logger.info('Fetching fresh JWT', { channel });
   
+  // ============================================================================
+  // METHOD 1: Try epaly.fun first (FAST, new primary domain - Feb 2026)
+  // ============================================================================
+  try {
+    const epalyUrl = `https://epaly.fun/premiumtv/daddyhd.php?id=${channel}`;
+    logger.info('Trying epaly.fun for JWT (primary)', { channel });
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+      const res = await fetch(epalyUrl, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Referer': 'https://dlhd.link/',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const html = await res.text();
+        const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+        if (jwtMatch) {
+          const jwt = jwtMatch[0];
+          let channelKey = `premium${channel}`;
+          let exp = Math.floor(Date.now() / 1000) + 18000;
+          
+          try {
+            const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            const payload = JSON.parse(atob(payloadB64));
+            channelKey = payload.sub || channelKey;
+            exp = payload.exp || exp;
+            logger.info('JWT from epaly.fun', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
+          } catch (e) {
+            logger.warn('JWT decode failed, using defaults');
+          }
+          
+          jwtCache.set(cacheKey, { jwt, channelKey, exp, fetchedAt: Date.now() });
+          channelKeyToTopembed.set(channelKey, channel);
+          dlhdIdToChannelKey.set(channel, channelKey);
+          
+          return jwt;
+        }
+      }
+    } catch (e) {
+      clearTimeout(timeoutId);
+      logger.warn('epaly.fun fetch error', { error: (e as Error).message });
+    }
+  } catch (e) {
+    logger.warn('epaly.fun JWT fetch failed', { error: (e as Error).message });
+  }
+
   // ============================================================================
   // METHOD 2: Try hitsplay.fun - fallback for channels without topembed mapping
   // NOTE: hitsplay uses 'premium{id}' keys which may not work on all servers

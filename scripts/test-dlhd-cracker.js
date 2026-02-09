@@ -303,8 +303,8 @@ async function tryDvalna(channelId) {
       // Try with hitsplay origin
       const res2 = await fetchUrl(m3u8Url, {
         headers: {
-          'Origin': 'https://hitsplay.fun',
-          'Referer': 'https://hitsplay.fun/',
+          'Origin': 'https://epaly.fun',
+          'Referer': 'https://epaly.fun/',
         },
       });
       if (res2.status !== 200 || !res2.text.includes('#EXTM3U')) {
@@ -355,8 +355,8 @@ async function fetchDecryptionKey(keyUrl, jwt) {
   try {
     const res = await fetchUrl(keyUrl, {
       headers: {
-        'Origin': 'https://hitsplay.fun',
-        'Referer': 'https://hitsplay.fun/',
+        'Origin': 'https://epaly.fun',
+        'Referer': 'https://epaly.fun/',
         'Authorization': `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp.toString(),
         'X-Key-Nonce': nonce.toString(),

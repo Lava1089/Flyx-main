@@ -24,7 +24,276 @@
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const net = require('net');
+const tls = require('tls');
 const { URL } = require('url');
+
+// ============================================================================
+// SOCKS5 PROXY POOL MANAGER
+// Automatically fetches, validates, and maintains a pool of working SOCKS5 proxies
+// Used by /fetch-socks5 endpoint to tunnel requests through non-banned IPs
+// ============================================================================
+
+const PROXY_POOL = {
+  validated: [],       // Array of { host, port, lastValidated, failures }
+  validating: false,   // Lock to prevent concurrent validation runs
+  lastRefresh: 0,      // Timestamp of last full refresh
+  totalFetched: 0,     // Stats: total proxies fetched from lists
+  totalValidated: 0,   // Stats: total proxies that passed validation
+  totalFailed: 0,      // Stats: total proxies that failed validation
+  roundRobinIndex: 0,  // Round-robin index for proxy selection
+};
+
+const PROXY_POOL_CONFIG = {
+  minPoolSize: 100,
+  refreshIntervalMs: 10 * 60 * 1000, // 10 minutes
+  validationTimeoutMs: 12000,
+  maxConcurrentValidations: 20,
+  // GitHub proxy list sources
+  sources: [
+    'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt',
+    'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt',
+    'https://raw.githubusercontent.com/officialputuid/KangProxy/KangProxy/socks5/socks5.txt',
+  ],
+};
+
+// Hardcoded fallback proxies (known working as of Feb 7 2026)
+const FALLBACK_SOCKS5_PROXIES = [
+  '192.111.129.145:16894', '184.178.172.5:15303', '98.181.137.80:4145',
+  '192.252.210.233:4145', '68.71.245.206:4145', '142.54.228.193:4145',
+  '199.58.184.97:4145', '192.252.214.20:15864', '184.178.172.25:15291',
+  '70.166.167.38:57728', '198.177.252.24:4145', '174.77.111.196:4145',
+  '184.181.217.213:4145', '192.252.208.67:14287', '184.170.251.30:11288',
+  '174.75.211.193:4145', '199.187.210.54:4145', '192.111.134.10:4145',
+  '24.249.199.12:4145', '69.61.200.104:36181',
+];
+
+/**
+ * Fetch proxy lists from all GitHub sources
+ * Returns deduplicated array of "host:port" strings
+ */
+async function fetchProxyLists() {
+  const allProxies = new Set();
+  
+  for (const sourceUrl of PROXY_POOL_CONFIG.sources) {
+    try {
+      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) {
+        console.log(`[ProxyPool] Failed to fetch ${sourceUrl}: ${resp.status}`);
+        continue;
+      }
+      const text = await resp.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(l => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(l));
+      for (const line of lines) allProxies.add(line);
+      console.log(`[ProxyPool] Fetched ${lines.length} proxies from ${sourceUrl.split('/')[4] || sourceUrl.substring(0, 60)}`);
+    } catch (e) {
+      console.log(`[ProxyPool] Error fetching ${sourceUrl.substring(0, 60)}: ${e.message}`);
+    }
+  }
+  
+  // Always include fallback proxies
+  for (const p of FALLBACK_SOCKS5_PROXIES) allProxies.add(p);
+  
+  console.log(`[ProxyPool] Total unique proxies: ${allProxies.size}`);
+  PROXY_POOL.totalFetched = allProxies.size;
+  return Array.from(allProxies);
+}
+
+/**
+ * Validate a single SOCKS5 proxy by doing a test key fetch to chevy.dvalna.ru
+ * Returns true if the proxy returns a valid (non-fake, non-error) 16-byte key
+ */
+function validateSocks5Proxy(proxyStr) {
+  return new Promise((resolve) => {
+    const [proxyHost, proxyPortStr] = proxyStr.split(':');
+    const proxyPort = parseInt(proxyPortStr);
+    const targetHost = 'chevy.dvalna.ru';
+    const targetPort = 443;
+    
+    const timer = setTimeout(() => {
+      resolve(false);
+    }, PROXY_POOL_CONFIG.validationTimeoutMs);
+    
+    try {
+      const socket = net.connect(proxyPort, proxyHost, () => {
+        socket.write(Buffer.from([0x05, 0x01, 0x00]));
+      });
+      
+      let step = 'greeting';
+      
+      socket.on('error', () => { clearTimeout(timer); socket.destroy(); resolve(false); });
+      socket.setTimeout(PROXY_POOL_CONFIG.validationTimeoutMs, () => { socket.destroy(); clearTimeout(timer); resolve(false); });
+      
+      socket.on('data', (data) => {
+        if (step === 'greeting') {
+          if (data[0] !== 0x05 || data[1] !== 0x00) { clearTimeout(timer); socket.destroy(); resolve(false); return; }
+          step = 'connect';
+          const hostBuf = Buffer.from(targetHost);
+          const portBuf = Buffer.alloc(2);
+          portBuf.writeUInt16BE(targetPort);
+          socket.write(Buffer.concat([
+            Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]),
+            hostBuf, portBuf,
+          ]));
+        } else if (step === 'connect') {
+          if (data[0] !== 0x05 || data[1] !== 0x00) { clearTimeout(timer); socket.destroy(); resolve(false); return; }
+          step = 'connected';
+          
+          const tlsSocket = tls.connect({
+            socket: socket,
+            servername: targetHost,
+            rejectUnauthorized: false,
+          }, () => {
+            // Send a minimal HTTP request — just need to confirm the proxy can reach dvalna.ru
+            // We use a HEAD-like GET to /key/premium44/0 — we don't need a real key, just connectivity
+            const reqStr = `GET /key/premium44/0 HTTP/1.1\r\nHost: ${targetHost}\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: close\r\n\r\n`;
+            tlsSocket.write(reqStr);
+          });
+          
+          const chunks = [];
+          tlsSocket.on('data', c => chunks.push(c));
+          tlsSocket.on('end', () => {
+            clearTimeout(timer);
+            try {
+              const raw = Buffer.concat(chunks);
+              const rawStr = raw.toString('latin1');
+              const headerEnd = rawStr.indexOf('\r\n\r\n');
+              if (headerEnd === -1) { resolve(false); return; }
+              const headerPart = rawStr.substring(0, headerEnd);
+              const statusMatch = headerPart.match(/HTTP\/[\d.]+ (\d+)/);
+              const status = statusMatch ? parseInt(statusMatch[1]) : 0;
+              // Any response from dvalna.ru means the proxy works (even 403/429)
+              // We just need to confirm TCP+TLS connectivity through the proxy
+              resolve(status > 0 && status < 600);
+            } catch { resolve(false); }
+          });
+          tlsSocket.on('error', () => { clearTimeout(timer); resolve(false); });
+        }
+      });
+    } catch {
+      clearTimeout(timer);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Validate proxies in batches with concurrency limit
+ */
+async function validateProxiesBatch(proxies) {
+  const results = [];
+  const concurrency = PROXY_POOL_CONFIG.maxConcurrentValidations;
+  
+  for (let i = 0; i < proxies.length; i += concurrency) {
+    const batch = proxies.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(async (proxyStr) => {
+        const valid = await validateSocks5Proxy(proxyStr);
+        return { proxyStr, valid };
+      })
+    );
+    
+    for (const r of batchResults) {
+      if (r.valid) {
+        results.push(r.proxyStr);
+      }
+    }
+    
+    // If we already have enough, stop early
+    if (results.length >= PROXY_POOL_CONFIG.minPoolSize * 1.5) {
+      console.log(`[ProxyPool] Early stop: ${results.length} validated (checked ${i + batch.length}/${proxies.length})`);
+      break;
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * Main pool refresh: fetch lists, validate, update pool
+ */
+async function refreshProxyPool() {
+  if (PROXY_POOL.validating) {
+    console.log(`[ProxyPool] Refresh already in progress, skipping`);
+    return;
+  }
+  
+  PROXY_POOL.validating = true;
+  const startTime = Date.now();
+  console.log(`[ProxyPool] Starting pool refresh...`);
+  
+  try {
+    // Step 1: Fetch all proxy lists
+    const allProxies = await fetchProxyLists();
+    
+    // Step 2: Shuffle to avoid always testing the same ones first
+    for (let i = allProxies.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allProxies[i], allProxies[j]] = [allProxies[j], allProxies[i]];
+    }
+    
+    // Step 3: Validate in batches
+    const validated = await validateProxiesBatch(allProxies);
+    
+    const elapsed = Date.now() - startTime;
+    PROXY_POOL.totalValidated = validated.length;
+    PROXY_POOL.totalFailed = allProxies.length - validated.length;
+    PROXY_POOL.lastRefresh = Date.now();
+    
+    if (validated.length > 0) {
+      // Update pool with new validated proxies
+      PROXY_POOL.validated = validated.map(p => ({
+        host: p.split(':')[0],
+        port: parseInt(p.split(':')[1]),
+        str: p,
+        lastValidated: Date.now(),
+        failures: 0,
+      }));
+      PROXY_POOL.roundRobinIndex = 0;
+      console.log(`[ProxyPool] ✅ Pool refreshed: ${validated.length} working proxies (${elapsed}ms)`);
+    } else {
+      // Keep existing pool if validation found nothing (network issue?)
+      console.log(`[ProxyPool] ⚠️ No proxies validated, keeping existing pool of ${PROXY_POOL.validated.length}`);
+    }
+  } catch (e) {
+    console.log(`[ProxyPool] ❌ Refresh error: ${e.message}`);
+  } finally {
+    PROXY_POOL.validating = false;
+  }
+}
+
+/**
+ * Get next proxy from the validated pool (round-robin)
+ * Falls back to hardcoded list if pool is empty
+ */
+function getNextProxy() {
+  if (PROXY_POOL.validated.length > 0) {
+    const proxy = PROXY_POOL.validated[PROXY_POOL.roundRobinIndex % PROXY_POOL.validated.length];
+    PROXY_POOL.roundRobinIndex++;
+    return { host: proxy.host, port: proxy.port, str: proxy.str, source: 'pool' };
+  }
+  
+  // Fallback to hardcoded list
+  if (!global._socks5FallbackIndex) global._socks5FallbackIndex = 0;
+  const p = FALLBACK_SOCKS5_PROXIES[global._socks5FallbackIndex % FALLBACK_SOCKS5_PROXIES.length];
+  global._socks5FallbackIndex++;
+  const [host, port] = p.split(':');
+  return { host, port: parseInt(port), str: p, source: 'fallback' };
+}
+
+/**
+ * Mark a proxy as failed (increment failure counter, remove if too many failures)
+ */
+function markProxyFailed(proxyStr) {
+  const idx = PROXY_POOL.validated.findIndex(p => p.str === proxyStr);
+  if (idx !== -1) {
+    PROXY_POOL.validated[idx].failures++;
+    if (PROXY_POOL.validated[idx].failures >= 3) {
+      PROXY_POOL.validated.splice(idx, 1);
+      console.log(`[ProxyPool] Removed ${proxyStr} after 3 failures (pool: ${PROXY_POOL.validated.length})`);
+    }
+  }
+}
 
 // ============================================================================
 // SECURITY: Origin Validation
@@ -72,6 +341,7 @@ const PROXY_ALLOWED_DOMAINS = [
   'epicplayplay.cfd',
   'dlhd.link',
   'hitsplay.fun', // JWT source for DLHD streams
+  'codepcplay.fun', // Fast JWT source for DLHD streams (V5 auth primary)
   // AnimeKai/MegaUp
   'megaup.net',
   'animekai.to',
@@ -87,6 +357,19 @@ const PROXY_ALLOWED_DOMAINS = [
   // Flixer
   'flixer.sh',
   'workers.dev', // Flixer CDN uses p.XXXXX.workers.dev
+  // CDN-Live (all resolve to 195.128.27.233, but CF Workers get 403)
+  'cdn-live.tv',
+  'cdn-live-tv.ru',
+  'cdn-live-tv.cfd',
+  'edge.cdn-live.ru',
+  'edge.cdn-live-tv.ru',
+  'edge.cdn-live-tv.cfd',
+  'edge.cdn-google.ru',
+  // Moveonjoy (direct M3U8, no auth needed)
+  'moveonjoy.com',
+  // Player 6 (lovecdn/lovetier)
+  'lovecdn.ru',
+  'lovetier.bz',
 ];
 
 function isAllowedProxyDomain(url) {
@@ -310,6 +593,15 @@ async function establishHeartbeatSession(channel, server, domain, authToken, cou
   });
 }
 
+// DLHD Auth modules (required for key fetching)
+// dlhdAuthV4 already imported above
+const dlhdAuthV5 = require('./dlhd-auth-v5');
+
+// Validate that V5 module exports expected function
+if (typeof dlhdAuthV5.fetchDLHDKeyV5 !== 'function') {
+  throw new Error('dlhd-auth-v5 module missing fetchDLHDKeyV5 function');
+}
+
 // Browser-based key fetcher (bypasses TLS fingerprint detection)
 let keyFetcher = null;
 try {
@@ -319,17 +611,22 @@ try {
   console.log('[Init] Browser key fetcher not available:', e.message);
 }
 
+console.log('[Init] DLHD auth modules loaded (V4 and V5)');
+
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.API_KEY || 'change-this-secret-key';
 
-// Simple rate limiting - higher limit for CF worker which handles many users
+// Rate limiting — NO limit for authenticated requests (valid API key)
+// Only rate-limit unauthenticated requests by IP (200/min)
 const rateLimiter = new Map();
-const RATE_LIMIT = 2000; // requests per minute (increased from 500)
+const RATE_LIMIT_UNAUTH = 200; // requests per minute for unauthenticated IPs
 const RATE_WINDOW = 60000;
 
-function checkRateLimit(ip) {
+function checkRateLimit(key, isAuthenticated) {
+  if (isAuthenticated) return true; // No limit for API-key-authenticated requests
+  
   const now = Date.now();
-  const record = rateLimiter.get(ip) || { count: 0, resetAt: now + RATE_WINDOW };
+  const record = rateLimiter.get(key) || { count: 0, resetAt: now + RATE_WINDOW };
   
   if (now > record.resetAt) {
     record.count = 0;
@@ -337,8 +634,8 @@ function checkRateLimit(ip) {
   }
   
   record.count++;
-  rateLimiter.set(ip, record);
-  return record.count <= RATE_LIMIT;
+  rateLimiter.set(key, record);
+  return record.count <= RATE_LIMIT_UNAUTH;
 }
 
 // Clean up rate limits every 5 minutes
@@ -1134,6 +1431,286 @@ function proxyPPVStream(targetUrl, res) {
   proxyReq.end();
 }
 
+// ============================================================================
+// CDN-LIVE HELPERS
+// cdn-live.tv, edge.cdn-live.ru, cdn-live-tv.cfd, edge.cdn-google.ru
+// All resolve to 195.128.27.233 but block Cloudflare/datacenter IPs
+// ============================================================================
+
+const CDN_LIVE_DOMAINS = [
+  'cdn-live.tv',
+  'cdn-live-tv.ru', 'cdn-live-tv.cfd',
+  'edge.cdn-live.ru', 'edge.cdn-live-tv.ru', 'edge.cdn-live-tv.cfd',
+  'edge.cdn-google.ru',
+];
+
+function isCdnLiveDomain(urlStr) {
+  try {
+    const h = new URL(urlStr).hostname.toLowerCase();
+    return CDN_LIVE_DOMAINS.some(d => h === d || h.endsWith('.' + d));
+  } catch {
+    return false;
+  }
+}
+
+/** Decode HUNTER obfuscation: eval(function(h,u,n,t,e,r){...}) */
+function cdnLiveDecodeHunter(encodedData, charset, base, offset) {
+  let result = '', i = 0;
+  const delimiter = charset[base];
+  if (!delimiter) return '';
+  while (i < encodedData.length) {
+    let s = '';
+    while (i < encodedData.length && encodedData[i] !== delimiter) { s += encodedData[i]; i++; }
+    i++;
+    if (!s) continue;
+    let numStr = '', valid = true;
+    for (const c of s) {
+      const idx = charset.indexOf(c);
+      if (idx === -1) { valid = false; break; }
+      numStr += idx.toString();
+    }
+    if (!valid || !numStr) continue;
+    const charCode = parseInt(numStr, base) - offset;
+    if (!isNaN(charCode) && charCode > 0 && charCode < 65536) result += String.fromCharCode(charCode);
+  }
+  return result;
+}
+
+/** Extract HUNTER params from HTML */
+function cdnLiveGetHunterParams(html) {
+  const evalIdx = html.indexOf('eval(function(h,u,n,t,e,r)');
+  if (evalIdx === -1) return null;
+  const evalBlock = html.substring(evalIdx);
+
+  let pd = 0, ee = -1;
+  const maxScan = Math.min(evalBlock.length, 500000);
+  for (let i = 0; i < maxScan; i++) {
+    if (evalBlock[i] === '(') pd++;
+    if (evalBlock[i] === ')') { pd--; if (pd === 0) { ee = i; break; } }
+  }
+  if (ee === -1) return null;
+
+  const tail = evalBlock.substring(Math.max(0, ee - 500), ee + 5);
+  let pm = tail.match(/",(\d+),"(\w+)",(\d+),(\d+),(\d+)\)\)/);
+  if (!pm) pm = tail.match(/",\s*(\d+)\s*,\s*"(\w+)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*\)/);
+  if (!pm) return null;
+
+  const charset = pm[2], offset = parseInt(pm[3]), base = parseInt(pm[4]);
+  const fullEval = evalBlock.substring(0, ee + 1);
+  const dsi = fullEval.lastIndexOf('}("');
+  if (dsi === -1) return null;
+  const afterMarker = fullEval.substring(dsi + 3);
+  const dei = afterMarker.indexOf('",');
+  if (dei === -1) return null;
+
+  return { encodedData: afterMarker.substring(0, dei), charset, offset, base };
+}
+
+/** Extract base64-concatenated URLs from decoded HUNTER script */
+function cdnLiveExtractUrls(decoded) {
+  let fnMatch = decoded.match(/function\s+(\w+)\s*\(\s*str\s*\)/);
+  if (!fnMatch) fnMatch = decoded.match(/function\s+(\w+)\s*\(\s*\w+\s*\)\s*\{[^}]*atob/);
+  if (!fnMatch) return [];
+  const fn = fnMatch[1];
+
+  const b64Vars = {};
+  let m;
+  const bp = /(?:const|let|var)\s+(\w+)\s*=\s*'([A-Za-z0-9+\/_-]+={0,2})'/g;
+  while ((m = bp.exec(decoded)) !== null) b64Vars[m[1]] = m[2];
+
+  const cp = new RegExp('(?:const|let|var)\\s+\\w+\\s*=\\s*(' + fn + '\\s*\\(\\s*\\w+\\s*\\)(?:\\s*\\+\\s*' + fn + '\\s*\\(\\s*\\w+\\s*\\))*)', 'g');
+  const pp = new RegExp(fn + '\\s*\\(\\s*(\\w+)\\s*\\)', 'g');
+  const urls = [];
+  while ((m = cp.exec(decoded)) !== null) {
+    pp.lastIndex = 0;
+    let rm, url = '';
+    while ((rm = pp.exec(m[1])) !== null) {
+      if (b64Vars[rm[1]]) {
+        let b64 = b64Vars[rm[1]].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        try { url += Buffer.from(b64, 'base64').toString(); } catch {}
+      }
+    }
+    if (url) urls.push(url);
+  }
+  return urls;
+}
+
+/** Full extraction pipeline: HTML → HUNTER decode → M3U8 URL */
+function cdnLiveExtractM3U8(html) {
+  const params = cdnLiveGetHunterParams(html);
+  if (!params) { console.log('[CDN-Live] No HUNTER params found'); return null; }
+
+  console.log(`[CDN-Live] HUNTER: charset="${params.charset}" base=${params.base} offset=${params.offset} dataLen=${params.encodedData.length}`);
+  const decoded = cdnLiveDecodeHunter(params.encodedData, params.charset, params.base, params.offset);
+  if (!decoded || decoded.length < 50) { console.log(`[CDN-Live] Decode too short: ${decoded?.length || 0}`); return null; }
+
+  console.log(`[CDN-Live] Decoded ${decoded.length} chars`);
+  const urls = cdnLiveExtractUrls(decoded);
+  if (urls.length > 0) {
+    console.log(`[CDN-Live] Found ${urls.length} URLs`);
+    return urls.find(u => u.includes('token=')) || urls.find(u => u.includes('.m3u8')) || urls[0];
+  }
+
+  const m3u8Match = decoded.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
+  if (m3u8Match) { console.log('[CDN-Live] Fallback regex match'); return m3u8Match[0]; }
+
+  console.log('[CDN-Live] No URLs found');
+  return null;
+}
+
+/** Proxy a cdn-live CDN request (M3U8, segments, keys) from residential IP */
+function proxyCdnLiveRequest(targetUrl, res) {
+  const url = new URL(targetUrl);
+
+  const options = {
+    hostname: url.hostname,
+    port: url.port || 443,
+    path: url.pathname + url.search,
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Referer': 'https://cdn-live.tv/',
+      'Origin': 'https://cdn-live.tv',
+    },
+    timeout: 15000,
+    rejectUnauthorized: false,
+    agent: cdnLiveAgent,
+  };
+
+  console.log(`[CDN-Live Proxy] → ${url.hostname}${url.pathname.substring(0, 60)}`);
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    const ct = proxyRes.headers['content-type'] || 'application/octet-stream';
+    console.log(`[CDN-Live Proxy] ← ${proxyRes.statusCode} ${ct}`);
+
+    res.writeHead(proxyRes.statusCode, {
+      'Content-Type': ct,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
+      'Cache-Control': ct.includes('mpegurl') ? 'no-cache' : 'max-age=5',
+      'X-Proxied-By': 'rpi-cdnlive',
+    });
+    proxyRes.pipe(res);
+
+    proxyRes.on('error', (err) => {
+      console.error(`[CDN-Live Proxy] Stream error: ${err.message}`);
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    });
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error(`[CDN-Live Proxy] Error: ${err.message}`);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'CDN-Live proxy error', details: err.message }));
+    }
+  });
+
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    if (!res.headersSent) {
+      res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'CDN-Live proxy timeout' }));
+    }
+  });
+
+  proxyReq.end();
+}
+
+// Keep-alive HTTPS agent for cdn-live — reuses TCP/TLS connections
+// Saves ~200-400ms per request by skipping TLS handshake
+const cdnLiveAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 10,
+  rejectUnauthorized: false,
+});
+
+const CDN_LIVE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+/** Fetch a URL from cdn-live and return the body as a string (uses keep-alive) */
+function cdnLiveFetchContent(targetUrl) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(targetUrl);
+    const req = https.request({
+      hostname: u.hostname,
+      port: 443,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': CDN_LIVE_UA,
+        'Accept': '*/*',
+        'Referer': 'https://cdn-live.tv/',
+        'Origin': 'https://cdn-live.tv',
+      },
+      timeout: 10000,
+      agent: cdnLiveAgent,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`CDN HTTP ${res.statusCode}`));
+        } else {
+          resolve(data);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('CDN fetch timeout')); });
+    req.end();
+  });
+}
+
+/** Fetch player page + decode HUNTER → return { success, m3u8Url } */
+async function cdnLiveFetchAndExtract(name, code) {
+  const playerUrl = `https://cdn-live.tv/api/v1/channels/player/?name=${encodeURIComponent(name)}&code=${code}&user=cdnlivetv&plan=free`;
+
+  const html = await new Promise((resolve, reject) => {
+    const u = new URL(playerUrl);
+    const req = https.request({
+      hostname: u.hostname,
+      port: 443,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': CDN_LIVE_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://cdn-live.tv/',
+      },
+      timeout: 10000,
+      agent: cdnLiveAgent,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Player page HTTP ${res.statusCode}`));
+        } else {
+          resolve(data);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Player page timeout')); });
+    req.end();
+  });
+
+  console.log(`[CDN-Live Extract] HTML ${html.length}b`);
+
+  const m3u8Url = cdnLiveExtractM3U8(html);
+  if (!m3u8Url) {
+    return { success: false, error: 'No M3U8 URL found in player page', htmlLength: html.length };
+  }
+
+  console.log(`[CDN-Live Extract] OK: ${m3u8Url.substring(0, 80)}...`);
+  return { success: true, m3u8Url };
+}
+
 const server = http.createServer(async (req, res) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   
@@ -1200,9 +1777,9 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ error: 'Origin not allowed' }));
   }
 
-  // Rate limiting by API key (re-enabled with higher limit)
-  // This protects against leaked API keys being abused
-  if (!checkRateLimit(apiKey || clientIp)) {
+  // Rate limiting — skip for authenticated requests (valid API key)
+  // Only rate-limit unauthenticated requests by client IP
+  if (!checkRateLimit(clientIp, !!apiKey)) {
     res.writeHead(429, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ error: 'Rate limited', retryAfter: 60 }));
   }
@@ -1251,6 +1828,462 @@ const server = http.createServer(async (req, res) => {
   // DLHD Key V4 endpoint - simple passthrough with pre-computed auth headers
   // CF Worker computes PoW using WASM and passes JWT, timestamp, nonce
   // This endpoint just forwards the request from residential IP
+  // ============================================================================
+  // GENERIC FETCH — dumb pipe, no domain-specific logic
+  // CF Worker computes all auth headers and tells RPI exactly what to fetch
+  // ============================================================================
+  // /fetch?url=<target>&headers=<json-encoded-headers>
+  // Returns: raw response body with original status code and content-type
+  if (reqUrl.pathname === '/fetch') {
+    const targetUrl = reqUrl.searchParams.get('url');
+    const headersJson = reqUrl.searchParams.get('headers');
+
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing url parameter' }));
+    }
+
+    let customHeaders = {};
+    if (headersJson) {
+      try { customHeaders = JSON.parse(headersJson); } catch {
+        // Fallback: try decoding in case of legacy double-encoded callers
+        try { customHeaders = JSON.parse(decodeURIComponent(headersJson)); } catch {}
+      }
+    }
+
+    try {
+      const decoded = decodeURIComponent(targetUrl);
+
+      // SECURITY: domain allowlist
+      if (!isAllowedProxyDomain(decoded)) {
+        console.log(`[Fetch] Blocked: ${decoded.substring(0, 80)}`);
+        res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify({ error: 'Domain not allowed' }));
+      }
+
+      const u = new URL(decoded);
+      const client = u.protocol === 'https:' ? https : http;
+
+      console.log(`[Fetch] → ${u.hostname}${u.pathname.substring(0, 60)}`);
+      if (Object.keys(customHeaders).length > 0) {
+        console.log(`[Fetch] Custom headers: ${Object.keys(customHeaders).join(', ')}`);
+      }
+      // Use Node.js built-in fetch() instead of https.request()
+      // fetch() handles TLS/HTTP2 negotiation better and matches browser behavior
+      // IMPORTANT: Force IPv4 via custom agent to avoid IPv6 poison-pill keys
+      console.log(`[Fetch] Using Node.js https.request (IPv4 forced) for ${u.hostname}`);
+      const proxyReq = https.request({
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          ...customHeaders,
+        },
+        family: 4, // Force IPv4 — IPv6 gets poison-pill keys from Cloudflare
+        timeout: 15000,
+        rejectUnauthorized: false,
+      }, (proxyRes) => {
+        const ct = proxyRes.headers['content-type'] || 'application/octet-stream';
+        const cl = proxyRes.headers['content-length'];
+        console.log(`[Fetch] ← ${proxyRes.statusCode} ${ct}${cl ? ` ${cl}b` : ''} from ${u.hostname}`);
+
+        const responseHeaders = {
+          'Content-Type': ct,
+          'Access-Control-Allow-Origin': '*',
+          'X-Proxied-By': 'rpi-fetch',
+          'X-Upstream-Status': String(proxyRes.statusCode),
+        };
+        if (cl) responseHeaders['Content-Length'] = cl;
+
+        res.writeHead(proxyRes.statusCode, responseHeaders);
+        proxyRes.pipe(res);
+
+        proxyRes.on('error', (err) => {
+          console.error(`[Fetch] Stream error: ${err.message}`);
+          if (!res.headersSent) res.writeHead(502);
+          res.end();
+        });
+      });
+
+      proxyReq.on('error', (err) => {
+        console.error(`[Fetch] Error: ${err.message}`);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+
+      proxyReq.on('timeout', () => {
+        proxyReq.destroy();
+        if (!res.headersSent) {
+          res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Upstream timeout' }));
+        }
+      });
+
+      proxyReq.end();
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Invalid URL' }));
+    }
+    return;
+  }
+
+  // ============================================================================
+  // /debug/socks5-pool — Check SOCKS5 proxy pool status
+  // ============================================================================
+  if (reqUrl.pathname === '/debug/socks5-pool') {
+    const pool = {
+      poolSize: PROXY_POOL.validated.length,
+      minRequired: PROXY_POOL_CONFIG.minPoolSize,
+      isRefreshing: PROXY_POOL.validating,
+      lastRefresh: PROXY_POOL.lastRefresh ? new Date(PROXY_POOL.lastRefresh).toISOString() : 'never',
+      lastRefreshAgo: PROXY_POOL.lastRefresh ? `${Math.round((Date.now() - PROXY_POOL.lastRefresh) / 1000)}s ago` : 'never',
+      nextRefresh: PROXY_POOL.lastRefresh ? `in ${Math.max(0, Math.round((PROXY_POOL.lastRefresh + PROXY_POOL_CONFIG.refreshIntervalMs - Date.now()) / 1000))}s` : 'pending',
+      stats: {
+        totalFetched: PROXY_POOL.totalFetched,
+        totalValidated: PROXY_POOL.totalValidated,
+        totalFailed: PROXY_POOL.totalFailed,
+      },
+      proxies: PROXY_POOL.validated.map(p => ({
+        proxy: p.str,
+        failures: p.failures,
+        lastValidated: new Date(p.lastValidated).toISOString(),
+      })),
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify(pool, null, 2));
+  }
+
+  // ============================================================================
+  // /fetch-socks5 — Fetch a URL through a SOCKS5 proxy with AUTO-RETRY
+  // CF Worker calls this because it can't do SOCKS5+TLS directly (startTls SNI issue)
+  // RPI acts as a bridge: CF Worker → RPI → SOCKS5 proxy → target
+  // The RPI's own IP is banned, but the SOCKS5 proxy's IP isn't!
+  //
+  // AUTO-RETRY: If a proxy fails, automatically tries another proxy up to
+  // MAX_SOCKS5_RETRIES times. Never returns a failure if there are proxies left.
+  //
+  // Query params:
+  //   url=<target URL>
+  //   headers=<JSON-encoded headers>
+  //   proxy=<host:port> (optional, picks from built-in list if omitted)
+  // ============================================================================
+  if (reqUrl.pathname === '/fetch-socks5') {
+    const targetUrl = reqUrl.searchParams.get('url');
+    const headersJson = reqUrl.searchParams.get('headers');
+    const proxyParam = reqUrl.searchParams.get('proxy');
+
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing url parameter' }));
+    }
+
+    // SECURITY: domain allowlist
+    if (!isAllowedProxyDomain(decodeURIComponent(targetUrl))) {
+      res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Domain not allowed' }));
+    }
+
+    let customHeaders = {};
+    if (headersJson) {
+      try { customHeaders = JSON.parse(headersJson); } catch {
+        try { customHeaders = JSON.parse(decodeURIComponent(headersJson)); } catch {}
+      }
+    }
+
+    const target = new URL(decodeURIComponent(targetUrl));
+    const targetPort = target.protocol === 'https:' ? 443 : 80;
+    const useTls = target.protocol === 'https:';
+
+    const MAX_SOCKS5_RETRIES = 5;
+    const triedProxies = new Set();
+
+    /**
+     * Attempt a single SOCKS5 fetch through a given proxy.
+     * Returns a Promise that resolves with { success, status, body, ct, proxyStr }
+     * or { success: false, error, proxyStr }.
+     */
+    function attemptSocks5Fetch(proxyHost, proxyPort, proxyStr) {
+      return new Promise((resolve) => {
+        const attemptTimeout = setTimeout(() => {
+          console.log(`[Fetch-SOCKS5] Timeout on ${proxyStr}`);
+          markProxyFailed(proxyStr);
+          resolve({ success: false, error: 'SOCKS5 proxy timeout', proxyStr });
+        }, 12000);
+
+        try {
+          const socket = net.connect(proxyPort, proxyHost, () => {
+            socket.write(Buffer.from([0x05, 0x01, 0x00]));
+          });
+
+          let step = 'greeting';
+
+          socket.on('error', (err) => {
+            clearTimeout(attemptTimeout);
+            console.log(`[Fetch-SOCKS5] Socket error on ${proxyStr}: ${err.message}`);
+            markProxyFailed(proxyStr);
+            socket.destroy();
+            resolve({ success: false, error: `SOCKS5 error: ${err.message}`, proxyStr });
+          });
+
+          socket.setTimeout(10000, () => {
+            clearTimeout(attemptTimeout);
+            socket.destroy();
+            markProxyFailed(proxyStr);
+            resolve({ success: false, error: 'SOCKS5 socket timeout', proxyStr });
+          });
+
+          socket.on('data', (data) => {
+            if (step === 'greeting') {
+              if (data[0] !== 0x05 || data[1] !== 0x00) {
+                clearTimeout(attemptTimeout);
+                socket.destroy();
+                markProxyFailed(proxyStr);
+                resolve({ success: false, error: 'SOCKS5 auth rejected', proxyStr });
+                return;
+              }
+              step = 'connect';
+              const hostBuf = Buffer.from(target.hostname);
+              const portBuf = Buffer.alloc(2);
+              portBuf.writeUInt16BE(targetPort);
+              socket.write(Buffer.concat([
+                Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]),
+                hostBuf, portBuf,
+              ]));
+            } else if (step === 'connect') {
+              if (data[0] !== 0x05 || data[1] !== 0x00) {
+                clearTimeout(attemptTimeout);
+                socket.destroy();
+                markProxyFailed(proxyStr);
+                resolve({ success: false, error: `SOCKS5 connect failed: ${data[1]}`, proxyStr });
+                return;
+              }
+              step = 'connected';
+
+              if (useTls) {
+                const tlsSocket = tls.connect({
+                  socket: socket,
+                  servername: target.hostname,
+                  rejectUnauthorized: false,
+                }, () => {
+                  sendRequest(tlsSocket);
+                });
+                tlsSocket.on('error', (err) => {
+                  clearTimeout(attemptTimeout);
+                  console.log(`[Fetch-SOCKS5] TLS error on ${proxyStr}: ${err.message}`);
+                  markProxyFailed(proxyStr);
+                  resolve({ success: false, error: `TLS error: ${err.message}`, proxyStr });
+                });
+              } else {
+                sendRequest(socket);
+              }
+            }
+          });
+
+          function sendRequest(sock) {
+            const path = target.pathname + target.search;
+            const allHeaders = {
+              'Host': target.hostname,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': '*/*',
+              'Connection': 'close',
+              ...customHeaders,
+            };
+            let reqStr = `GET ${path} HTTP/1.1\r\n`;
+            for (const [k, v] of Object.entries(allHeaders)) {
+              reqStr += `${k}: ${v}\r\n`;
+            }
+            reqStr += '\r\n';
+            sock.write(reqStr);
+
+            const chunks = [];
+            sock.on('data', (c) => chunks.push(c));
+            sock.on('end', () => {
+              clearTimeout(attemptTimeout);
+              const raw = Buffer.concat(chunks);
+              const rawStr = raw.toString('latin1');
+              const headerEnd = rawStr.indexOf('\r\n\r\n');
+              if (headerEnd === -1) {
+                resolve({ success: false, error: 'No HTTP header boundary in response', proxyStr });
+                return;
+              }
+              const headerPart = rawStr.substring(0, headerEnd);
+              const statusMatch = headerPart.match(/HTTP\/[\d.]+ (\d+)/);
+              const status = statusMatch ? parseInt(statusMatch[1]) : 502;
+              const bodyOffset = Buffer.byteLength(rawStr.substring(0, headerEnd + 4), 'latin1');
+              const body = raw.slice(bodyOffset);
+              const ctMatch = headerPart.match(/content-type:\s*([^\r\n]+)/i);
+              const ct = ctMatch ? ctMatch[1].trim() : 'application/octet-stream';
+
+              console.log(`[Fetch-SOCKS5] ← ${status} ${ct} ${body.length}b via ${proxyStr}`);
+              resolve({ success: true, status, body, ct, proxyStr });
+            });
+          }
+        } catch (err) {
+          clearTimeout(attemptTimeout);
+          console.log(`[Fetch-SOCKS5] Error on ${proxyStr}: ${err.message}`);
+          resolve({ success: false, error: err.message, proxyStr });
+        }
+      });
+    }
+
+    // Auto-retry loop: keep trying different proxies until success or max retries
+    let lastError = 'All SOCKS5 proxies failed';
+    for (let attempt = 0; attempt < MAX_SOCKS5_RETRIES; attempt++) {
+      let proxyHost, proxyPort, proxyStr;
+
+      if (attempt === 0 && proxyParam) {
+        // First attempt uses the explicitly requested proxy if provided
+        const parts = proxyParam.split(':');
+        proxyHost = parts[0];
+        proxyPort = parseInt(parts[1]);
+        proxyStr = proxyParam;
+      } else {
+        // Subsequent attempts (or first attempt without proxyParam) use pool rotation
+        const proxy = getNextProxy();
+        proxyHost = proxy.host;
+        proxyPort = proxy.port;
+        proxyStr = proxy.str;
+      }
+
+      // Skip proxies we already tried this request
+      if (triedProxies.has(proxyStr)) {
+        // If we've exhausted unique proxies, stop
+        if (triedProxies.size >= Math.min(MAX_SOCKS5_RETRIES, PROXY_POOL.validated.length + FALLBACK_SOCKS5_PROXIES.length)) break;
+        continue;
+      }
+      triedProxies.add(proxyStr);
+
+      console.log(`[Fetch-SOCKS5] Attempt ${attempt + 1}/${MAX_SOCKS5_RETRIES}: ${proxyHost}:${proxyPort} → ${target.hostname}:${targetPort} ${target.pathname.substring(0, 60)}`);
+
+      const result = await attemptSocks5Fetch(proxyHost, proxyPort, proxyStr);
+
+      if (result.success) {
+        // Success — return the response immediately
+        res.writeHead(result.status, {
+          'Content-Type': result.ct,
+          'Content-Length': result.body.length.toString(),
+          'Access-Control-Allow-Origin': '*',
+          'X-Proxied-By': 'rpi-socks5',
+          'X-Socks5-Proxy': `${proxyHost}:${proxyPort}`,
+          'X-Socks5-Attempts': String(attempt + 1),
+        });
+        res.end(result.body);
+        return;
+      }
+
+      // Failed — log and try next proxy
+      lastError = result.error;
+      console.log(`[Fetch-SOCKS5] Attempt ${attempt + 1} failed (${result.error}), trying next proxy...`);
+    }
+
+    // All retries exhausted
+    console.log(`[Fetch-SOCKS5] ❌ All ${triedProxies.size} proxy attempts failed for ${target.pathname.substring(0, 60)}`);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: lastError, attempts: triedProxies.size, maxRetries: MAX_SOCKS5_RETRIES }));
+    }
+    return;
+  }
+
+  // ============================================================================
+  // /fetch-impersonate — Uses Node.js native fetch() for upstream requests
+  // Native fetch() handles HTTP/2 and TLS negotiation properly, matching
+  // browser behavior better than https.request().
+  // ============================================================================
+  if (reqUrl.pathname === '/fetch-impersonate') {
+    const targetUrl = reqUrl.searchParams.get('url');
+    const headersJson = reqUrl.searchParams.get('headers');
+
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing url parameter' }));
+    }
+
+    let customHeaders = {};
+    if (headersJson) {
+      try { customHeaders = JSON.parse(headersJson); } catch {
+        try { customHeaders = JSON.parse(decodeURIComponent(headersJson)); } catch {}
+      }
+    }
+
+    try {
+      const decoded = decodeURIComponent(targetUrl);
+
+      if (!isAllowedProxyDomain(decoded)) {
+        console.log(`[FetchImp] Blocked: ${decoded.substring(0, 80)}`);
+        res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify({ error: 'Domain not allowed' }));
+      }
+
+      console.log(`[FetchImp] → ${decoded.substring(0, 80)}`);
+
+      // Force IPv4 via https.request — IPv6 gets poison-pill keys from Cloudflare
+      const u = new URL(decoded);
+      const impReq = https.request({
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: { ...customHeaders },
+        family: 4, // Force IPv4
+        timeout: 15000,
+        rejectUnauthorized: false,
+      }, (proxyRes) => {
+        const ct = proxyRes.headers['content-type'] || 'application/octet-stream';
+        const cl = proxyRes.headers['content-length'];
+        console.log(`[FetchImp] ← ${proxyRes.statusCode} ${ct}${cl ? ` ${cl}b` : ''} from ${u.hostname} (IPv4)`);
+
+        const responseHeaders = {
+          'Content-Type': ct,
+          'Access-Control-Allow-Origin': '*',
+          'X-Proxied-By': 'rpi-fetch-ipv4',
+          'X-Upstream-Status': String(proxyRes.statusCode),
+        };
+        if (cl) responseHeaders['Content-Length'] = cl;
+
+        res.writeHead(proxyRes.statusCode, responseHeaders);
+        proxyRes.pipe(res);
+
+        proxyRes.on('error', (err) => {
+          console.error(`[FetchImp] Stream error: ${err.message}`);
+          if (!res.headersSent) res.writeHead(502);
+          res.end();
+        });
+      });
+
+      impReq.on('error', (err) => {
+        console.error(`[FetchImp] Error: ${err.message}`);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+
+      impReq.on('timeout', () => {
+        impReq.destroy();
+        if (!res.headersSent) {
+          res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Upstream timeout' }));
+        }
+      });
+
+      impReq.end();
+    } catch (err) {
+      console.error(`[FetchImp] Error: ${err.message || err}`);
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: err.message || 'Fetch failed' }));
+      }
+    }
+    return;
+  }
+
+  // DLHD Key V4 endpoint (LEGACY — kept for backwards compat, use /fetch instead)
   if (reqUrl.pathname === '/dlhd-key-v4') {
     const targetUrl = reqUrl.searchParams.get('url');
     const jwt = reqUrl.searchParams.get('jwt');
@@ -1361,22 +2394,22 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ error: 'Domain not allowed' }));
     }
     
-    console.log(`[DLHD-Key] Fetching key via v4 WASM auth: ${targetUrl.substring(0, 80)}...`);
+    console.log(`[DLHD-Key] Fetching key via V5 auth: ${targetUrl.substring(0, 80)}...`);
     
-    // Use v4 auth module which handles full flow (JWT fetch, WASM PoW, key fetch)
-    const result = await dlhdAuthV4.fetchDLHDKeyV4(targetUrl);
+    // Use V5 auth module (February 2026 - EPlayerAuth with MD5 PoW)
+    const result = await dlhdAuthV5.fetchDLHDKeyV5(targetUrl);
     
     if (result.success && result.data) {
-      console.log(`[DLHD-Key] ✅ Valid key via v4 auth: ${result.data.toString('hex')}`);
+      console.log(`[DLHD-Key] ✅ Valid key via V5 auth: ${result.data.toString('hex')}`);
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Length': result.data.length,
         'Access-Control-Allow-Origin': '*',
-        'X-Fetched-By': 'rpi-v4-wasm-auth',
+        'X-Fetched-By': 'rpi-v5-auth',
       });
       res.end(result.data);
     } else {
-      console.log(`[DLHD-Key] ❌ v4 auth failed: ${result.error}`);
+      console.log(`[DLHD-Key] ❌ V5 auth failed: ${result.error}`);
       res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ 
         error: result.error || 'Key fetch failed',
@@ -1474,6 +2507,127 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid URL' }));
+    }
+    return;
+  }
+
+  // ============================================================================
+  // CDN-LIVE DEDICATED ROUTES
+  // cdn-live.tv blocks Cloudflare/datacenter IPs — must use residential IP
+  // All cdn-live domains (cdn-live.tv, edge.cdn-live.ru, cdn-live-tv.cfd, etc.)
+  // resolve to 195.128.27.233 but reject requests from CF Worker IPs
+  // ============================================================================
+
+  // /cdn-live/extract — Fetch player page, decode HUNTER, return M3U8 URL
+  // Input: ?name=espn&code=us
+  // Output: { success: true, m3u8Url: "https://edge.cdn-live.ru/..." }
+  if (reqUrl.pathname === '/cdn-live/extract') {
+    const name = reqUrl.searchParams.get('name');
+    const code = reqUrl.searchParams.get('code') || 'us';
+
+    if (!name) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing name parameter' }));
+    }
+
+    console.log(`[CDN-Live Extract] ${name}/${code}`);
+
+    try {
+      const result = await cdnLiveFetchAndExtract(name, code);
+      if (!result.success) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify(result));
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify(result));
+    } catch (err) {
+      console.error(`[CDN-Live Extract] Error: ${err.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
+  // /cdn-live/stream — FAST PATH: Extract + fetch M3U8 in ONE call
+  // Eliminates a full round-trip vs separate /extract + /proxy calls
+  // Input: ?name=espn&code=us
+  // Output: raw M3U8 playlist text (application/vnd.apple.mpegurl)
+  //   + X-M3U8-Url header with the original M3U8 URL for caching
+  if (reqUrl.pathname === '/cdn-live/stream') {
+    const name = reqUrl.searchParams.get('name');
+    const code = reqUrl.searchParams.get('code') || 'us';
+    // Optional: caller can pass a cached M3U8 URL to skip extraction
+    const cachedUrl = reqUrl.searchParams.get('m3u8url');
+
+    if (!name && !cachedUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing name or m3u8url parameter' }));
+    }
+
+    const t0 = Date.now();
+
+    try {
+      let m3u8Url = cachedUrl ? decodeURIComponent(cachedUrl) : null;
+
+      // Step 1: Extract if no cached URL provided
+      if (!m3u8Url) {
+        const result = await cdnLiveFetchAndExtract(name, code);
+        if (!result.success) {
+          res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          return res.end(JSON.stringify(result));
+        }
+        m3u8Url = result.m3u8Url;
+      }
+
+      const t1 = Date.now();
+
+      // Step 2: Fetch the M3U8 playlist immediately (same process, no extra hop)
+      const playlist = await cdnLiveFetchContent(m3u8Url);
+      const t2 = Date.now();
+
+      console.log(`[CDN-Live Stream] ${name || 'cached'}/${code} — extract: ${t1 - t0}ms, m3u8: ${t2 - t1}ms, total: ${t2 - t0}ms`);
+
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'X-M3U8-Url, X-Timing',
+        'Cache-Control': 'no-cache',
+        'X-M3U8-Url': m3u8Url,
+        'X-Timing': `extract=${t1 - t0}ms,m3u8=${t2 - t1}ms,total=${t2 - t0}ms`,
+      });
+      return res.end(playlist);
+    } catch (err) {
+      console.error(`[CDN-Live Stream] Error: ${err.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
+  // /cdn-live/proxy — Proxy M3U8 playlists, segments, and keys from cdn-live CDN
+  // Input: ?url=<encoded cdn-live URL>
+  // Output: raw proxied content (M3U8 text, .ts binary, etc.)
+  if (reqUrl.pathname === '/cdn-live/proxy') {
+    const targetUrl = reqUrl.searchParams.get('url');
+
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Missing url parameter' }));
+    }
+
+    try {
+      const decoded = decodeURIComponent(targetUrl);
+
+      // Validate domain
+      if (!isCdnLiveDomain(decoded)) {
+        console.log(`[CDN-Live Proxy] Blocked non-CDN-Live domain: ${decoded.substring(0, 80)}`);
+        res.writeHead(403, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify({ error: 'Domain not allowed — must be a cdn-live domain' }));
+      }
+
+      console.log(`[CDN-Live Proxy] ${decoded.substring(0, 100)}`);
+      proxyCdnLiveRequest(decoded, res);
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ error: 'Invalid URL' }));
     }
     return;
   }
@@ -2861,4 +4015,16 @@ server.listen(PORT, () => {
 ║    ngrok http ${PORT.toString().padEnd(43)}║
 ╚═══════════════════════════════════════════════════════════╝
   `);
+  
+  // Start SOCKS5 proxy pool manager
+  console.log(`[ProxyPool] Starting initial pool refresh...`);
+  refreshProxyPool().then(() => {
+    console.log(`[ProxyPool] Initial refresh complete: ${PROXY_POOL.validated.length} proxies`);
+  });
+  
+  // Schedule periodic refresh every 10 minutes
+  setInterval(() => {
+    console.log(`[ProxyPool] Scheduled refresh (pool: ${PROXY_POOL.validated.length} proxies)`);
+    refreshProxyPool();
+  }, PROXY_POOL_CONFIG.refreshIntervalMs);
 });

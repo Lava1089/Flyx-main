@@ -51,8 +51,8 @@ async function testChannel(id) {
             const m3u8Res = await fetch(m3u8Url, {
               headers: {
                 'User-Agent': 'Mozilla/5.0',
-                'Origin': 'https://hitsplay.fun',
-                'Referer': 'https://hitsplay.fun/'
+                'Origin': 'https://epaly.fun',
+                'Referer': 'https://epaly.fun/'
               }
             });
             const m3u8Text = await m3u8Res.text();

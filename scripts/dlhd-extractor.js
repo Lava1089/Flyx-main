@@ -148,8 +148,8 @@ async function getServerKey(channelKey) {
   try {
     const res = await fetch(url, {
       headers: {
-        'Referer': 'https://hitsplay.fun/',
-        'Origin': 'https://hitsplay.fun'
+        'Referer': 'https://epaly.fun/',
+        'Origin': 'https://epaly.fun'
       },
       timeout: 5000
     });

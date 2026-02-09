@@ -88,7 +88,7 @@ async function testServerLookup(channel = '51') {
     https.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://epicplayplay.cfd/',
+        'Referer': 'https://epaly.fun/',
       }
     }, (res) => {
       let data = '';
@@ -149,7 +149,7 @@ async function testKeyFetch(channel = '51') {
     https.get(`https://chevy.giokko.ru/server_lookup?channel_id=${channelKey}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://epicplayplay.cfd/',
+        'Referer': 'https://epaly.fun/',
       }
     }, (res) => {
       let data = '';

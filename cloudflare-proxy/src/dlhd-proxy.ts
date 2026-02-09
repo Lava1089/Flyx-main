@@ -105,8 +105,8 @@ async function generateSignature(sessionId: string, resource: string, timestamp:
 // CONSTANTS
 // =============================================================================
 
-// UPDATED January 2026: epicplayplay.cfd is DEAD! Using topembed.pw instead
-const PLAYER_DOMAIN = 'topembed.pw';
+// UPDATED February 2026: epaly.fun is the new player domain (was codepcplay.fun, before that epicplayplay.cfd)
+const PLAYER_DOMAIN = 'epaly.fun';
 const PARENT_DOMAIN = 'dlhd.link';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
@@ -187,7 +187,7 @@ interface SessionData {
   iat: number;
   exp: number;
   fetchedAt: number;
-  source?: 'hitsplay.fun' | 'topembed.pw'; // Track where JWT was obtained from
+  source?: 'epaly.fun' | 'hitsplay.fun' | 'topembed.pw'; // Track where JWT was obtained from
 }
 const sessionCache = new Map<string, SessionData>();
 
@@ -396,10 +396,10 @@ async function computePoWNonce(resource: string, keyNumber: string, timestamp: n
 // =============================================================================
 
 /**
- * Fetch JWT token from hitsplay.fun or topembed.pw player page
+ * Fetch JWT token from epaly.fun, hitsplay.fun, or topembed.pw player page
  * 
- * UPDATED January 2026: 
- * - epicplayplay.cfd is DEAD! 
+ * UPDATED February 2026: 
+ * - epaly.fun is the new primary player domain (replaces codepcplay.fun)
  * - hitsplay.fun provides JWT directly for ALL channels (including 1-30)
  * - topembed.pw is fallback for channels with specific mappings
  * - MUST use RPI proxy for hitsplay.fun - it blocks Cloudflare IPs!
@@ -415,7 +415,71 @@ async function fetchAuthData(channel: string, logger: any, env?: Env): Promise<S
   logger.info('Fetching fresh JWT', { channel });
 
   // ============================================================================
-  // METHOD 1: Try hitsplay.fun via RPI proxy - it blocks Cloudflare IPs!
+  // METHOD 1: Try epaly.fun first (FAST, new primary domain - Feb 2026)
+  // ============================================================================
+  try {
+    const epalyUrl = `https://epaly.fun/premiumtv/daddyhd.php?id=${channel}`;
+    logger.info('Trying epaly.fun for JWT', { channel });
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+      const res = await fetch(epalyUrl, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Referer': 'https://dlhd.link/',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const html = await res.text();
+        // Look for EPlayerAuth.init() or JWT token
+        const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+        if (jwtMatch) {
+          const jwt = jwtMatch[0];
+          let channelKey = `premium${channel}`;
+          let country = 'US';
+          let iat = Math.floor(Date.now() / 1000);
+          let exp = iat + 18000;
+          
+          try {
+            const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            const payload = JSON.parse(atob(payloadB64));
+            channelKey = payload.sub || channelKey;
+            country = payload.country || country;
+            iat = payload.iat || iat;
+            exp = payload.exp || exp;
+            logger.info('JWT from epaly.fun', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
+          } catch (e) {
+            logger.warn('JWT decode failed, using defaults');
+          }
+          
+          const session: SessionData = {
+            jwt,
+            channelKey,
+            country,
+            iat,
+            exp,
+            fetchedAt: Date.now(),
+            source: 'epaly.fun',
+          };
+          
+          addToSessionCache(channel, session);
+          return session;
+        }
+      }
+    } catch (e) {
+      clearTimeout(timeoutId);
+      logger.warn('epaly.fun fetch error', { error: (e as Error).message });
+    }
+  } catch (e) {
+    logger.warn('epaly.fun JWT fetch failed', { error: (e as Error).message });
+  }
+
+  // ============================================================================
+  // METHOD 2: Try hitsplay.fun via RPI proxy - fallback, it blocks Cloudflare IPs!
   // This is essential for channels 1-30 which don't have topembed mappings
   // ============================================================================
   try {
@@ -926,10 +990,10 @@ async function handlePlaylistRequest(
     logger.info('Unauthenticated request (allowed)', { channel });
   }
 
-  // Step 1: Get auth data via RPI proxy (hitsplay.fun blocks CF IPs!)
+  // Step 1: Get auth data via RPI proxy (hitsplay.fun blocks CF IPs, epaly.fun tried first!)
   const session = await fetchAuthData(channel, logger, env);
   if (!session) {
-    return jsonResponse({ error: 'Failed to fetch auth data - hitsplay.fun may be blocking requests' }, 502, origin);
+    return jsonResponse({ error: 'Failed to fetch auth data - player endpoints may be blocking requests' }, 502, origin);
   }
 
   // Step 2: Get server key (try direct, fallback to RPI proxy)
@@ -1061,15 +1125,15 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
     const nonce = await computePoWNonce(resource, keyNumber, timestamp, env);
     
     // Try direct fetch first (dvalna.ru may not block CF IPs anymore)
-    // Use hitsplay.fun as Origin/Referer since that's the primary JWT source
+    // Use epaly.fun as Origin/Referer since that's the primary player domain
     try {
       logger.info('Trying direct key fetch with PoW', { timestamp, nonce });
       
       const directResponse = await fetch(normalizedKeyUrl, {
         headers: {
           'User-Agent': USER_AGENT,
-          'Origin': 'https://hitsplay.fun',
-          'Referer': 'https://hitsplay.fun/',
+          'Origin': 'https://epaly.fun',
+          'Referer': 'https://epaly.fun/',
           'Authorization': `Bearer ${jwt}`,
           'X-Key-Timestamp': timestamp.toString(),
           'X-Key-Nonce': nonce.toString(),

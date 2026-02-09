@@ -1,16 +1,19 @@
 /**
- * CDN Live Channels API (via Cinephage bypass)
+ * CDN Live Channels API
  * 
  * GET /api/livetv/cdn-live-channels - List all channels
  * GET /api/livetv/cdn-live-channels?country=us - Filter by country
  * GET /api/livetv/cdn-live-channels?status=online - Filter by status
+ * GET /api/livetv/cdn-live-channels?search=espn - Search by name
+ * 
+ * Source: cdn-live-extractor worker (bypasses CF via origin IP)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = 'https://api.cinephage.net/livetv';
+const CDN_LIVE_WORKER = process.env.CDN_LIVE_WORKER_URL || 'https://cdn-live-extractor.vynx.workers.dev';
 
-export interface CinephageChannel {
+export interface CDNLiveChannel {
   id: string;
   name: string;
   country: string;
@@ -21,66 +24,68 @@ export interface CinephageChannel {
   stream_url: string;
 }
 
-export interface CinephageChannelsResponse {
-  total: number;
-  online: number;
-  channels: CinephageChannel[];
+interface NativeChannel {
+  name: string;
+  code: string;
+  url: string;
+  image: string;
+  status: string;
+  viewers: number;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const country = searchParams.get('country');
     const status = searchParams.get('status');
     const search = searchParams.get('search');
-    
-    // Build URL with optional filters
-    let url = `${API_BASE}/channels`;
-    if (country) {
-      url = `${API_BASE}/channels/${country}`;
-    }
-    
-    const queryParams = new URLSearchParams();
-    if (status) queryParams.set('status', status);
-    if (search) queryParams.set('search', search);
-    
-    if (queryParams.toString()) {
-      url += `?${queryParams.toString()}`;
-    }
-    
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-      },
-      next: { revalidate: 300 }, // Cache for 5 minutes
+
+    const workerRes = await fetch(`${CDN_LIVE_WORKER}/channels`, {
+      headers: { 'Accept': 'application/json' },
+      next: { revalidate: 300 },
     });
 
-    if (!response.ok) {
+    if (!workerRes.ok) {
       return NextResponse.json(
-        { error: 'Failed to fetch channels', status: response.status },
-        { status: response.status }
+        { error: 'Failed to fetch channels', status: workerRes.status },
+        { status: workerRes.status }
       );
     }
 
-    const data: CinephageChannelsResponse = await response.json();
-    
-    // Group channels by country for easier filtering
-    const channelsByCountry: Record<string, CinephageChannel[]> = {};
-    for (const channel of data.channels) {
-      const countryCode = channel.country || 'other';
-      if (!channelsByCountry[countryCode]) {
-        channelsByCountry[countryCode] = [];
-      }
-      channelsByCountry[countryCode].push(channel);
+    const data = await workerRes.json() as { total_channels?: number; channels?: NativeChannel[] };
+    if (!data.channels || !Array.isArray(data.channels)) {
+      return NextResponse.json({ error: 'Invalid response from worker' }, { status: 502 });
+    }
+
+    let channels: CDNLiveChannel[] = data.channels.map((ch: NativeChannel, idx: number) => ({
+      id: String(idx + 1),
+      name: ch.name,
+      country: ch.code,
+      country_name: ch.code,
+      logo: ch.image || null,
+      status: (ch.status === 'online' ? 'online' : 'offline') as 'online' | 'offline',
+      viewers: ch.viewers || 0,
+      stream_url: ch.url,
+    }));
+
+    if (status) channels = channels.filter(c => c.status === status);
+    if (search) {
+      const term = search.toLowerCase();
+      channels = channels.filter(c => c.name.toLowerCase().includes(term));
+    }
+
+    const byCountry: Record<string, CDNLiveChannel[]> = {};
+    for (const ch of channels) {
+      const cc = ch.country || 'other';
+      if (!byCountry[cc]) byCountry[cc] = [];
+      byCountry[cc].push(ch);
     }
 
     return NextResponse.json({
-      total: data.total,
-      online: data.online,
-      channels: data.channels,
-      byCountry: channelsByCountry,
-      countries: Object.keys(channelsByCountry).sort(),
+      total: data.total_channels || channels.length,
+      online: channels.filter(c => c.status === 'online').length,
+      channels,
+      byCountry,
+      countries: Object.keys(byCountry).sort(),
     });
   } catch (error) {
     console.error('CDN Live channels error:', error);

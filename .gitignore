@@ -108,4 +108,4 @@ streamsrcs-*.html
 results-*.json
 working-*.json
 rpi-proxy/server.js
-rpi-proxy/server.js
+rpi-proxy/dlhd-auth-v*.js

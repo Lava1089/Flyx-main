@@ -12,6 +12,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
 import { LiveEvent, TVChannel } from '../hooks/useLiveTVData';
 import { getTvPlaylistUrl, getAvailableBackends, resolveBackendId } from '@/app/lib/proxy-config';
+import { extractCDNLiveStream } from '@/app/lib/livetv/cdnlive-extractor';
 import styles from './VideoPlayer.module.css';
 
 interface VideoPlayerProps {
@@ -66,7 +67,8 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       }
       if (channel.source === 'cdnlive') {
         const [name, country] = channel.channelId.split('|');
-        return `/api/livetv/cdnlive-stream?channel=${encodeURIComponent(name)}&code=${country || ''}`;
+        // Return sentinel — actual extraction happens async in initPlayer
+        return `cdnlive://${encodeURIComponent(name)}/${country || 'us'}`;
       }
     }
 
@@ -231,6 +233,29 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     if (!streamUrl) {
       setError('No stream URL available - channel may not be configured');
       setIsLoading(false);
+      return;
+    }
+
+    // Handle CDN-Live channels — client-side extraction (browser fetches cdn-live.tv directly)
+    if (streamUrl.startsWith('cdnlive://')) {
+      try {
+        const parts = streamUrl.replace('cdnlive://', '').split('/');
+        const name = decodeURIComponent(parts[0]);
+        const code = parts[1] || 'us';
+        console.log('[VideoPlayer] CDN-Live client extraction:', name, code);
+        const result = await extractCDNLiveStream(name, code);
+        console.log('[VideoPlayer] CDN-Live result:', result);
+        if (result.success && result.streamUrl) {
+          loadHlsStream(video, result.streamUrl);
+        } else {
+          setError(result.error || 'CDN-Live extraction failed');
+          setIsLoading(false);
+        }
+      } catch (err) {
+        console.error('[VideoPlayer] CDN-Live extraction error:', err);
+        setError('CDN-Live extraction failed');
+        setIsLoading(false);
+      }
       return;
     }
 

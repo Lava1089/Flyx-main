@@ -111,6 +111,7 @@ async function fetchViaRpiProxy(url: string): Promise<Response> {
 |----------|-------------|
 | `GET /dlhd-key-v4?url=&jwt=&timestamp=&nonce=&keyPath=&fingerprint=` | Passthrough for DLHD key fetch (CF Worker provides auth) |
 | `GET /dlhdprivate?url=&headers=` | Passthrough proxy for DLHD M3U8/segments |
+| `GET /fetch-socks5?url=&headers=&proxy=` | Fetch a URL through a SOCKS5 proxy (bridges CF Worker → SOCKS5 → target) |
 
 ### AnimeKai Endpoints
 
@@ -152,6 +153,9 @@ Flixer CDN blocks datacenter IPs but REQUIRES a Referer header. Pass `?referer=h
 
 ### dvalna.ru (DLHD CDN)
 dvalna.ru blocks datacenter IPs. The CF Worker handles all authentication and passes pre-computed headers to the RPI proxy via `/dlhd-key-v4` and `/dlhdprivate` endpoints.
+
+### SOCKS5 Proxy Bridge (`/fetch-socks5`)
+CF Workers can't reliably do SOCKS5+TLS (startTls SNI issues), so the RPI acts as a bridge: CF Worker → RPI → SOCKS5 proxy → target. The RPI's own IP may be banned, but the SOCKS5 proxy's IP isn't. Rotates through 20 verified US SOCKS5 proxies. Pass `?proxy=host:port` to use a specific proxy, or omit to auto-rotate.
 
 ### VIPRow/Casthill (boanki.net)
 VIPRow blocks Cloudflare Workers entirely. The RPI proxy handles full stream extraction including token refresh via boanki.net with Origin: `https://casthill.net`.

@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
       response = await fetch(decodedUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://epicplayplay.cfd/',
-          'Origin': 'https://epicplayplay.cfd',
+          'Referer': 'https://epaly.fun/',
+          'Origin': 'https://epaly.fun',
           'Accept': '*/*',
         },
       });

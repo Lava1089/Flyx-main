@@ -50,8 +50,8 @@ async function testKeyFetch() {
   const m3u8Res = await fetch(m3u8Url, {
     headers: {
       'User-Agent': 'Mozilla/5.0',
-      'Origin': 'https://hitsplay.fun',
-      'Referer': 'https://hitsplay.fun/'
+      'Origin': 'https://epaly.fun',
+      'Referer': 'https://epaly.fun/'
     }
   });
   const m3u8 = await m3u8Res.text();
@@ -97,8 +97,8 @@ async function testKeyFetch() {
     const keyRes = await fetch(normalizedKeyUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Origin': 'https://hitsplay.fun',
-        'Referer': 'https://hitsplay.fun/',
+        'Origin': 'https://epaly.fun',
+        'Referer': 'https://epaly.fun/',
         'Authorization': `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp.toString(),
         'X-Key-Nonce': nonce.toString()

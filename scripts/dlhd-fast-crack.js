@@ -211,7 +211,7 @@ async function testFastPath() {
     try {
       const m3u8Res = await fetch(m3u8Url, { 
         timeout: 5000,
-        referer: 'https://hitsplay.fun/',
+        referer: 'https://epaly.fun/',
       });
       const m3u8Time = Date.now() - m3u8Start;
       
@@ -247,9 +247,9 @@ async function testFastPath() {
               'Authorization': `Bearer ${jwtData.jwt}`,
               'X-Key-Timestamp': timestamp.toString(),
               'X-Key-Nonce': nonce.toString(),
-              'Origin': 'https://hitsplay.fun',
+              'Origin': 'https://epaly.fun',
             },
-            referer: 'https://hitsplay.fun/',
+            referer: 'https://epaly.fun/',
           });
           keyTime = Date.now() - keyStart;
           

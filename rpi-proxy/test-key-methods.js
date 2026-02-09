@@ -13,7 +13,8 @@ async function getFreshKeyUrl() {
     https.get('https://zekonew.kiko2.ru/zeko/premium51/mono.css', {
       headers: {
         'User-Agent': 'Mozilla/5.0 Chrome/120.0.0.0',
-        'Referer': 'https://epicplayplay.cfd/',
+        'Referer': 'https://epaly.fun/',
+        'Origin': 'https://epaly.fun',
       }
     }, (res) => {
       let data = '';
@@ -37,8 +38,8 @@ async function testNodeHttps(keyUrl) {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin': 'https://epicplayplay.cfd',
-        'Referer': 'https://epicplayplay.cfd/',
+        'Origin': 'https://epaly.fun',
+        'Referer': 'https://epaly.fun/',
       }
     }, (res) => {
       const chunks = [];
@@ -66,8 +67,8 @@ async function testCurl(keyUrl) {
     const curl = spawn('curl', [
       '-s', '-w', '\\nHTTP_CODE:%{http_code}',
       '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      '-H', 'Origin: https://epicplayplay.cfd',
-      '-H', 'Referer: https://epicplayplay.cfd/',
+      '-H', 'Origin: https://epaly.fun',
+      '-H', 'Referer: https://epaly.fun/',
       keyUrl
     ]);
     
@@ -161,7 +162,7 @@ async function testPuppeteer(keyUrl) {
     });
     
     const page = await browser.newPage();
-    await page.goto('https://epicplayplay.cfd/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto('https://epaly.fun/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     
     const result = await page.evaluate(async (url) => {
       try {

@@ -672,8 +672,8 @@ export async function crackChannel(channelId: string): Promise<DLHDResult> {
         const res = await fetch(m3u8Url, {
           headers: {
             'User-Agent': USER_AGENT,
-            'Origin': 'https://hitsplay.fun',
-            'Referer': 'https://hitsplay.fun/',
+            'Origin': 'https://epaly.fun',
+            'Referer': 'https://epaly.fun/',
           },
           signal: controller.signal,
         });
@@ -763,8 +763,8 @@ export async function fetchDecryptionKey(keyUrl: string, jwt: string): Promise<B
     const res = await fetch(keyUrl, {
       headers: {
         'User-Agent': USER_AGENT,
-        'Origin': 'https://hitsplay.fun',
-        'Referer': 'https://hitsplay.fun/',
+        'Origin': 'https://epaly.fun',
+        'Referer': 'https://epaly.fun/',
         'Authorization': `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp.toString(),
         'X-Key-Nonce': nonce.toString(),
