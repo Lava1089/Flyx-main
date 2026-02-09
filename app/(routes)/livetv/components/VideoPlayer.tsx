@@ -41,6 +41,12 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
   const [showChannelMenu, setShowChannelMenu] = useState(false);
   const [selectedChannelIndex, setSelectedChannelIndex] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
+  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+  const recoveryRef = useRef(false); // tracks if auto-recovery is in progress
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stallTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPlaybackTimeRef = useRef(0);
+  const stallCountRef = useRef(0);
   
   // Backend switching state
   // SECURITY: Backend IDs are obfuscated - actual server/domain names are NOT exposed to client
@@ -93,43 +99,71 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     return null;
   }, [event, channel, selectedChannelIndex, selectedBackend]);
 
+  // Ref to hold initPlayer for use in attemptFullReload (avoids circular deps)
+  const initPlayerRef = useRef<() => void>(() => {});
+
+  // Attempt full stream reload (destroy + re-init) as last-resort recovery
+  const attemptFullReload = useCallback(() => {
+    if (recoveryRef.current) return; // already recovering
+    recoveryRef.current = true;
+    setRecoveryStatus('Reloading stream...');
+    console.log('[VideoPlayer] Full reload recovery');
+    
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (stallTimerRef.current) {
+      clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+    
+    // Small delay then re-init
+    setTimeout(() => {
+      recoveryRef.current = false;
+      setRecoveryStatus(null);
+      stallCountRef.current = 0;
+      initPlayerRef.current();
+    }, 1500);
+  }, []);
+
   // Load HLS stream
   const loadHlsStream = useCallback((video: HTMLVideoElement, url: string) => {
     console.log('[VideoPlayer] Loading HLS stream:', url);
+    stallCountRef.current = 0;
     
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false, // Disable for better stability
-        // Improved buffering configuration for live streams
-        backBufferLength: 60, // Keep 60s of back buffer for seeking
-        maxBufferLength: 45, // Buffer up to 45s ahead
-        maxMaxBufferLength: 90, // Allow up to 90s in good conditions
-        maxBufferSize: 60 * 1000 * 1000, // 60MB buffer size
-        maxBufferHole: 0.5, // Max gap to skip
-        // Live stream sync settings
-        liveSyncDurationCount: 4, // Sync to 4 segments behind live edge
-        liveMaxLatencyDurationCount: 12, // Max 12 segments behind before seeking
-        liveDurationInfinity: true, // Treat live streams as infinite
-        // Aggressive retry settings for better stall recovery
-        manifestLoadingMaxRetry: 8,
-        manifestLoadingRetryDelay: 1000,
-        manifestLoadingMaxRetryTimeout: 30000,
-        levelLoadingMaxRetry: 8,
-        levelLoadingRetryDelay: 1000,
-        levelLoadingMaxRetryTimeout: 30000,
-        fragLoadingMaxRetry: 10,
-        fragLoadingRetryDelay: 1000,
-        fragLoadingMaxRetryTimeout: 45000,
-        // ABR settings for smoother playback
-        abrEwmaDefaultEstimate: 1000000, // 1Mbps default estimate
-        abrBandWidthFactor: 0.7, // Conservative bandwidth factor
-        abrBandWidthUpFactor: 0.5, // Even more conservative for upgrades
-        abrMaxWithRealBitrate: true, // Use real bitrate for ABR decisions
+        lowLatencyMode: false,
+        // Buffering — generous for live
+        backBufferLength: 60,
+        maxBufferLength: 45,
+        maxMaxBufferLength: 90,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        // Live sync
+        liveSyncDurationCount: 4,
+        liveMaxLatencyDurationCount: 12,
+        liveDurationInfinity: true,
+        // Very aggressive retries — never give up easily
+        manifestLoadingMaxRetry: 20,
+        manifestLoadingRetryDelay: 800,
+        manifestLoadingMaxRetryTimeout: 60000,
+        levelLoadingMaxRetry: 20,
+        levelLoadingRetryDelay: 800,
+        levelLoadingMaxRetryTimeout: 60000,
+        fragLoadingMaxRetry: 30,
+        fragLoadingRetryDelay: 500,
+        fragLoadingMaxRetryTimeout: 60000,
+        // ABR
+        abrEwmaDefaultEstimate: 1000000,
+        abrBandWidthFactor: 0.7,
+        abrBandWidthUpFactor: 0.5,
+        abrMaxWithRealBitrate: true,
         // Stall recovery
-        nudgeOffset: 0.1, // Small nudge to recover from stalls
-        nudgeMaxRetry: 5, // Max nudge retries
-        // Custom loader to handle X-Real-IV header for dvalna.ru segments
+        nudgeOffset: 0.2,
+        nudgeMaxRetry: 10,
         xhrSetup: (xhr) => {
           xhr.timeout = 30000;
         },
@@ -146,6 +180,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
         
         setQualities(levels);
         setIsLoading(false);
+        setRecoveryStatus(null);
         video.play().then(() => {
           console.log('[VideoPlayer] Autoplay started');
           setIsPlaying(true);
@@ -162,41 +197,118 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error('[VideoPlayer] HLS Error:', data.type, data.details, data.fatal);
         
-        // Handle buffer stalls (non-fatal)
+        // Non-fatal: buffer stall — nudge forward
         if (data.details === 'bufferStalledError') {
-          console.log('[VideoPlayer] Buffer stalled, attempting recovery...');
+          stallCountRef.current++;
+          console.log(`[VideoPlayer] Buffer stall #${stallCountRef.current}`);
+          
           if (video.currentTime > 0 && !video.paused) {
-            video.currentTime = video.currentTime + 0.1;
+            // Nudge forward to skip the gap
+            video.currentTime = video.currentTime + 0.3;
+          }
+          
+          // If we've stalled too many times, do a full reload
+          if (stallCountRef.current >= 8) {
+            console.warn('[VideoPlayer] Too many stalls, full reload');
+            attemptFullReload();
           }
           return;
         }
         
         if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retryCount < 5) {
-            console.log('[VideoPlayer] Network error, retrying...', retryCount + 1);
-            setRetryCount(prev => prev + 1);
-            // Exponential backoff
-            setTimeout(() => hls.startLoad(), Math.min(1000 * Math.pow(2, retryCount), 10000));
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            console.log('[VideoPlayer] Media error, recovering...');
-            hls.recoverMediaError();
-          } else {
-            console.error('[VideoPlayer] Fatal error, giving up');
-            setError(`Stream failed: ${data.details || 'Unknown error'}`);
-            setIsLoading(false);
-            hls.destroy();
+          // NETWORK errors — always try to recover, never give up
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            setRetryCount(prev => {
+              const next = prev + 1;
+              console.log(`[VideoPlayer] Network error recovery attempt #${next}`);
+              
+              if (next <= 15) {
+                // Phase 1: hls.startLoad with backoff (attempts 1-15)
+                setRecoveryStatus(`Reconnecting... (${next})`);
+                const delay = Math.min(500 * Math.pow(1.5, Math.min(next, 8)), 8000);
+                setTimeout(() => {
+                  if (hlsRef.current) {
+                    hlsRef.current.startLoad();
+                  }
+                }, delay);
+              } else {
+                // Phase 2: full stream reload
+                console.warn('[VideoPlayer] Network retries exhausted, full reload');
+                attemptFullReload();
+              }
+              return next;
+            });
+            return;
           }
+          
+          // MEDIA errors — recoverMediaError, then swap codec, then full reload
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            setRetryCount(prev => {
+              const next = prev + 1;
+              console.log(`[VideoPlayer] Media error recovery attempt #${next}`);
+              
+              if (next <= 2) {
+                setRecoveryStatus('Recovering media...');
+                hls.recoverMediaError();
+              } else if (next <= 4) {
+                setRecoveryStatus('Switching codec...');
+                hls.swapAudioCodec();
+                hls.recoverMediaError();
+              } else {
+                console.warn('[VideoPlayer] Media recovery exhausted, full reload');
+                attemptFullReload();
+              }
+              return next;
+            });
+            return;
+          }
+          
+          // Other fatal errors — full reload instead of giving up
+          console.warn('[VideoPlayer] Unknown fatal error, attempting full reload');
+          attemptFullReload();
         }
       });
 
-      // Monitor buffer health
+      // Monitor buffer health — reset counters on success
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
-        // Reset retry count on successful fragment load
-        if (retryCount > 0) {
-          setRetryCount(0);
-        }
+        if (retryCount > 0) setRetryCount(0);
+        if (recoveryStatus) setRecoveryStatus(null);
+        stallCountRef.current = 0;
       });
 
+      // Playback stall detector — catches cases HLS.js doesn't report
+      const startStallDetector = () => {
+        if (stallTimerRef.current) clearInterval(stallTimerRef.current);
+        stallTimerRef.current = setInterval(() => {
+          if (!video || video.paused || video.ended) return;
+          
+          const currentTime = video.currentTime;
+          if (currentTime === lastPlaybackTimeRef.current && currentTime > 0) {
+            // Playback hasn't advanced — we're stalled
+            stallCountRef.current++;
+            console.log(`[VideoPlayer] Stall detected (${stallCountRef.current}), time stuck at ${currentTime.toFixed(1)}s`);
+            
+            if (stallCountRef.current >= 3 && stallCountRef.current < 6) {
+              // Try nudging forward
+              setRecoveryStatus('Recovering...');
+              video.currentTime = currentTime + 0.5;
+              if (hlsRef.current) hlsRef.current.startLoad();
+            } else if (stallCountRef.current >= 6) {
+              // Full reload
+              console.warn('[VideoPlayer] Persistent stall, full reload');
+              attemptFullReload();
+            }
+          } else {
+            // Playback is advancing — reset stall counter
+            if (stallCountRef.current > 0) stallCountRef.current = 0;
+            if (recoveryStatus) setRecoveryStatus(null);
+          }
+          lastPlaybackTimeRef.current = currentTime;
+        }, 3000);
+      };
+      
+      video.addEventListener('playing', startStallDetector);
+      
       hlsRef.current = hls;
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
@@ -205,19 +317,34 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
         video.play().catch(() => {});
       });
       video.addEventListener('error', () => {
-        setError('Failed to load stream');
-        setIsLoading(false);
+        // Even native HLS — try reload instead of giving up
+        console.warn('[VideoPlayer] Native HLS error, retrying...');
+        setTimeout(() => {
+          video.src = url;
+          video.load();
+          video.play().catch(() => {});
+        }, 2000);
       });
     } else {
       setError('HLS not supported');
       setIsLoading(false);
     }
-  }, [retryCount]);
+  }, [retryCount, attemptFullReload, recoveryStatus]);
 
   // Initialize player
   const initPlayer = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
+
+    // Clear any previous stall detector
+    if (stallTimerRef.current) {
+      clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -226,6 +353,10 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
 
     setIsLoading(true);
     setError(null);
+    setRecoveryStatus(null);
+    recoveryRef.current = false;
+    lastPlaybackTimeRef.current = 0;
+    stallCountRef.current = 0;
 
     const streamUrl = getStreamUrl();
     console.log('[VideoPlayer] Stream URL:', streamUrl);
@@ -283,29 +414,33 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     // Direct HLS URL (Cloudflare Worker proxy)
     loadHlsStream(video, streamUrl);
     
-    // Set a loading timeout - if stream doesn't load in 30s, show error
-    const loadingTimeout = setTimeout(() => {
-      if (isLoading && !error) {
-        console.warn('[VideoPlayer] Loading timeout - stream may be unavailable');
-        setError('Stream loading timeout - channel may be offline or blocked');
-        setIsLoading(false);
-        if (hlsRef.current) {
-          hlsRef.current.destroy();
-          hlsRef.current = null;
-        }
+    // Loading timeout — instead of killing the stream, attempt a full reload
+    // This handles the case where the initial manifest never loads
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (isLoading && !error && !recoveryRef.current) {
+        console.warn('[VideoPlayer] Loading timeout — attempting auto-recovery');
+        setRecoveryStatus('Stream slow to load, retrying...');
+        attemptFullReload();
       }
-    }, 30000);
+    }, 25000);
     
-    return () => clearTimeout(loadingTimeout);
-  }, [getStreamUrl, loadHlsStream, isLoading, error]);
+    return () => {
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+    };
+  }, [getStreamUrl, loadHlsStream, isLoading, error, attemptFullReload]);
+
+  // Keep ref in sync so attemptFullReload can call initPlayer without circular deps
+  useEffect(() => { initPlayerRef.current = initPlayer; }, [initPlayer]);
 
   // Switch channel
   const switchChannel = useCallback((index: number) => {
     setSelectedChannelIndex(index);
     setShowChannelMenu(false);
     setRetryCount(0);
+    setRecoveryStatus(null);
     setSelectedBackend(undefined); // Reset backend when switching channels
     setAvailableBackends([]);
+    stallCountRef.current = 0;
   }, []);
 
   // Fetch available backends for current channel
@@ -338,6 +473,8 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     setShowBackendMenu(false);
     setError(null);
     setRetryCount(0);
+    setRecoveryStatus(null);
+    stallCountRef.current = 0;
   }, []);
 
   // Re-init when channel or backend changes
@@ -352,6 +489,8 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     if (isOpen && (event || channel)) {
       setSelectedChannelIndex(0);
       setRetryCount(0);
+      setRecoveryStatus(null);
+      stallCountRef.current = 0;
       setSelectedBackend(undefined); // Reset backend when opening new channel
       setAvailableBackends([]); // Clear cached backends
       initPlayer();
@@ -361,6 +500,14 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+      }
+      if (stallTimerRef.current) {
+        clearInterval(stallTimerRef.current);
+        stallTimerRef.current = null;
+      }
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
       }
     };
   }, [isOpen, event, channel]);
@@ -557,7 +704,14 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
         {isLoading && (
           <div className={styles.loadingOverlay}>
             <div className={styles.spinner} />
-            <p>Loading stream...</p>
+            <p>{recoveryStatus || 'Loading stream...'}</p>
+          </div>
+        )}
+
+        {!isLoading && recoveryStatus && !error && (
+          <div className={styles.loadingOverlay} style={{ background: 'rgba(0,0,0,0.6)' }}>
+            <div className={styles.spinner} />
+            <p>{recoveryStatus}</p>
           </div>
         )}
 
