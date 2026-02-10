@@ -1216,7 +1216,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
  */
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['dvalna.ru', 'kiko2.ru', 'giokko.ru'];
+const DLHD_DOMAINS = ['dvalna.ru', 'kiko2.ru', 'giokko.ru', 'soyspace.cyou'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs

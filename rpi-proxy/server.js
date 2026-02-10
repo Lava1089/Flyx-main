@@ -346,6 +346,13 @@ const PROXY_ALLOWED_DOMAINS = [
   'megaup.net',
   'animekai.to',
   'enc-dec.app',
+  // HiAnime/MegaCloud CDN (hostnames rotate: haildrop77.pro, fogtwist21.xyz, rainveil36.xyz, etc.)
+  'hianime.to',
+  'hianime.nz',
+  'hianime.sx',
+  'megacloud.blog',
+  'megacloud.tv',
+  'mgstatics.xyz', // MegaCloud subtitle CDN
   // VIPRow
   'boanki.net',
   'peulleieo.net',
@@ -374,10 +381,18 @@ const PROXY_ALLOWED_DOMAINS = [
 
 function isAllowedProxyDomain(url) {
   try {
-    const hostname = new URL(url).hostname;
-    return PROXY_ALLOWED_DOMAINS.some(d => 
-      hostname === d || hostname.endsWith('.' + d)
-    );
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
+    // Exact or suffix match against allowlist
+    if (PROXY_ALLOWED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))) {
+      return true;
+    }
+    // MegaCloud CDN uses rotating hostnames (haildrop77.pro, fogtwist21.xyz, rainveil36.xyz, etc.)
+    // They all serve from /_v7/ or /_v8/ paths — allow any domain with that pattern
+    if (parsed.pathname.startsWith('/_v')) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }

@@ -36,6 +36,7 @@ import { handleCDNLiveRequest } from './cdn-live-proxy';
 import { handlePPVRequest } from './ppv-proxy';
 import { handleVIPRowRequest } from './viprow-proxy';
 import { handleVidSrcRequest } from './vidsrc-proxy';
+import { handleHiAnimeRequest } from './hianime-proxy';
 import { createLogger, generateRequestId, type LogLevel } from './logger';
 
 export interface Env {
@@ -81,6 +82,7 @@ const metrics = {
   tmdbRequests: 0,
   viprowRequests: 0,
   vidsrcRequests: 0,
+  hianimeRequests: 0,
   startTime: Date.now(),
 };
 
@@ -137,6 +139,7 @@ export default {
           tmdbRequests: metrics.tmdbRequests,
           viprowRequests: metrics.viprowRequests,
           vidsrcRequests: metrics.vidsrcRequests,
+          hianimeRequests: metrics.hianimeRequests,
         },
         timestamp: new Date().toISOString(),
       }, null, 2), {
@@ -378,6 +381,21 @@ export default {
       }
     }
 
+    // Route to HiAnime proxy (MegaCloud extraction + stream proxy)
+    // Full extraction pipeline: HiAnime search → episodes → servers → MegaCloud decrypt
+    if (path.startsWith('/hianime')) {
+      metrics.hianimeRequests++;
+      logger.info('Routing to HiAnime proxy', { path });
+      
+      try {
+        return await handleHiAnimeRequest(request, env);
+      } catch (error) {
+        metrics.errors++;
+        logger.error('HiAnime proxy error', error as Error);
+        return errorResponse('HiAnime proxy error', 500);
+      }
+    }
+
     // Route to IPTV proxy (Stalker portals)
     // Handle both /iptv/* and /tv/iptv/* (legacy path from NEXT_PUBLIC_CF_TV_PROXY_URL)
     if (path.startsWith('/iptv') || path.startsWith('/tv/iptv')) {
@@ -616,6 +634,24 @@ export default {
             'Multiple quality streams (480p, 720p, 1080p)',
             'URL rewriting for browser playback',
             'Source: lk21_database',
+          ],
+        },
+        hianime: {
+          path: '/hianime/',
+          description: 'HiAnime extraction + MegaCloud stream proxy (full server-side pipeline)',
+          usage: '/hianime/extract?malId=<mal_id>&title=<anime_title>&episode=<number>',
+          subRoutes: {
+            extract: '/hianime/extract - Full extraction: search → episodes → servers → MegaCloud decrypt',
+            stream: '/hianime/stream?url=<encoded_url> - Proxy HLS m3u8/ts segments',
+            health: '/hianime/health - Health check',
+          },
+          features: [
+            'Full server-side extraction (no frontend decryption)',
+            'MegaCloud v3 decryption with client key + megacloud key',
+            'Sub + Dub extraction in parallel',
+            'Subtitle extraction',
+            'Skip intro/outro markers',
+            'HLS URL rewriting for browser playback',
           ],
         },
         analytics: {

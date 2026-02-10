@@ -241,6 +241,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     '1movies': true, // 1movies - fully reverse-engineered, no Puppeteer needed
     videasy: true, // Videasy as fallback provider with multi-language support
     animekai: true, // Anime-specific provider - auto-selected for anime content
+    hianime: true, // HiAnime - primary anime provider (MegaCloud extraction)
   });
   const [isAnimeContent, setIsAnimeContent] = useState(false); // Track if current content is anime
   const [highlightServerButton, setHighlightServerButton] = useState(false);
@@ -656,12 +657,13 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   // Helper function to fetch from a specific provider
   // No pre-flight validation - let HLS.js handle it with automatic fallback
   const fetchFromProvider = async (providerName: string): Promise<{ sources: any[], provider: string } | null> => {
-    // For anime with malId, use the dedicated anime stream API
-    if (malId && providerName === 'animekai') {
-      console.log(`[VideoPlayer] Using /api/anime/stream for malId=${malId}`);
+    // For anime with malId, use the dedicated anime stream API (supports hianime + animekai)
+    if (malId && (providerName === 'animekai' || providerName === 'hianime')) {
+      console.log(`[VideoPlayer] Using /api/anime/stream for malId=${malId}, provider=${providerName}`);
       
       const params = new URLSearchParams({
         malId: malId.toString(),
+        provider: providerName,
       });
       
       // Only add episode for TV shows
@@ -674,20 +676,21 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         const data = await response.json();
 
         if (data.success && data.sources && data.sources.length > 0) {
-          console.log(`[VideoPlayer] ✓ AnimeKai (anime stream API) returned ${data.sources.length} sources`);
+          const activeProvider = data.provider || providerName;
+          console.log(`[VideoPlayer] ✓ ${activeProvider} (anime stream API) returned ${data.sources.length} sources`);
           if (data.sources[0]?.skipIntro || data.sources[0]?.skipOutro) {
             console.log(`[VideoPlayer] Skip data in response:`, {
               skipIntro: data.sources[0].skipIntro,
               skipOutro: data.sources[0].skipOutro,
             });
           }
-          return { sources: data.sources, provider: 'animekai' };
+          return { sources: data.sources, provider: activeProvider };
         }
         
-        console.warn(`[VideoPlayer] ✗ AnimeKai (anime stream API) failed:`, data.error);
+        console.warn(`[VideoPlayer] ✗ ${providerName} (anime stream API) failed:`, data.error);
         return null;
       } catch (err) {
-        console.error(`[VideoPlayer] ✗ AnimeKai (anime stream API) network error:`, err);
+        console.error(`[VideoPlayer] ✗ ${providerName} (anime stream API) network error:`, err);
         return null;
       }
     }
@@ -749,8 +752,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
 
   // Debug: Log sub/dub toggle visibility conditions
   useEffect(() => {
-    console.log(`[VideoPlayer] Sub/Dub toggle conditions: isAnimeContent=${isAnimeContent}, provider=${provider}, shouldShow=${isAnimeContent && provider === 'animekai'}`);
-    if (isAnimeContent && provider !== 'animekai') {
+    console.log(`[VideoPlayer] Sub/Dub toggle conditions: isAnimeContent=${isAnimeContent}, provider=${provider}, shouldShow=${isAnimeContent && (provider === 'animekai' || provider === 'hianime')}`);
+    if (isAnimeContent && provider !== 'animekai' && provider !== 'hianime') {
       console.warn(`[VideoPlayer] ⚠️ Anime content detected but provider is "${provider}" not "animekai" - toggle will NOT show!`);
     }
   }, [isAnimeContent, provider]);
@@ -862,11 +865,15 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       
       const providerOrder: string[] = [];
       
-      // For ANIME content: AnimeKai MUST be first (ignore last successful if it's not animekai)
+      // For ANIME content: HiAnime FIRST (primary), AnimeKai as fallback
       // This ensures the sub/dub toggle works properly
+      if (isAnime && !disabledProviders.has('hianime')) {
+        providerOrder.push('hianime'); // HiAnime as PRIMARY for anime
+        console.log(`[VideoPlayer] ✓ HiAnime is PRIMARY for anime content`);
+      }
       if (isAnime && availability.animekai && !disabledProviders.has('animekai')) {
-        providerOrder.push('animekai'); // AnimeKai as PRIMARY for anime - ALWAYS FIRST
-        console.log(`[VideoPlayer] ✓ AnimeKai is PRIMARY for anime content (ignoring last successful: ${lastSuccessful})`);
+        providerOrder.push('animekai'); // AnimeKai as fallback for anime
+        console.log(`[VideoPlayer] ✓ AnimeKai is FALLBACK for anime content`);
       }
       
       // For non-anime content, prioritize last successful provider
@@ -887,8 +894,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       // For anime: prioritize videasy as fallback (other providers don't work well for anime)
       // For non-anime: vidsrc is primary
       const allProviders = isAnime 
-        ? ['animekai', 'videasy', 'vidsrc', 'flixer', '1movies']
-        : ['vidsrc', 'flixer', '1movies', 'videasy', 'animekai'];
+        ? ['hianime', 'animekai', 'videasy', 'vidsrc', 'flixer', '1movies']
+        : ['vidsrc', 'flixer', '1movies', 'videasy', 'animekai', 'hianime'];
       for (const providerName of allProviders) {
         if (providerOrder.includes(providerName)) continue;
         if (disabledProviders.has(providerName)) continue;
@@ -4268,7 +4275,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           pointerEvents: 'auto',
         }}>
           {/* Dub/Sub toggle - only show for anime content using AnimeKai */}
-          {isAnimeContent && provider === 'animekai' && (
+          {isAnimeContent && (provider === 'animekai' || provider === 'hianime') && (
             <button 
               data-player-top-control="subdub"
               style={{

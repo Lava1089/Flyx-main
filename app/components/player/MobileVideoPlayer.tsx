@@ -44,7 +44,7 @@ function CopyUrlButton({ url }: { url: string }) {
 }
 
 type AudioPreference = 'sub' | 'dub';
-type Provider = 'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai';
+type Provider = 'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime';
 
 interface SubtitleTrack {
   id: string;
