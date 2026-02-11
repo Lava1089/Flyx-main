@@ -42,9 +42,14 @@ export const VIDSRC_ENABLED = process.env.ENABLE_VIDSRC_PROVIDER !== 'false';
 const CAPSOLVER_API_KEY = process.env.CAPSOLVER_API_KEY;
 
 // Cloudflare Worker VidSrc endpoint (PRIMARY - handles everything)
-const CF_VIDSRC_PROXY = process.env.NEXT_PUBLIC_CF_PROXY_URL 
-  ? `${process.env.NEXT_PUBLIC_CF_PROXY_URL}/vidsrc`
-  : 'https://media-proxy.vynx.workers.dev/vidsrc';
+// Uses NEXT_PUBLIC_CF_STREAM_PROXY_URL (strip /stream suffix) or falls back to hardcoded URL
+const CF_VIDSRC_PROXY = (() => {
+  const streamUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL;
+  if (streamUrl) {
+    return streamUrl.replace(/\/stream\/?$/, '') + '/vidsrc';
+  }
+  return 'https://media-proxy.vynx.workers.dev/vidsrc';
+})();
 
 // 2embed.stream API base URL (FALLBACK - direct access)
 const EMBED_API_BASE = 'https://v1.2embed.stream';
@@ -55,12 +60,10 @@ const VIDSRC_MAX_DELAY_MS = 2000; // Maximum delay for backoff (reduced from 300
 const VIDSRC_BACKOFF_MULTIPLIER = 1.3; // Reduced from 1.5
 
 // Multiple embed domains to try (in order of preference)
-// TODO: Implement domain fallback logic in extractVidSrcStreams
+// Only try the first 2 to avoid wasting time on dead domains
 const EMBED_DOMAINS = [
   'vidsrc-embed.ru',
   'vidsrc.cc',
-  'vidsrc.me',
-  'vidsrc.xyz',
 ] as const;
 
 // Expanded CDN domains (January 2026 - updated list)
@@ -458,11 +461,17 @@ async function extractFrom2EmbedApi(
     const cfUrl = `${CF_VIDSRC_PROXY}/extract?${params}`;
     console.log('[VidSrc] Fetching via CF Worker:', cfUrl);
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
     const response = await fetch(cfUrl, {
       headers: {
         'Accept': 'application/json',
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       throw new Error(`CF Worker returned ${response.status}`);

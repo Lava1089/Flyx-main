@@ -88,10 +88,39 @@ async function proxyStream(url: string): Promise<Response> {
   
   if (contentType.includes('mpegurl') || url.includes('.m3u8')) {
     let manifest = new TextDecoder().decode(body);
+    
+    // Rewrite absolute URLs from 2embed.stream
     manifest = manifest.replace(
       /https:\/\/v1\.2embed\.stream\/[^\s\n]+/g,
       (match) => `/vidsrc/stream?url=${encodeURIComponent(match)}`
     );
+    
+    // Rewrite #EXT-X-KEY URI values (encryption keys need proxying too)
+    manifest = manifest.replace(
+      /URI="(https?:\/\/[^"]+)"/g,
+      (_match, keyUrl) => `URI="/vidsrc/stream?url=${encodeURIComponent(keyUrl)}"`
+    );
+    
+    // Rewrite relative URLs (lines that don't start with # and aren't already proxied)
+    const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+    const lines = manifest.split('\n');
+    manifest = lines.map(line => {
+      const trimmed = line.trim();
+      // Skip empty lines, comments, and already-proxied URLs
+      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('/vidsrc/')) return line;
+      // Skip absolute URLs that aren't from known domains
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        // Proxy any absolute URL that's a segment or key
+        if (trimmed.includes('.ts') || trimmed.includes('.m3u8') || trimmed.includes('/key') || trimmed.includes('.key')) {
+          return `/vidsrc/stream?url=${encodeURIComponent(trimmed)}`;
+        }
+        return line;
+      }
+      // Relative URL - resolve against base URL and proxy
+      const absoluteUrl = new URL(trimmed, baseUrl).toString();
+      return `/vidsrc/stream?url=${encodeURIComponent(absoluteUrl)}`;
+    }).join('\n');
+    
     return new Response(manifest, {
       status: 200,
       headers: { 'Content-Type': 'application/vnd.apple.mpegurl', ...corsHeaders() }

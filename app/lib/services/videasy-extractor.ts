@@ -77,9 +77,9 @@ const HEADERS = {
 };
 
 // Rate limiting configuration
-const MIN_DELAY_MS = 800;  // Minimum delay between requests
-const MAX_DELAY_MS = 2000; // Maximum delay for backoff
-const BACKOFF_MULTIPLIER = 1.5; // Exponential backoff multiplier
+const MIN_DELAY_MS = 400;  // Minimum delay between requests (reduced for parallel batching)
+const MAX_DELAY_MS = 1500; // Maximum delay for backoff
+const BACKOFF_MULTIPLIER = 1.3; // Exponential backoff multiplier
 
 // Track rate limit state
 let lastRequestTime = 0;
@@ -225,9 +225,16 @@ async function fetchFromVideasy(
 
     const text = await response.text();
     
-    if (!text || text.trim() === '' || text.includes('error') || text.includes('Error')) {
+    if (!text || text.trim() === '') {
       consecutiveFailures++;
-      console.log(`[Videasy] ${endpoint}: Empty or error response`);
+      console.log(`[Videasy] ${endpoint}: Empty response`);
+      return null;
+    }
+
+    // Only reject if the response is clearly an error page (HTML error), not JSON with error field
+    if (text.trim().startsWith('<') || text.trim().startsWith('<!')) {
+      consecutiveFailures++;
+      console.log(`[Videasy] ${endpoint}: Got HTML error page instead of data`);
       return null;
     }
 
@@ -614,7 +621,7 @@ export async function extractVideasyStreams(
   episode?: number,
   _includeAllLanguages: boolean = true
 ): Promise<ExtractionResult> {
-  console.log(`[Videasy] Extracting sources for ${type} ID ${tmdbId} (sequential mode)...`);
+  console.log(`[Videasy] Extracting sources for ${type} ID ${tmdbId}...`);
 
   // Get title and year from TMDB
   const tmdbInfo = await getTmdbInfo(tmdbId, type);
@@ -627,13 +634,12 @@ export async function extractVideasyStreams(
     };
   }
 
-  // Use original title if different from localized title (helps with foreign shows/remakes)
-  // For example: French "HPI" should not match American "High Potential"
-  const searchTitle = tmdbInfo.originalTitle && tmdbInfo.originalTitle !== tmdbInfo.title 
-    ? tmdbInfo.originalTitle 
-    : tmdbInfo.title;
+  // ALWAYS use the English/localized title first since Videasy is English-language.
+  // The original_title can be in Korean/Japanese/etc which Videasy won't match.
+  // The tmdbId parameter is the primary key for matching - title is supplementary.
+  const searchTitle = tmdbInfo.title;
   
-  console.log(`[Videasy] Title: "${searchTitle}"${tmdbInfo.originalTitle !== tmdbInfo.title ? ` (localized: "${tmdbInfo.title}")` : ''}, Year: ${tmdbInfo.year}`);
+  console.log(`[Videasy] Title: "${searchTitle}"${tmdbInfo.originalTitle && tmdbInfo.originalTitle !== tmdbInfo.title ? ` (original: "${tmdbInfo.originalTitle}")` : ''}, Year: ${tmdbInfo.year}`);
 
   // For TV shows, calculate the relative episode number within the season
   // TMDB returns absolute episode numbers for some shows (e.g., One Piece S2E62)
@@ -658,33 +664,83 @@ export async function extractVideasyStreams(
   // Sort by priority (English first, then other languages)
   sourcesToTry.sort((a, b) => a.priority - b.priority);
 
-  console.log(`[Videasy] Will try ${sourcesToTry.length} sources sequentially until one works...`);
+  console.log(`[Videasy] Will try ${sourcesToTry.length} sources (parallel batch + sequential fallback)...`);
 
-  // Try sources ONE AT A TIME until we find a working one
+  // Try sources in parallel batches for speed
+  // Batch 1: Top 3 English sources in parallel (fastest path)
+  // If none work, Batch 2: remaining English sources
+  // If none work, Batch 3: non-English sources (only if user wants all languages)
   let workingSource: StreamSource | null = null;
   let workingSubtitles: Array<{ label: string; url: string; language: string }> = [];
   let workingSourceConfig: typeof SOURCES[0] | null = null;
 
-  for (const src of sourcesToTry) {
-    console.log(`[Videasy] Trying ${src.name} (${src.languageName})...`);
+  const englishSources = sourcesToTry.filter(s => s.language === 'en');
+  const otherSources = sourcesToTry.filter(s => s.language !== 'en');
+
+  // Batch 1: Try top 3 English sources in parallel
+  const batch1 = englishSources.slice(0, 3);
+  if (batch1.length > 0) {
+    console.log(`[Videasy] Batch 1: Trying ${batch1.map(s => s.name).join(', ')} in parallel...`);
+    const batch1Results = await Promise.allSettled(
+      batch1.map(src => trySource(src, tmdbId, searchTitle, tmdbInfo.year, type, season, relativeEpisode))
+    );
     
-    // Use relative episode number for the API call
-    // Use searchTitle (original title for foreign content) to avoid remake confusion
-    const result = await trySource(src, tmdbId, searchTitle, tmdbInfo.year, type, season, relativeEpisode);
-    
-    if (result) {
-      console.log(`[Videasy] ✓ ${src.name} (${src.languageName}) WORKS! Using this source.`);
-      workingSource = {
-        ...result.source,
-        title: `${src.name} (${src.languageName})`,
-        language: src.language,
-        status: 'working',
-      };
-      workingSubtitles = result.subtitles || [];
-      workingSourceConfig = src;
-      break; // Stop trying more sources - we found one that works!
-    } else {
-      console.log(`[Videasy] ✗ ${src.name} (${src.languageName}) failed, trying next...`);
+    for (let i = 0; i < batch1Results.length; i++) {
+      const result = batch1Results[i];
+      if (result.status === 'fulfilled' && result.value) {
+        const src = batch1[i];
+        console.log(`[Videasy] ✓ ${src.name} (${src.languageName}) WORKS!`);
+        workingSource = {
+          ...result.value.source,
+          title: `${src.name} (${src.languageName})`,
+          language: src.language,
+          status: 'working',
+        };
+        workingSubtitles = result.value.subtitles || [];
+        workingSourceConfig = src;
+        break;
+      }
+    }
+  }
+
+  // Batch 2: Try remaining English sources sequentially (if batch 1 failed)
+  if (!workingSource) {
+    const batch2 = englishSources.slice(3);
+    for (const src of batch2) {
+      console.log(`[Videasy] Trying ${src.name} (${src.languageName})...`);
+      const result = await trySource(src, tmdbId, searchTitle, tmdbInfo.year, type, season, relativeEpisode);
+      if (result) {
+        console.log(`[Videasy] ✓ ${src.name} (${src.languageName}) WORKS!`);
+        workingSource = {
+          ...result.source,
+          title: `${src.name} (${src.languageName})`,
+          language: src.language,
+          status: 'working',
+        };
+        workingSubtitles = result.subtitles || [];
+        workingSourceConfig = src;
+        break;
+      }
+    }
+  }
+
+  // Batch 3: Try non-English sources sequentially (if all English failed)
+  if (!workingSource) {
+    for (const src of otherSources) {
+      console.log(`[Videasy] Trying ${src.name} (${src.languageName})...`);
+      const result = await trySource(src, tmdbId, searchTitle, tmdbInfo.year, type, season, relativeEpisode);
+      if (result) {
+        console.log(`[Videasy] ✓ ${src.name} (${src.languageName}) WORKS!`);
+        workingSource = {
+          ...result.source,
+          title: `${src.name} (${src.languageName})`,
+          language: src.language,
+          status: 'working',
+        };
+        workingSubtitles = result.subtitles || [];
+        workingSourceConfig = src;
+        break;
+      }
     }
   }
 
@@ -753,10 +809,8 @@ export async function fetchVideasySourceByName(
     return null;
   }
 
-  // Use original title if different from localized title (helps with foreign shows/remakes)
-  const searchTitle = tmdbInfo.originalTitle && tmdbInfo.originalTitle !== tmdbInfo.title 
-    ? tmdbInfo.originalTitle 
-    : tmdbInfo.title;
+  // ALWAYS use the English/localized title - Videasy is English-language
+  const searchTitle = tmdbInfo.title;
 
   // For TV shows, calculate the relative episode number within the season
   let relativeEpisode = episode;
