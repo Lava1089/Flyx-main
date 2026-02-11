@@ -525,7 +525,7 @@ function WatchContent() {
   }, [fetchMobileStream]);
 
   // Handle provider change for mobile player
-  const handleProviderChange = useCallback(async (provider: 'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai', currentTime: number = 0) => {
+  const handleProviderChange = useCallback(async (provider: 'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime', currentTime: number = 0) => {
     // Save current playback time to resume after provider change
     setMobileResumeTime(currentTime);
     setLoadingProvider(true);
