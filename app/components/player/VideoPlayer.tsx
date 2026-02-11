@@ -20,7 +20,7 @@ import {
   saveVolumeSettings,
   type PlayerPreferences,
 } from '@/lib/utils/player-preferences';
-import { getProviderSettings, saveProviderSettings, recordSuccessfulProvider, getLastSuccessfulProvider, SYNC_DATA_CHANGED_EVENT } from '@/lib/sync';
+import { getProviderSettings, saveProviderSettings, recordSuccessfulProvider, SYNC_DATA_CHANGED_EVENT } from '@/lib/sync';
 
 // Type alias for anime audio preference
 type AnimeAudioPreference = 'sub' | 'dub';
