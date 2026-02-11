@@ -1,6 +1,14 @@
 /**
  * Videasy Extractor
- * Uses the videasy.net API with external decryption service
+ * Uses the videasy.net API with handrolled WASM + CryptoJS AES decryption
+ * 
+ * Decryption flow (reverse-engineered from player.videasy.net):
+ * 1. Fetch encrypted hex data from api.videasy.net
+ * 2. WASM decrypt(encryptedHex, tmdbId) → base64 CryptoJS ciphertext
+ * 3. CryptoJS.AES.decrypt(wasmResult, "") → JSON with sources/subtitles
+ * 
+ * The WASM module is patched to bypass the serve()/verify() anti-tamper check.
+ * The AES key is empty string because Hashids.encode(hexString) returns "".
  * 
  * Servers available:
  * - Neon (myflixerzupcloud) - Original language
@@ -21,6 +29,10 @@
  * - Phoenix (overflix) - Portuguese
  * - Astra (visioncine) - Portuguese
  */
+
+import CryptoJS from 'crypto-js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface StreamSource {
   quality: string;
@@ -57,7 +69,6 @@ interface VideasyResponse {
 // API Configuration
 const VIDEASY_API_BASE = 'https://api.videasy.net';
 const VIDEASY_API_BASE_ALT = 'https://api2.videasy.net';
-const DECRYPTION_API = 'https://enc-dec.app/api';
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
@@ -234,63 +245,150 @@ async function fetchFromVideasy(
   }
 }
 
+// ============================================================================
+// WASM-based Decryption (handrolled - no external services)
+// ============================================================================
+
+// Cached WASM instance for reuse across requests
+let wasmInstance: any = null;
+let wasmMemory: WebAssembly.Memory | null = null;
+let wasmModule: WebAssembly.Module | null = null;
+let wasmDecryptCount = 0;
+const WASM_RECYCLE_AFTER = 50; // Recycle instance after N decryptions to prevent memory bloat
+
 /**
- * Decrypt Videasy response using external API
+ * Load and cache the patched WASM module
+ * The WASM is patched to bypass serve()/verify() anti-tamper checks
+ */
+async function getWasmInstance(): Promise<{ decrypt: Function; memory: WebAssembly.Memory; __new: Function }> {
+  // Recycle instance periodically to prevent memory bloat
+  if (wasmInstance && wasmDecryptCount >= WASM_RECYCLE_AFTER) {
+    console.log('[Videasy] Recycling WASM instance after', wasmDecryptCount, 'decryptions');
+    wasmInstance = null;
+    wasmMemory = null;
+    wasmDecryptCount = 0;
+  }
+  
+  if (wasmInstance) return wasmInstance;
+
+  // Compile module once, reuse for instantiation
+  if (!wasmModule) {
+    const wasmPath = path.join(process.cwd(), 'public', 'videasy-module-patched.wasm');
+    const wasmBuffer = fs.readFileSync(wasmPath);
+    wasmModule = await WebAssembly.compile(wasmBuffer);
+    console.log('[Videasy] WASM module compiled');
+  }
+
+  const instance = await WebAssembly.instantiate(wasmModule, {
+    env: {
+      seed: () => Date.now() * Math.random(),
+      abort: (msgPtr: number) => {
+        // Read abort message from WASM memory for debugging
+        if (msgPtr && instance.exports.memory) {
+          const mem = instance.exports.memory as WebAssembly.Memory;
+          const dv = new DataView(mem.buffer);
+          const len = dv.getUint32(msgPtr - 4, true);
+          let msg = '';
+          for (let i = 0; i < Math.min(len, 200); i += 2) {
+            msg += String.fromCharCode(dv.getUint16(msgPtr + i, true));
+          }
+          throw new Error(`WASM abort: ${msg}`);
+        }
+        throw new Error('WASM abort');
+      }
+    }
+  });
+
+  wasmMemory = instance.exports.memory as WebAssembly.Memory;
+  wasmInstance = {
+    decrypt: instance.exports.decrypt,
+    memory: wasmMemory,
+    __new: instance.exports.__new,
+  };
+
+  console.log('[Videasy] WASM module loaded successfully');
+  return wasmInstance;
+}
+
+/**
+ * Write a JS string into WASM memory (AssemblyScript UTF-16 format)
+ */
+function wasmWriteString(wasm: { memory: WebAssembly.Memory; __new: Function }, str: string): number {
+  const len = str.length;
+  const ptr = (wasm.__new(len << 1, 2) as number) >>> 0;
+  const arr = new Uint16Array(wasm.memory.buffer);
+  for (let i = 0; i < len; ++i) {
+    arr[(ptr >>> 1) + i] = str.charCodeAt(i);
+  }
+  return ptr;
+}
+
+/**
+ * Read a string from WASM memory (AssemblyScript UTF-16 format)
+ */
+function wasmReadString(wasm: { memory: WebAssembly.Memory }, ptr: number): string | null {
+  if (!ptr) return null;
+  const end = ptr + (new Uint32Array(wasm.memory.buffer)[(ptr - 4) >>> 2] >>> 1);
+  const arr = new Uint16Array(wasm.memory.buffer);
+  let start = ptr >>> 1;
+  let result = '';
+  while (end - start > 1024) {
+    result += String.fromCharCode(...arr.subarray(start, start += 1024));
+  }
+  return result + String.fromCharCode(...arr.subarray(start, end));
+}
+
+/**
+ * Decrypt Videasy response using handrolled WASM + CryptoJS AES
+ * 
+ * Flow: WASM decrypt(hex, tmdbId) → CryptoJS.AES.decrypt(result, "") → JSON
  */
 async function decryptVideasyResponse(encryptedText: string, tmdbId: string): Promise<VideasyResponse | null> {
   try {
-    console.log(`[Videasy] Decrypting response (${encryptedText.length} chars)...`);
+    console.log(`[Videasy] Decrypting response (${encryptedText.length} chars) with WASM...`);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const wasm = await getWasmInstance();
+    wasmDecryptCount++;
 
-    const response = await fetch(`${DECRYPTION_API}/dec-videasy`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...HEADERS,
-      },
-      body: JSON.stringify({
-        text: encryptedText,
-        id: tmdbId,
-      }),
-      signal: controller.signal,
-    });
+    // Layer 1: WASM decrypt (hex → base64 ciphertext)
+    // The WASM decrypt takes a string pointer and tmdbId as a raw number
+    const encPtr = wasmWriteString(wasm, encryptedText);
+    const tmdbIdNum = parseInt(tmdbId, 10);
+    const resultPtr = (wasm.decrypt(encPtr, tmdbIdNum) as number) >>> 0;
+    const wasmResult = wasmReadString(wasm, resultPtr);
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.log(`[Videasy] Decryption failed: HTTP ${response.status}`);
+    if (!wasmResult) {
+      console.log('[Videasy] WASM decrypt returned null');
       return null;
     }
 
-    const json = await response.json();
-    
-    if (!json.result) {
-      console.log('[Videasy] Decryption returned no result');
+    // Verify it's a valid CryptoJS base64 string (starts with "U2FsdGVk" = "Salted__")
+    if (!wasmResult.startsWith('U2FsdGVk')) {
+      console.log('[Videasy] WASM result is not CryptoJS format, first 50:', wasmResult.substring(0, 50));
       return null;
     }
 
-    // Parse the decrypted result
-    let decrypted: VideasyResponse;
-    if (typeof json.result === 'string') {
-      try {
-        decrypted = JSON.parse(json.result);
-      } catch {
-        console.log('[Videasy] Failed to parse decrypted JSON');
-        return null;
-      }
-    } else {
-      decrypted = json.result;
+    // Layer 2: CryptoJS AES decrypt with empty key
+    // The key is empty because Hashids.encode(hexString) returns "" for non-numeric strings
+    const decryptedStr = CryptoJS.AES.decrypt(wasmResult, '').toString(CryptoJS.enc.Utf8);
+
+    if (!decryptedStr) {
+      console.log('[Videasy] CryptoJS AES decrypt returned empty');
+      return null;
     }
 
+    console.log(`[Videasy] Decrypted successfully (${decryptedStr.length} chars)`);
+
+    // Parse JSON
+    const decrypted: VideasyResponse = JSON.parse(decryptedStr);
     return decrypted;
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.log('[Videasy] Decryption timeout');
-    } else {
-      console.log('[Videasy] Decryption error:', error);
-    }
+    console.log('[Videasy] Decryption error:', error instanceof Error ? error.message : error);
+    
+    // If WASM instance is corrupted, reset it for next attempt
+    wasmInstance = null;
+    wasmMemory = null;
+    
     return null;
   }
 }

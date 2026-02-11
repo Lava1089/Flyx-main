@@ -55,6 +55,7 @@
     "cheerio": "^1.1.2",
     "dotenv": "^17.2.3",
     "framer-motion": "^12.23.26",
+    "hashids": "^2.3.0",
     "hls.js": "^1.6.15",
     "jsonwebtoken": "^9.0.3",
     "linkedom": "^0.18.12",
