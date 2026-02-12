@@ -467,7 +467,11 @@ export function StatsProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error || 'Unknown error');
       }
     } catch (err) {
-      console.error('Failed to fetch unified stats:', err);
+      // DIAGNOSTIC: Enhanced error logging for analytics debugging
+      console.error('[StatsContext] Failed to fetch unified stats:', err);
+      console.error('[StatsContext] Error type:', err?.constructor?.name);
+      console.error('[StatsContext] Error message:', err instanceof Error ? err.message : String(err));
+      console.error('[StatsContext] Time range:', timeRange);
       setError(err instanceof Error ? err.message : 'Failed to fetch stats');
     } finally {
       setLoading(false);

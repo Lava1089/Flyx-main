@@ -285,7 +285,12 @@ export async function GET(request: NextRequest) {
       );
       content.allTimeWatchTime = Math.round(parseFloat(allTimeResult.data?.[0]?.total || 0) / 60) || 0;
     } catch (e) {
-      console.error('Error fetching content stats:', e);
+      // DIAGNOSTIC: Enhanced error logging for content stats
+      console.error('[Unified Stats] Error fetching content stats:', e);
+      console.error('[Unified Stats] Error details:', e instanceof Error ? e.message : String(e));
+      if (String(e).includes('no such column')) {
+        console.error('[Unified Stats] SCHEMA MISMATCH - total_watch_time column may be missing from watch_sessions!');
+      }
     }
 
     // ============================================
@@ -316,7 +321,12 @@ export async function GET(request: NextRequest) {
         totalWatchTime: Math.round(parseFloat(row.total_watch_time) / 60) || 0,
       }));
     } catch (e) {
-      console.error('Error fetching top content:', e);
+      // DIAGNOSTIC: Enhanced error logging for top content
+      console.error('[Unified Stats] Error fetching top content:', e);
+      console.error('[Unified Stats] Error details:', e instanceof Error ? e.message : String(e));
+      if (String(e).includes('no such column')) {
+        console.error('[Unified Stats] SCHEMA MISMATCH - total_watch_time column may be missing from watch_sessions!');
+      }
     }
 
     // ============================================

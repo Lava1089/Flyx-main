@@ -303,7 +303,14 @@ async function flushToD1(db: D1Database, force = false): Promise<void> {
       await db.batch(batch);
       console.log(`[Flush] Wrote ${batch.length} statements to D1`);
     } catch (e) {
-      console.error('[Flush] Error:', e);
+      // DIAGNOSTIC: Log detailed error for schema mismatch debugging
+      console.error('[Flush] D1 Batch Error:', e);
+      console.error('[Flush] Error details:', JSON.stringify(e, Object.getOwnPropertyNames(e)));
+      // Check if it's a schema error
+      if (String(e).includes('no such column') || String(e).includes('table has no column')) {
+        console.error('[Flush] SCHEMA MISMATCH DETECTED - Missing column in watch_sessions table!');
+        console.error('[Flush] Expected columns: total_watch_time may be missing from schema.sql');
+      }
     }
   }
 }

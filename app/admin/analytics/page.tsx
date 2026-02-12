@@ -216,11 +216,23 @@ export default function UnifiedAnalyticsPage() {
       const sessionResponse = await fetch(getAdminAnalyticsUrl('watch-session', sessionParams));
       const sessionData = await sessionResponse.json();
 
+      // DIAGNOSTIC: Log session data for debugging
+      console.log('[Analytics Page] Session response:', {
+        success: sessionData.success,
+        sessionCount: sessionData.sessions?.length || 0,
+        error: sessionData.error
+      });
+
       if (sessionData.success) {
         setSessions(sessionData.sessions || []);
+      } else {
+        console.error('[Analytics Page] Session fetch failed:', sessionData.error);
       }
     } catch (error) {
-      console.error('Failed to fetch analytics:', error);
+      // DIAGNOSTIC: Enhanced error logging
+      console.error('[Analytics Page] Failed to fetch analytics:', error);
+      console.error('[Analytics Page] Error type:', error?.constructor?.name);
+      console.error('[Analytics Page] Error message:', error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }

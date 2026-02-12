@@ -289,7 +289,12 @@ export class AnalyticsDO {
       await this.env.DB.batch(batch);
       console.log(`[AnalyticsDO] Flushed ${usersToFlush.length} users to D1 (${batch.length} statements)`);
     } catch (e) {
-      console.error('[AnalyticsDO] Flush error:', e);
+      // DIAGNOSTIC: Enhanced error logging for D1 flush errors
+      console.error('[AnalyticsDO] D1 Flush error:', e);
+      console.error('[AnalyticsDO] Error details:', JSON.stringify(e, Object.getOwnPropertyNames(e)));
+      if (String(e).includes('no such column') || String(e).includes('table has no column')) {
+        console.error('[AnalyticsDO] SCHEMA MISMATCH DETECTED - Check schema.sql vs index.ts table definitions!');
+      }
     }
   }
   
