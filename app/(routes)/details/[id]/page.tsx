@@ -76,7 +76,13 @@ export default async function DetailsPage({ params, searchParams }: DetailsPageP
         }
       }
     } catch (error) {
-      // If redirect fails, continue with normal details page
+      // IMPORTANT: Next.js redirect() works by throwing a special error.
+      // We must re-throw it so the redirect actually happens.
+      if (error && typeof error === 'object' && 'digest' in error && 
+          typeof (error as any).digest === 'string' && (error as any).digest.startsWith('NEXT_REDIRECT')) {
+        throw error;
+      }
+      // If it's a real error (not a redirect), continue with normal details page
       console.error('[DetailsPage] Anime redirect failed:', error);
     }
   }

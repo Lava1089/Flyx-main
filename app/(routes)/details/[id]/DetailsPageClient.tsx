@@ -256,8 +256,9 @@ export default function DetailsPageClient({
 
   // Check if content is anime and fetch MAL data
   // Re-fetch when season changes because different seasons may have different MAL entries
+  // Also check for movies - anime movies need MAL routing too
   useEffect(() => {
-    if (content?.mediaType === 'tv') {
+    if (content?.mediaType === 'tv' || content?.mediaType === 'movie') {
       checkAndLoadMALData();
     }
   }, [content?.id, selectedSeason]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -579,7 +580,16 @@ export default function DetailsPageClient({
     const tmdbId = parseInt(String(content.id));
     
     if (content.mediaType === 'movie') {
-      router.push(`/watch/${content.id}?type=movie&title=${title}`);
+      // For anime movies, include MAL info so the extractor uses AnimeKai
+      if (isAnime && malData?.mainEntry?.mal_id) {
+        const malEntry = malData.mainEntry;
+        console.log(`[handleWatchNow] Anime movie with MAL ID: ${malEntry.mal_id} (${malEntry.title})`);
+        router.push(
+          `/watch/${content.id}?type=movie&title=${title}&malId=${malEntry.mal_id}&malTitle=${encodeURIComponent(malEntry.title_english || malEntry.title)}`
+        );
+      } else {
+        router.push(`/watch/${content.id}?type=movie&title=${title}`);
+      }
     } else if (isAnime && animeEntries.length > 0 && selectedMalId) {
       // For anime with MAL entries, use the selected entry
       const selectedEntry = getSelectedAnimeEntry();
