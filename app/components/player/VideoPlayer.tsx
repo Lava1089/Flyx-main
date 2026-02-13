@@ -1034,14 +1034,16 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       });
       
       // Sync the sub/dub toggle to match what's actually playing
+      // NOTE: Only update the UI toggle, NOT persistent storage.
+      // If the user's saved preference is "dub" but no dub source is available,
+      // we show sub but keep their saved preference as "dub" for next time.
       if (isAnime && initialSource.title) {
         const actuallyDub = sourceMatchesAudioPreference(initialSource.title, 'dub');
         const actualPref = actuallyDub ? 'dub' : 'sub';
         const savedPref = getProviderSettings().animeAudioPreference;
         if (actualPref !== savedPref) {
-          console.log(`[VideoPlayer] Toggle sync: saved="${savedPref}" but playing="${actualPref}" (${initialSource.title}) — updating toggle`);
+          console.log(`[VideoPlayer] Toggle sync: saved="${savedPref}" but playing="${actualPref}" (${initialSource.title}) — updating toggle only (not saving)`);
           setAnimeAudioPref(actualPref as AnimeAudioPreference);
-          saveProviderSettings({ animeAudioPreference: actualPref });
         }
       }
       
@@ -1257,20 +1259,26 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                 }
                 
                 // Mark the CURRENT source as 'down' since it failed
-                // Use functional updates to avoid stale closure issues
-                setAvailableSources(prevSources => {
-                  const updatedSources = [...prevSources];
-                  if (updatedSources[currentSourceIndex]) {
-                    console.log(`[VideoPlayer] Marking source ${currentSourceIndex} (${updatedSources[currentSourceIndex].title}) as DOWN`);
-                    updatedSources[currentSourceIndex] = { 
-                      ...updatedSources[currentSourceIndex], 
-                      status: 'down' 
-                    };
-                    // Also update the cache
-                    setSourcesCache(prev => ({ ...prev, [provider]: updatedSources }));
-                  }
-                  return updatedSources;
-                });
+                // BUT only if it was never confirmed working (first fragment never loaded)
+                // If it was confirmed working, this is a mid-stream error, not a dead source
+                if (!sourceConfirmedWorkingRef.current) {
+                  // Use functional updates to avoid stale closure issues
+                  setAvailableSources(prevSources => {
+                    const updatedSources = [...prevSources];
+                    if (updatedSources[currentSourceIndex]) {
+                      console.log(`[VideoPlayer] Marking source ${currentSourceIndex} (${updatedSources[currentSourceIndex].title}) as DOWN`);
+                      updatedSources[currentSourceIndex] = { 
+                        ...updatedSources[currentSourceIndex], 
+                        status: 'down' 
+                      };
+                      // Also update the cache
+                      setSourcesCache(prev => ({ ...prev, [provider]: updatedSources }));
+                    }
+                    return updatedSources;
+                  });
+                } else {
+                  console.log(`[VideoPlayer] Source ${currentSourceIndex} had a mid-stream error but was previously working — NOT marking as down`);
+                }
                 
                 // Try to find and fetch the next available source
                 const tryNextSource = async () => {
@@ -1291,11 +1299,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                       setCurrentSourceIndex(i);
                       setStreamUrl(nextSource.url);
                       // Sync toggle if switching to a different sub/dub source
+                      // NOTE: Don't save to persistent storage — this is an automatic fallback,
+                      // not a user choice. The user's saved preference should be preserved.
                       if (isAnimeContent && nextSource.title) {
                         const actualPref = sourceMatchesAudioPreference(nextSource.title, 'dub') ? 'dub' : 'sub';
                         if (actualPref !== animeAudioPref) {
                           setAnimeAudioPref(actualPref as AnimeAudioPreference);
-                          saveProviderSettings({ animeAudioPreference: actualPref });
                         }
                       }
                       return true;
@@ -1385,11 +1394,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                       setCurrentSourceIndex(0);
                       setStreamUrl(result.sources[0].url);
                       // Sync toggle to match what's actually playing after fallback
+                      // NOTE: Don't save to persistent storage — this is an automatic fallback,
+                      // not a user choice. The user's saved preference should be preserved.
                       if (isAnimeContent && result.sources[0].title) {
                         const actualPref = sourceMatchesAudioPreference(result.sources[0].title, 'dub') ? 'dub' : 'sub';
                         if (actualPref !== animeAudioPref) {
                           setAnimeAudioPref(actualPref as AnimeAudioPreference);
-                          saveProviderSettings({ animeAudioPreference: actualPref });
                         }
                       }
                       return true;
@@ -4365,8 +4375,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                 if (matchingSource) {
                   console.log(`[VideoPlayer] Switching to ${newPref}:`, matchingSource.title);
                   
-                  // If source needs fetching, fetch it
-                  if (matchingSource.status === 'unknown' || !matchingSource.url) {
+                  // If source needs fetching (or was previously marked down), fetch it
+                  if (matchingSource.status === 'unknown' || matchingSource.status === 'down' || !matchingSource.url) {
                     setIsLoading(true);
                     const sourceName = matchingSource.title?.split(' (')[0] || matchingSource.title;
                     try {
@@ -4632,8 +4642,9 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                             console.log('[VideoPlayer] Saving playback position:', pendingSeekTimeRef.current);
                           }
                           
-                          // If source has "unknown" status (not yet fetched), fetch it first
-                          if (source.status === 'unknown' && (menuProvider === 'videasy' || menuProvider === 'animekai' || menuProvider === 'hianime')) {
+                          // If source has "unknown" or "down" status (not yet fetched, or previously failed), fetch it
+                          // "down" sources should be re-fetchable — the user explicitly clicked it, so give it another shot
+                          if ((source.status === 'unknown' || source.status === 'down') && (menuProvider === 'videasy' || menuProvider === 'animekai' || menuProvider === 'hianime')) {
                             console.log(`[VideoPlayer] Fetching unknown source: ${source.title} from ${menuProvider}`);
                             setIsLoading(true);
                             setShowServerMenu(false);
@@ -4674,11 +4685,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                                 setCurrentSourceIndex(origIdx);
                                 setProvider(menuProvider);
                                 // Sync toggle to match what's actually playing
+                                // NOTE: Don't save to persistent storage — clicking a server
+                                // is not the same as toggling sub/dub preference.
                                 if (source.title && (menuProvider === 'animekai' || menuProvider === 'hianime')) {
                                   const actualPref = sourceMatchesAudioPreference(source.title, 'dub') ? 'dub' : 'sub';
                                   if (actualPref !== animeAudioPref) {
                                     setAnimeAudioPref(actualPref as AnimeAudioPreference);
-                                    saveProviderSettings({ animeAudioPreference: actualPref });
                                   }
                                 }
                               } else {
@@ -4717,11 +4729,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                             setCurrentSourceIndex(origIdx);
                             setShowServerMenu(false);
                             // Sync toggle to match what's actually playing
+                            // NOTE: Don't save to persistent storage — clicking a server
+                            // is not the same as toggling sub/dub preference.
                             if (source.title && (menuProvider === 'animekai' || menuProvider === 'hianime')) {
                               const actualPref = sourceMatchesAudioPreference(source.title, 'dub') ? 'dub' : 'sub';
                               if (actualPref !== animeAudioPref) {
                                 setAnimeAudioPref(actualPref as AnimeAudioPreference);
-                                saveProviderSettings({ animeAudioPreference: actualPref });
                               }
                             }
                           }
