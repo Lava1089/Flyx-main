@@ -57,7 +57,7 @@ export async function extractHiAnimeStreams(
 
   try {
     const res = await fetch(extractUrl, {
-      signal: AbortSignal.timeout(45000),
+      signal: AbortSignal.timeout(20000),
     });
     const data = await res.json() as {
       success: boolean;

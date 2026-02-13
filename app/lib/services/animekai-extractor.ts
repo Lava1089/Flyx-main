@@ -76,6 +76,21 @@ const KAI_DOMAINS = ['https://animekai.to', 'https://anikai.to'];
 let KAI_BASE = KAI_DOMAINS[0];
 const ARM_API = 'https://arm.haglund.dev/api/v2/ids';
 
+// ============================================================================
+// IN-MEMORY CACHES — avoid redundant network calls across requests
+// ============================================================================
+const searchCache = new Map<string, { result: { content_id: string; title: string } | null; ts: number }>();
+const armCache = new Map<string, { mal_id: number | null; anilist_id: number | null; ts: number }>();
+const tmdbTitleCache = new Map<string, { title: string; year: string; ts: number }>();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+function getCached<T>(cache: Map<string, T & { ts: number }>, key: string): (T & { ts: number }) | null {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < CACHE_TTL) return entry;
+  if (entry) cache.delete(key);
+  return null;
+}
+
 /**
  * Get the current AJAX base URL (supports domain fallback)
  */
@@ -128,22 +143,23 @@ const HEADERS = {
 /**
  * Check if content is anime based on TMDB data
  */
+const animeCheckCache = new Map<string, { isAnime: boolean; ts: number }>();
+
 export async function isAnimeContent(tmdbId: string, type: 'movie' | 'tv'): Promise<boolean> {
+  const cacheKey = `${tmdbId}-${type}`;
+  const cached = animeCheckCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.isAnime;
+
   try {
     const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY;
     if (!apiKey) return false;
 
     const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${apiKey}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(4000),
       next: { revalidate: 86400 },
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) return false;
 
@@ -153,7 +169,9 @@ export async function isAnimeContent(tmdbId: string, type: 'movie' | 'tv'): Prom
     const hasAnimationGenre = data.genres?.some((g: { id: number }) => g.id === 16);
     const isJapanese = data.original_language === 'ja';
     
-    return hasAnimationGenre && isJapanese;
+    const isAnime = !!(hasAnimationGenre && isJapanese);
+    animeCheckCache.set(cacheKey, { isAnime, ts: Date.now() });
+    return isAnime;
   } catch {
     return false;
   }
@@ -309,15 +327,10 @@ async function getJson(url: string): Promise<any | null> {
 
 async function _fetchJson(url: string): Promise<any | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
     const response = await fetch(url, {
       headers: HEADERS,
-      signal: controller.signal,
+      signal: AbortSignal.timeout(10000),
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.log(`[AnimeKai] Fetch failed: HTTP ${response.status} for ${url}`);
@@ -340,44 +353,50 @@ async function _fetchJson(url: string): Promise<any | null> {
  * - For TV shows: source=tmdb (different endpoint!)
  */
 async function getAnimeIds(tmdbId: string, type: 'movie' | 'tv' = 'tv'): Promise<{ mal_id: number | null; anilist_id: number | null }> {
+  // Check cache first
+  const cacheKey = `${tmdbId}-${type}`;
+  const cached = getCached(armCache, cacheKey);
+  if (cached) {
+    console.log(`[AnimeKai] ARM cache hit for TMDB ${tmdbId}: MAL=${cached.mal_id}`);
+    return { mal_id: cached.mal_id, anilist_id: cached.anilist_id };
+  }
+
   try {
     console.log(`[AnimeKai] Looking up anime IDs for TMDB ${tmdbId} (type: ${type})...`);
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     // ARM API uses different source names:
     // - "themoviedb" for movies
     // - "tmdb" for TV shows (yes, they're different!)
-    // Actually, let's try both and see which one works
     const source = type === 'movie' ? 'themoviedb' : 'tmdb';
     
     let response = await fetch(`${ARM_API}?source=${source}&id=${tmdbId}`, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(4000),
     });
 
     // If TV lookup fails, try the movie endpoint as fallback
     if (!response.ok && type === 'tv') {
       console.log(`[AnimeKai] ARM tmdb lookup failed, trying themoviedb...`);
       response = await fetch(`${ARM_API}?source=themoviedb&id=${tmdbId}`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(4000),
       });
     }
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       console.log(`[AnimeKai] ARM lookup failed: HTTP ${response.status}`);
-      return { mal_id: null, anilist_id: null };
+      const result = { mal_id: null, anilist_id: null };
+      armCache.set(cacheKey, { ...result, ts: Date.now() });
+      return result;
     }
 
     const data = await response.json();
     console.log(`[AnimeKai] ARM result: MAL=${data.mal}, AniList=${data.anilist}`);
     
-    return {
+    const result = {
       mal_id: data.mal || null,
       anilist_id: data.anilist || null,
     };
+    armCache.set(cacheKey, { ...result, ts: Date.now() });
+    return result;
   } catch (error) {
     console.log(`[AnimeKai] ARM lookup error:`, error);
     return { mal_id: null, anilist_id: null };
@@ -388,21 +407,23 @@ async function getAnimeIds(tmdbId: string, type: 'movie' | 'tv' = 'tv'): Promise
  * Get anime title from TMDB for fallback search
  */
 async function getTmdbAnimeInfo(tmdbId: string, type: 'movie' | 'tv'): Promise<{ title: string; year: string } | null> {
+  // Check cache first
+  const cacheKey = `${tmdbId}-${type}`;
+  const cached = getCached(tmdbTitleCache, cacheKey);
+  if (cached) {
+    return { title: cached.title, year: cached.year };
+  }
+
   try {
     const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY;
     if (!apiKey) return null;
 
     const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${apiKey}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(4000),
       next: { revalidate: 86400 },
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) return null;
 
@@ -412,6 +433,7 @@ async function getTmdbAnimeInfo(tmdbId: string, type: 'movie' | 'tv'): Promise<{
     const dateStr = type === 'movie' ? data.release_date : data.first_air_date;
     const year = dateStr ? dateStr.split('-')[0] : '';
 
+    tmdbTitleCache.set(cacheKey, { title, year, ts: Date.now() });
     return { title, year };
   } catch {
     return null;
@@ -496,82 +518,47 @@ function scoreMatch(resultTitle: string, query: string): number {
  * - Avoids issues with title variations (e.g., "JJK" vs "Jujutsu Kaisen")
  */
 async function searchAnimeKaiByMalId(malId: number, searchQuery: string): Promise<{ content_id: string; title: string } | null> {
+  // Check cache first
+  const cacheKey = `mal-${malId}-${searchQuery}`;
+  const cached = getCached(searchCache, cacheKey);
+  if (cached) {
+    console.log(`[AnimeKai] Search cache hit for MAL ${malId}`);
+    return cached.result;
+  }
+
   try {
     console.log(`[AnimeKai] MAL ID SEARCH: Looking for MAL ID ${malId} using query "${searchQuery}"`);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const searchResponse = await fetch(`${getKaiAjax()}/anime/search?keyword=${encodeURIComponent(searchQuery)}`, {
-      headers: HEADERS,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!searchResponse.ok) {
-      console.log(`[AnimeKai] Search failed: HTTP ${searchResponse.status}`);
-      
-      // Try fallback domain
-      if (KAI_BASE === KAI_DOMAINS[0] && KAI_DOMAINS.length > 1) {
-        console.log(`[AnimeKai] Trying fallback domain for search...`);
-        const fallbackResp = await fetch(`${KAI_DOMAINS[1]}/ajax/anime/search?keyword=${encodeURIComponent(searchQuery)}`, {
-          headers: HEADERS,
-          signal: AbortSignal.timeout(10000),
-        });
-        if (fallbackResp.ok) {
-          KAI_BASE = KAI_DOMAINS[1];
-          console.log(`[AnimeKai] Switched to fallback domain: ${KAI_BASE}`);
-          const fallbackData = await fallbackResp.json();
-          // Continue with fallback data
-          const searchHtml = fallbackData.result?.html;
-          if (!searchHtml) {
-            console.log(`[AnimeKai] No search results HTML from fallback`);
-            return null;
-          }
-          // Re-parse with fallback data
-          const animeRegex2 = /<a[^>]*href="\/watch\/([^"]+)"[^>]*>[\s\S]*?<h6[^>]*class="title"[^>]*(?:data-jp="([^"]*)")?[^>]*>([^<]*)<\/h6>/gi;
-          const results2: Array<{ slug: string; jpTitle: string; enTitle: string }> = [];
-          let match2;
-          while ((match2 = animeRegex2.exec(searchHtml)) !== null) {
-            const [, slug, jpTitle, enTitle] = match2;
-            results2.push({ slug, jpTitle: jpTitle || '', enTitle: enTitle.trim() });
-          }
-          // Continue checking MAL IDs with fallback results
-          for (const result of results2) {
-            try {
-              const watchResp = await fetch(`${KAI_BASE}/watch/${result.slug}`, {
-                headers: HEADERS,
-                signal: AbortSignal.timeout(8000),
-              });
-              if (!watchResp.ok) continue;
-              const watchHtml = await watchResp.text();
-              const syncMatch = watchHtml.match(/<script[^>]*id="syncData"[^>]*>([\s\S]*?)<\/script>/);
-              if (syncMatch) {
-                const syncData = JSON.parse(syncMatch[1]);
-                const pageMalId = parseInt(syncData.mal_id);
-                const animeId = syncData.anime_id;
-                if (pageMalId === malId) {
-                  return { content_id: animeId, title: result.enTitle || result.jpTitle };
-                }
-              }
-            } catch { /* continue */ }
-          }
-          return null;
-        }
-      }
-      return null;
-    }
-
-    const searchData = await searchResponse.json();
-    const searchHtml = searchData.result?.html;
+    // Fetch search results (with domain fallback)
+    let searchHtml: string | null = null;
     
+    for (const domain of KAI_DOMAINS) {
+      try {
+        const searchResponse = await fetch(`${domain}/ajax/anime/search?keyword=${encodeURIComponent(searchQuery)}`, {
+          headers: HEADERS,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          searchHtml = searchData.result?.html || null;
+          if (searchHtml) {
+            if (domain !== KAI_BASE) {
+              KAI_BASE = domain;
+              console.log(`[AnimeKai] Switched to domain: ${KAI_BASE}`);
+            }
+            break;
+          }
+        }
+      } catch { /* try next domain */ }
+    }
+
     if (!searchHtml) {
-      console.log(`[AnimeKai] No search results HTML`);
+      console.log(`[AnimeKai] No search results HTML from any domain`);
+      searchCache.set(cacheKey, { result: null, ts: Date.now() });
       return null;
     }
 
-    // Parse search results - extract slug and title
+    // Parse search results
     const animeRegex = /<a[^>]*href="\/watch\/([^"]+)"[^>]*>[\s\S]*?<h6[^>]*class="title"[^>]*(?:data-jp="([^"]*)")?[^>]*>([^<]*)<\/h6>/gi;
     const results: Array<{ slug: string; jpTitle: string; enTitle: string }> = [];
     
@@ -583,20 +570,28 @@ async function searchAnimeKaiByMalId(malId: number, searchQuery: string): Promis
 
     if (results.length === 0) {
       console.log(`[AnimeKai] No results found for "${searchQuery}"`);
+      searchCache.set(cacheKey, { result: null, ts: Date.now() });
       return null;
     }
 
-    console.log(`[AnimeKai] Found ${results.length} results, checking MAL IDs...`);
+    // Score results by title similarity and only check top candidates (max 4)
+    const scored = results.map(r => ({
+      ...r,
+      score: Math.max(scoreMatch(r.enTitle, searchQuery), r.jpTitle ? scoreMatch(r.jpTitle, searchQuery) : 0),
+    })).sort((a, b) => b.score - a.score).slice(0, 4);
 
-    // Check each result's syncData for MAL ID match
-    for (const result of results) {
-      try {
+    console.log(`[AnimeKai] Found ${results.length} results, checking top ${scored.length} MAL IDs IN PARALLEL...`);
+
+    // Check MAL IDs in PARALLEL — this is the key performance optimization
+    // Previously sequential (5+ seconds), now parallel (~1-2 seconds)
+    const watchResults = await Promise.allSettled(
+      scored.map(async (result) => {
         const watchResp = await fetch(`${KAI_BASE}/watch/${result.slug}`, {
           headers: HEADERS,
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(6000),
         });
         
-        if (!watchResp.ok) continue;
+        if (!watchResp.ok) return null;
         
         const watchHtml = await watchResp.text();
         const syncMatch = watchHtml.match(/<script[^>]*id="syncData"[^>]*>([\s\S]*?)<\/script>/);
@@ -609,19 +604,24 @@ async function searchAnimeKaiByMalId(malId: number, searchQuery: string): Promis
           console.log(`[AnimeKai]   - "${result.enTitle}" → mal_id: ${pageMalId}, anime_id: ${animeId}`);
           
           if (pageMalId === malId) {
-            console.log(`[AnimeKai] ✓ MAL ID ${malId} MATCH! content_id: ${animeId}`);
-            return {
-              content_id: animeId,
-              title: result.enTitle || result.jpTitle,
-            };
+            return { content_id: animeId, title: result.enTitle || result.jpTitle };
           }
         }
-      } catch (e) {
-        // Continue to next result
+        return null;
+      })
+    );
+
+    // Find the first successful match
+    for (const wr of watchResults) {
+      if (wr.status === 'fulfilled' && wr.value) {
+        console.log(`[AnimeKai] ✓ MAL ID ${malId} MATCH! content_id: ${wr.value.content_id}`);
+        searchCache.set(cacheKey, { result: wr.value, ts: Date.now() });
+        return wr.value;
       }
     }
     
-    console.log(`[AnimeKai] ✗ MAL ID ${malId} not found in ${results.length} results`);
+    console.log(`[AnimeKai] ✗ MAL ID ${malId} not found in ${scored.length} results`);
+    searchCache.set(cacheKey, { result: null, ts: Date.now() });
     return null;
   } catch (error) {
     console.log(`[AnimeKai] MAL ID search error:`, error);
@@ -639,55 +639,46 @@ async function searchAnimeKaiByMalId(malId: number, searchQuery: string): Promis
  * Uses title scoring to find the best match.
  */
 async function searchAnimeKaiByTitle(query: string): Promise<{ content_id: string; title: string } | null> {
+  // Check cache first
+  const cacheKey = `title-${query}`;
+  const cached = getCached(searchCache, cacheKey);
+  if (cached) {
+    console.log(`[AnimeKai] Title search cache hit for "${query}"`);
+    return cached.result;
+  }
+
   try {
     console.log(`[AnimeKai] TITLE SEARCH: Looking for "${query}"`);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const searchResponse = await fetch(`${getKaiAjax()}/anime/search?keyword=${encodeURIComponent(query)}`, {
-      headers: HEADERS,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    let searchData: any;
+    // Fetch search results (with domain fallback)
+    let searchData: any = null;
     
-    if (!searchResponse.ok) {
-      console.log(`[AnimeKai] Search failed: HTTP ${searchResponse.status}`);
-      
-      // Try fallback domain
-      if (KAI_BASE === KAI_DOMAINS[0] && KAI_DOMAINS.length > 1) {
-        console.log(`[AnimeKai] Trying fallback domain for title search...`);
-        try {
-          const fallbackResp = await fetch(`${KAI_DOMAINS[1]}/ajax/anime/search?keyword=${encodeURIComponent(query)}`, {
-            headers: HEADERS,
-            signal: AbortSignal.timeout(10000),
-          });
-          if (fallbackResp.ok) {
-            KAI_BASE = KAI_DOMAINS[1];
-            console.log(`[AnimeKai] Switched to fallback domain: ${KAI_BASE}`);
-            searchData = await fallbackResp.json();
-          } else {
-            return null;
+    for (const domain of KAI_DOMAINS) {
+      try {
+        const searchResponse = await fetch(`${domain}/ajax/anime/search?keyword=${encodeURIComponent(query)}`, {
+          headers: HEADERS,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (searchResponse.ok) {
+          searchData = await searchResponse.json();
+          if (searchData.result?.html) {
+            if (domain !== KAI_BASE) {
+              KAI_BASE = domain;
+              console.log(`[AnimeKai] Switched to domain: ${KAI_BASE}`);
+            }
+            break;
           }
-        } catch {
-          return null;
         }
-      } else {
-        return null;
-      }
-    } else {
-      searchData = await searchResponse.json();
+      } catch { /* try next domain */ }
     }
 
-    const searchHtml = searchData.result?.html;
-    
-    if (!searchHtml) {
-      console.log(`[AnimeKai] No search results HTML`);
+    if (!searchData?.result?.html) {
+      console.log(`[AnimeKai] No search results from any domain`);
+      searchCache.set(cacheKey, { result: null, ts: Date.now() });
       return null;
     }
+
+    const searchHtml = searchData.result.html;
 
     // Parse search results - extract slug and title
     const animeRegex = /<a[^>]*href="\/watch\/([^"]+)"[^>]*>[\s\S]*?<h6[^>]*class="title"[^>]*(?:data-jp="([^"]*)")?[^>]*>([^<]*)<\/h6>/gi;
@@ -728,6 +719,7 @@ async function searchAnimeKaiByTitle(query: string): Promise<{ content_id: strin
     // If score is too low, reject the match
     if (bestScore < 30) {
       console.log(`[AnimeKai] Score too low (${bestScore} < 30), rejecting match`);
+      searchCache.set(cacheKey, { result: null, ts: Date.now() });
       return null;
     }
 
@@ -737,7 +729,7 @@ async function searchAnimeKaiByTitle(query: string): Promise<{ content_id: strin
 
     const watchResponse = await fetch(watchUrl, {
       headers: HEADERS,
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!watchResponse.ok) {
@@ -778,14 +770,17 @@ async function searchAnimeKaiByTitle(query: string): Promise<{ content_id: strin
 
     if (!kaiId) {
       console.log(`[AnimeKai] Could not extract kai_id from watch page`);
+      searchCache.set(cacheKey, { result: null, ts: Date.now() });
       return null;
     }
 
     console.log(`[AnimeKai] Found: "${bestResult.enTitle}" (kai_id: ${kaiId})`);
-    return {
+    const result = {
       content_id: kaiId,
       title: bestResult.enTitle || bestResult.jpTitle,
     };
+    searchCache.set(cacheKey, { result, ts: Date.now() });
+    return result;
   } catch (error) {
     console.log(`[AnimeKai] Title search error:`, error);
     return null;
@@ -1212,7 +1207,7 @@ async function getStreamFromServer(lid: string, serverName: string): Promise<Str
     
     try {
       const extractResponse = await fetch(extractUrl, {
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(20000),
       });
       
       const extractData = await extractResponse.json();
