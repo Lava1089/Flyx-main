@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { getStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getProviderSettings } from '@/lib/sync';
 
 // Dynamically import players to reduce initial bundle size
 const DesktopVideoPlayer = dynamic(
@@ -122,13 +123,38 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
         console.warn('[VideoPlayerWrapper] Anime check failed:', e);
       }
 
-      // Build provider order: VidSrc > Flixer > 1movies > Videasy
+      // Build provider order respecting user's preferred order from settings
+      const userSettings = getProviderSettings();
+      const userOrder = userSettings.providerOrder || [];
+      const disabledProviders = new Set(userSettings.disabledProviders || []);
+      const animeOnlyProviders = ['animekai', 'hianime'];
+
       const providerOrder: string[] = [];
-      if (isAnime && availability.animekai) providerOrder.push('animekai');
-      if (availability.vidsrc) providerOrder.push('vidsrc');
-      if (availability.flixer) providerOrder.push('flixer');
-      if (availability['1movies']) providerOrder.push('1movies');
-      providerOrder.push('videasy');
+
+      // For anime: always put anime providers first
+      if (isAnime && availability.animekai && !disabledProviders.has('animekai')) {
+        providerOrder.push('animekai');
+      }
+
+      // Add providers from user's preferred order
+      for (const p of userOrder) {
+        if (providerOrder.includes(p)) continue;
+        if (disabledProviders.has(p)) continue;
+        if (!isAnime && animeOnlyProviders.includes(p)) continue;
+        if (p !== 'videasy' && !availability[p as keyof typeof availability]) continue;
+        providerOrder.push(p);
+      }
+
+      // Add any remaining available providers as fallback
+      const allProviders = isAnime
+        ? ['animekai', 'videasy', 'flixer', 'vidsrc', '1movies']
+        : ['flixer', 'videasy', 'vidsrc', '1movies'];
+      for (const p of allProviders) {
+        if (providerOrder.includes(p)) continue;
+        if (disabledProviders.has(p)) continue;
+        if (!availability[p as keyof typeof availability] && p !== 'videasy') continue;
+        providerOrder.push(p);
+      }
 
       // Try each provider
       for (const provider of providerOrder) {

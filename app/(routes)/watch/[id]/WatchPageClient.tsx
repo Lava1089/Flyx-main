@@ -392,33 +392,43 @@ function WatchContent() {
         console.warn('[WatchPage] Failed to fetch provider availability, using defaults');
       }
       
-      // Build provider order matching desktop player:
-      // For ANIME: HiAnime first, then AnimeKai (both have sub+dub sources)
-      // For non-anime: Flixer (PRIMARY), Videasy, VidSrc, 1movies
+      // Build provider order respecting user's preferred order from settings
+      const userSettings = getProviderSettings();
+      const userOrder = userSettings.providerOrder || [];
+      const disabledProviders = new Set(userSettings.disabledProviders || []);
       const providerOrder: Array<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime'> = [];
       
       // Determine if this is anime content - use malId OR previously detected anime
       const isAnime = !!(malId || isAnimeDetectedRef.current);
       
-      // For ANIME content: HiAnime + AnimeKai as provider tabs
+      const animeOnlyProviders = ['animekai', 'hianime'];
+      const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime'> = isAnime
+        ? ['hianime', 'animekai', 'flixer', 'videasy', 'vidsrc', '1movies']
+        : ['flixer', 'videasy', 'vidsrc', '1movies'];
+
+      // For ANIME content: always put HiAnime + AnimeKai first (sub/dub toggle needs them)
       if (isAnime) {
-        if (providerAvailability.hianime) providerOrder.push('hianime');
-        if (providerAvailability.animekai) providerOrder.push('animekai');
+        if (providerAvailability.hianime && !disabledProviders.has('hianime')) providerOrder.push('hianime');
+        if (providerAvailability.animekai && !disabledProviders.has('animekai')) providerOrder.push('animekai');
         console.log('[WatchPage] ✓ Anime providers for mobile:', providerOrder.join(', '));
       }
-      
-      // Add remaining providers — Flixer first for non-anime
-      if (providerAvailability.flixer) {
-        providerOrder.push('flixer');
+
+      // Add providers from user's preferred order
+      for (const p of userOrder) {
+        const provider = p as typeof providerOrder[number];
+        if (providerOrder.includes(provider)) continue;
+        if (disabledProviders.has(provider)) continue;
+        if (!isAnime && animeOnlyProviders.includes(provider)) continue;
+        if (provider !== 'videasy' && !providerAvailability[provider as keyof typeof providerAvailability]) continue;
+        providerOrder.push(provider);
       }
-      if (providerAvailability.videasy) {
-        providerOrder.push('videasy');
-      }
-      if (providerAvailability.vidsrc) {
-        providerOrder.push('vidsrc');
-      }
-      if (providerAvailability['1movies']) {
-        providerOrder.push('1movies');
+
+      // Add any remaining available providers not in user's order as fallback
+      for (const provider of allKnownProviders) {
+        if (providerOrder.includes(provider)) continue;
+        if (disabledProviders.has(provider)) continue;
+        if (!providerAvailability[provider as keyof typeof providerAvailability]) continue;
+        providerOrder.push(provider);
       }
       
       // Set available providers for the mobile player tabs

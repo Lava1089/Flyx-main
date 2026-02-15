@@ -244,6 +244,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     hianime: true, // HiAnime - primary anime provider (MegaCloud extraction)
   });
   const [isAnimeContent, setIsAnimeContent] = useState(false); // Track if current content is anime
+  const [providerTabOrder, setProviderTabOrder] = useState<string[]>([]); // User-preferred provider tab order
   const [highlightServerButton, setHighlightServerButton] = useState(false);
   
   // Anime-specific preferences
@@ -878,29 +879,18 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         console.log(`[VideoPlayer] ✓ AnimeKai is FALLBACK for anime content`);
       }
       
-      // For non-anime content: ALWAYS Flixer first (fastest, most reliable)
-      // Ignore user's saved order — Flixer is the hardcoded primary
-      if (!isAnime && availability.flixer && !disabledProviders.has('flixer')) {
-        providerOrder.push('flixer');
-        console.log(`[VideoPlayer] ✓ Flixer is PRIMARY for non-anime content`);
-      }
-      if (!isAnime && !disabledProviders.has('videasy')) {
-        providerOrder.push('videasy');
-      }
-      
-      // Add remaining providers from user's preferred order (skipping already-added ones)
+      // For non-anime content: respect user's preferred provider order
+      // Add providers from user's saved order first (skipping anime-only for non-anime)
       for (const providerName of userOrder) {
         if (providerOrder.includes(providerName)) continue;
         if (disabledProviders.has(providerName)) continue;
-        if (!availability[providerName as keyof typeof availability]) continue;
-        // Skip anime-only providers for non-anime content
         if (!isAnime && animeOnlyProviders.includes(providerName)) continue;
+        // videasy is always available, others need availability check
+        if (providerName !== 'videasy' && !availability[providerName as keyof typeof availability]) continue;
         providerOrder.push(providerName);
       }
       
-      // Add any remaining available providers not in user's order
-      // For anime: prioritize videasy as fallback (other providers don't work well for anime)
-      // For non-anime: vidsrc is primary
+      // Add any remaining available providers not in user's order as fallback
       const allProviders = isAnime 
         ? ['hianime', 'animekai', 'videasy', 'flixer', 'vidsrc', '1movies']
         : ['flixer', 'videasy', 'vidsrc', '1movies'];
@@ -913,6 +903,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
 
       console.log(`[VideoPlayer] Provider order: ${providerOrder.join(' → ')} (isAnime=${isAnime}, animekai=${availability.animekai})`);
 
+      // Store the computed order for tab rendering and keyboard navigation
+      setProviderTabOrder([...providerOrder]);
       // Try each provider in order until one works
       let result: { sources: any[], provider: string } | null = null;
       
@@ -2015,18 +2007,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           }
           // If server menu is open, navigate tabs left
           if (showServerMenu) {
-            const availableProviders: string[] = [];
-            if (isAnimeContent) {
-              // Anime content: navigate between HiAnime and AnimeKai
-              if (providerAvailability.hianime) availableProviders.push('hianime');
-              if (providerAvailability.animekai) availableProviders.push('animekai');
-            } else {
-              // Non-anime content: navigate between VidSrc, Flixer, 1movies, and Videasy
-              if (providerAvailability.vidsrc) availableProviders.push('vidsrc');
-              if (providerAvailability.flixer) availableProviders.push('flixer');
-              if (providerAvailability['1movies']) availableProviders.push('1movies');
-              availableProviders.push('videasy');
-            }
+            const availableProviders = providerTabOrder.filter(p => providerAvailability[p]);
             
             const currentTabIndex = availableProviders.indexOf(menuProvider);
             if (currentTabIndex > 0) {
@@ -2082,18 +2063,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           }
           // If server menu is open, navigate tabs right
           if (showServerMenu) {
-            const availableProviders: string[] = [];
-            if (isAnimeContent) {
-              // Anime content: navigate between HiAnime and AnimeKai
-              if (providerAvailability.hianime) availableProviders.push('hianime');
-              if (providerAvailability.animekai) availableProviders.push('animekai');
-            } else {
-              // Non-anime content: navigate between VidSrc, Flixer, 1movies, and Videasy
-              if (providerAvailability.vidsrc) availableProviders.push('vidsrc');
-              if (providerAvailability.flixer) availableProviders.push('flixer');
-              if (providerAvailability['1movies']) availableProviders.push('1movies');
-              availableProviders.push('videasy');
-            }
+            const availableProviders = providerTabOrder.filter(p => providerAvailability[p]);
             
             const currentTabIndex = availableProviders.indexOf(menuProvider);
             if (currentTabIndex < availableProviders.length - 1) {
@@ -4516,87 +4486,34 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                   </button>
                 </div>
 
-                {/* Provider tabs for anime content (AnimeKai + HiAnime) */}
-                {isAnimeContent && (
-                  <div className={styles.tabsContainer} data-server-tabs="true">
-                    {providerAvailability.hianime && (
-                      <button
-                        className={`${styles.tab} ${menuProvider === 'hianime' ? styles.active : ''}`}
-                        data-server-tab="hianime"
-                        onClick={() => {
-                          setMenuProvider('hianime');
-                          fetchSources('hianime');
-                        }}
-                      >
-                        HiAnime
-                      </button>
-                    )}
-                    {providerAvailability.animekai && (
-                      <button
-                        className={`${styles.tab} ${menuProvider === 'animekai' ? styles.active : ''}`}
-                        data-server-tab="animekai"
-                        onClick={() => {
-                          setMenuProvider('animekai');
-                          fetchSources('animekai');
-                        }}
-                      >
-                        AnimeKai
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Provider tabs for non-anime content */}
-                {!isAnimeContent && (
-                  <div className={styles.tabsContainer} data-server-tabs="true">
-                    {providerAvailability.vidsrc && (
-                      <button
-                        className={`${styles.tab} ${menuProvider === 'vidsrc' ? styles.active : ''}`}
-                        data-server-tab="vidsrc"
-                        onClick={() => {
-                          setMenuProvider('vidsrc');
-                          fetchSources('vidsrc');
-                        }}
-                      >
-                        VidSrc
-                      </button>
-                    )}
-                    {providerAvailability['1movies'] && (
-                      <button
-                        className={`${styles.tab} ${menuProvider === '1movies' ? styles.active : ''}`}
-                        data-server-tab="1movies"
-                        onClick={() => {
-                          setMenuProvider('1movies');
-                          fetchSources('1movies');
-                        }}
-                      >
-                        1movies
-                      </button>
-                    )}
-                    {providerAvailability.flixer && (
-                      <button
-                        className={`${styles.tab} ${menuProvider === 'flixer' ? styles.active : ''}`}
-                        data-server-tab="flixer"
-                        onClick={() => {
-                          setMenuProvider('flixer');
-                          fetchSources('flixer');
-                        }}
-                      >
-                        Flixer
-                      </button>
-                    )}
-                    <button
-                      className={`${styles.tab} ${menuProvider === 'videasy' ? styles.active : ''}`}
-                      data-server-tab="videasy"
-                      onClick={() => {
-                        setMenuProvider('videasy');
-                        fetchSources('videasy');
-                      }}
-                    >
-                      Videasy
-                    </button>
-                  </div>
-                )}
+                {/* Provider tabs rendered in user's preferred order */}
+                <div className={styles.tabsContainer} data-server-tabs="true">
+                  {providerTabOrder
+                    .filter(p => providerAvailability[p])
+                    .map(p => {
+                      const displayNames: Record<string, string> = {
+                        hianime: 'HiAnime',
+                        animekai: 'AnimeKai',
+                        vidsrc: 'VidSrc',
+                        '1movies': '1movies',
+                        flixer: 'Flixer',
+                        videasy: 'Videasy',
+                      };
+                      return (
+                        <button
+                          key={p}
+                          className={`${styles.tab} ${menuProvider === p ? styles.active : ''}`}
+                          data-server-tab={p}
+                          onClick={() => {
+                            setMenuProvider(p);
+                            fetchSources(p);
+                          }}
+                        >
+                          {displayNames[p] || p}
+                        </button>
+                      );
+                    })}
+                </div>
 
                 {/* Language filter for Videasy */}
                 {menuProvider === 'videasy' && (
