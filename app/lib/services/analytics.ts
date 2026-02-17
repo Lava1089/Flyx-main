@@ -220,28 +220,6 @@ class AnalyticsService {
       // Ignore storage errors
     }
   }
-  
-  /**
-   * Track session end for duration calculation
-   */
-  private trackSessionEnd(): void {
-    if (!this.userSession) return;
-    
-    try {
-      const startTime = parseInt(sessionStorage.getItem('flyx_session_start') || '0');
-      const pageViews = parseInt(sessionStorage.getItem('flyx_page_views') || '1');
-      const sessionDuration = startTime > 0 ? Math.round((Date.now() - startTime) / 1000) : 0;
-      
-      this.track('session_end', {
-        sessionDuration,
-        pageViews,
-        exitPage: window.location.pathname,
-        isBounce: pageViews <= 1,
-      });
-    } catch (e) {
-      // Ignore storage errors
-    }
-  }
 
   /**
    * Track a generic event
@@ -283,10 +261,7 @@ class AnalyticsService {
    * Track page view
    */
   trackPageView(path: string, data?: PageViewEvent): void {
-    // Sync previous page view before starting new one
-    if (this.currentPageView && this.currentPageView.path !== path) {
-      this.syncCurrentPageView();
-    }
+    // Previous page view sync handled by UnifiedAnalyticsClient's batch
     
     this.track('page_view', {
       page: path,
@@ -348,16 +323,6 @@ class AnalyticsService {
   }
   
   /**
-   * Start page tracking interval
-   * OPTIMIZED: Only sync on page exit, not periodically
-   * This dramatically reduces requests while still capturing accurate data
-   */
-  private startPageTracking(): void {
-    // No periodic syncing - only sync on page exit/navigation
-    // Page view data is captured on beforeunload and visibilitychange
-  }
-  
-  /**
    * Stop page tracking
    */
   private stopPageTracking(): void {
@@ -365,22 +330,6 @@ class AnalyticsService {
       clearInterval(this.pageTrackingInterval);
       this.pageTrackingInterval = null;
     }
-  }
-  
-  /**
-   * Sync current page view - DISABLED
-   * Page view tracking is now handled by UnifiedAnalyticsClient's batch sync.
-   */
-  private async syncCurrentPageView(isExit: boolean = false): Promise<void> {
-    // No-op: UnifiedAnalyticsClient handles page view syncing via PresenceProvider
-  }
-  
-  /**
-   * Sync user engagement metrics - DISABLED
-   * Engagement tracking is now handled by UnifiedAnalyticsClient's batch sync.
-   */
-  private async syncUserEngagement(): Promise<void> {
-    // No-op: UnifiedAnalyticsClient handles engagement syncing
   }
 
   /**
