@@ -182,8 +182,8 @@ export async function GET(request: NextRequest) {
 function rewritePlaylistUrls(
   playlist: string,
   baseUrl: string,
-  source: string,
-  referer: string
+  _source: string,
+  _referer: string
 ): string {
   const lines = playlist.split('\n');
   const rewritten: string[] = [];
