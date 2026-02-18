@@ -4,7 +4,7 @@
  * 
  * Provider Priority:
  * - Flixer: PRIMARY provider (WASM-based extraction, 2-3s)
- * - Videasy: 2nd fallback (multi-language WASM decryption)
+ * - VidLink: 2nd fallback (AES-256-CBC decryption)
  * - VidSrc: 3rd fallback (Turnstile issues)
  * - 1movies: DISABLED
  * - AnimeKai: PRIMARY for anime content only (auto-detected via MAL ID)
@@ -25,9 +25,9 @@ export async function GET() {
         primary: true,
         description: 'Primary streaming source (WASM-based extraction)',
       },
-      videasy: {
+      vidlink: {
         enabled: true,
-        name: 'Videasy',
+        name: 'VidLink',
         primary: false,
         description: 'Multi-language streaming fallback',
       },

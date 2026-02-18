@@ -123,7 +123,7 @@ export default function AboutPage() {
               </p>
               <p>
                 <strong>Update (January 2026):</strong> The platform has undergone significant 
-                evolution. We now support 8 fully reverse-engineered providers: Vidsrc, Videasy, 
+                evolution. We now support 8 fully reverse-engineered providers: Vidsrc, VidLink, 
                 AnimeKai, MegaUp, Flixer (WASM), 111movies, and DLHD Live TV. Each provider required 
                 unique cryptographic analysis—from AES-256-CBC to Rust-compiled WebAssembly to 
                 Proof-of-Work authentication systems.
@@ -428,7 +428,7 @@ export default function AboutPage() {
                 <span className="phase-num">03</span>
                 <div>
                   <h4>Provider Migration & Expansion</h4>
-                  <p>Deprecating 2Embed and MoviesAPI. Adding Vidsrc, Videasy, AnimeKai, Flixer WASM, 
+                  <p>Deprecating 2Embed and MoviesAPI. Adding Vidsrc, VidLink, AnimeKai, Flixer WASM, 
                   111movies, MegaUp, and DLHD Live TV.</p>
                   <span className="phase-time">Weeks 17-28</span>
                 </div>
@@ -496,7 +496,7 @@ export default function AboutPage() {
               </div>
               <div className="tech-item">
                 <strong>8 Stream Providers</strong>
-                <p>Vidsrc, Videasy, AnimeKai, MegaUp, Flixer, 111movies, DLHD, and fallbacks.</p>
+                <p>Vidsrc, VidLink, AnimeKai, MegaUp, Flixer, 111movies, DLHD, and fallbacks.</p>
               </div>
             </div>
 
@@ -555,8 +555,8 @@ export default function AboutPage() {
                 <p>AES-256-CBC + XOR + Base64 + alphabet substitution. Five layers of obfuscation.</p>
               </div>
               <div className="provider-card">
-                <h4>📡 Vidsrc + Videasy</h4>
-                <p>Static decoders. HEX format, ROT3 encoding. Multi-language support (17 servers).</p>
+                <h4>📡 Vidsrc + VidLink</h4>
+                <p>AES-256-CBC decryption. Multi-language support (17 servers).</p>
               </div>
             </div>
 
@@ -764,7 +764,7 @@ export default function AboutPage() {
             
             <h3>11.1 Completed Since Initial Release</h3>
             <ul>
-              <li><strong>8 Providers:</strong> Vidsrc, Videasy, AnimeKai, MegaUp, Flixer, 111movies, DLHD, fallbacks</li>
+              <li><strong>8 Providers:</strong> Vidsrc, VidLink, AnimeKai, MegaUp, Flixer, 111movies, DLHD, fallbacks</li>
               <li><strong>Live TV:</strong> 850+ channels with PoW authentication</li>
               <li><strong>Hybrid Anime:</strong> TMDB browse + MAL details with automatic episode mapping</li>
               <li><strong>Multi-Platform:</strong> Chromecast, AirPlay, TV navigation, Copy URL</li>

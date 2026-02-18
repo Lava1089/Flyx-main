@@ -473,7 +473,7 @@ function getEmptySyncData(): SyncData {
 
 function getDefaultProviderSettings(): ProviderSettings {
   return {
-    providerOrder: ['flixer', 'videasy', 'vidsrc', '1movies', 'animekai'],
+    providerOrder: ['flixer', 'vidlink', 'vidsrc', '1movies', 'animekai'],
     disabledProviders: [],
     lastSuccessfulProviders: {},
     animeAudioPreference: 'sub',

@@ -33,8 +33,8 @@ const PROVIDERS: ProviderInfo[] = [
     icon: '🎥',
   },
   {
-    id: 'videasy',
-    name: 'Videasy',
+    id: 'vidlink',
+    name: 'VidLink',
     description: 'Multi-language support',
     icon: '🌍',
   },

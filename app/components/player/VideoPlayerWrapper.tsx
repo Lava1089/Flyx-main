@@ -107,7 +107,7 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
         vidsrc: providersData.providers?.vidsrc?.enabled ?? true,
         flixer: providersData.providers?.flixer?.enabled ?? true,
         '1movies': providersData.providers?.['1movies']?.enabled ?? true,
-        videasy: providersData.providers?.videasy?.enabled ?? true,
+        vidlink: providersData.providers?.vidlink?.enabled ?? true,
         animekai: providersData.providers?.animekai?.enabled ?? true,
       };
 
@@ -141,18 +141,18 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
         if (providerOrder.includes(p)) continue;
         if (disabledProviders.has(p)) continue;
         if (!isAnime && animeOnlyProviders.includes(p)) continue;
-        if (p !== 'videasy' && !availability[p as keyof typeof availability]) continue;
+        if (p !== 'vidlink' && !availability[p as keyof typeof availability]) continue;
         providerOrder.push(p);
       }
 
       // Add any remaining available providers as fallback
       const allProviders = isAnime
-        ? ['animekai', 'videasy', 'flixer', 'vidsrc', '1movies']
-        : ['flixer', 'videasy', 'vidsrc', '1movies'];
+        ? ['animekai', 'vidlink', 'flixer', 'vidsrc', '1movies']
+        : ['flixer', 'vidlink', 'vidsrc', '1movies'];
       for (const p of allProviders) {
         if (providerOrder.includes(p)) continue;
         if (disabledProviders.has(p)) continue;
-        if (!availability[p as keyof typeof availability] && p !== 'videasy') continue;
+        if (!availability[p as keyof typeof availability] && p !== 'vidlink') continue;
         providerOrder.push(p);
       }
 

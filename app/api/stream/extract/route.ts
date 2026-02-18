@@ -2,17 +2,17 @@
  * Stream Extract API - Multi-Provider Stream Extraction
  * 
  * Provider Priority (February 2026):
- * - For ANIME content: AnimeKai (PRIMARY) → Videasy (fallback)
- * - For other content: Flixer (PRIMARY) → Videasy → VidSrc → 1movies → SmashyStream → MultiMovies → MultiEmbed
+ * - For ANIME content: AnimeKai (PRIMARY) → VidLink (fallback)
+ * - For other content: Flixer (PRIMARY) → VidLink → VidSrc → 1movies → SmashyStream → MultiMovies → MultiEmbed
  * 
  * NOTE: Flixer is PRIMARY - WASM-based extraction, 2-3s, most reliable.
- *       Videasy is SECONDARY - handrolled WASM decryption, good fallback.
+ *       VidLink is SECONDARY - AES-256-CBC decryption, good fallback.
  *       1movies is DISABLED.
  *       VidSrc deprioritized due to Cloudflare Turnstile blocking ~80% of content.
  * 
  * GET /api/stream/extract?tmdbId=550&type=movie
  * GET /api/stream/extract?tmdbId=1396&type=tv&season=1&episode=1
- * GET /api/stream/extract?tmdbId=507089&type=movie&provider=videasy
+ * GET /api/stream/extract?tmdbId=507089&type=movie&provider=vidlink
  * GET /api/stream/extract?tmdbId=507089&type=movie&provider=animekai
  * GET /api/stream/extract?tmdbId=507089&type=movie&provider=vidsrc
  * GET /api/stream/extract?tmdbId=507089&type=movie&provider=flixer
@@ -24,7 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractOneMoviesStreams, fetchOneMoviesSourceByName, ONEMOVIES_ENABLED } from '@/app/lib/services/onemovies-extractor';
 import { extractVidSrcStreams, VIDSRC_ENABLED } from '@/app/lib/services/vidsrc-extractor';
-import { extractVideasyStreams, fetchVideasySourceByName } from '@/app/lib/services/videasy-extractor';
+import { extractVidLinkStreams, fetchVidLinkSourceByName } from '@/app/lib/services/vidlink-extractor';
 import { extractAnimeKaiStreams, fetchAnimeKaiSourceByName, isAnimeContent, ANIMEKAI_ENABLED } from '@/app/lib/services/animekai-extractor';
 import { extractMultiEmbedStreams, fetchMultiEmbedSourceByName, MULTI_EMBED_ENABLED } from '@/app/lib/services/multi-embed-extractor';
 import { extractSmashyStreamStreams, fetchSmashyStreamSourceByName, SMASHYSTREAM_ENABLED } from '@/app/lib/services/smashystream-extractor';
@@ -269,7 +269,7 @@ export async function GET(request: NextRequest) {
     }
     
     // Validate provider (whitelist)
-    const validProviders = ['auto', 'animekai', 'vidsrc', 'flixer', '1movies', 'videasy', 'smashystream', 'multimovies', 'multiembed'];
+    const validProviders = ['auto', 'animekai', 'vidsrc', 'flixer', '1movies', 'vidlink', 'smashystream', 'multimovies', 'multiembed'];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Invalid provider. Must be one of: ${validProviders.join(', ')}` },
@@ -351,9 +351,9 @@ export async function GET(request: NextRequest) {
       } else if (provider === 'multiembed' || ['Cloudy', 'XPrime', 'Hexa'].includes(sourceName)) {
         source = await fetchMultiEmbedSourceByName(sourceName, tmdbId, type, season, episode);
         usedProvider = 'multiembed';
-      } else if (provider === 'videasy' || sourceName.includes('(')) {
-        source = await fetchVideasySourceByName(sourceName, tmdbId, type, season, episode);
-        usedProvider = 'videasy';
+      } else if (provider === 'vidlink' || sourceName.includes('(')) {
+        source = await fetchVidLinkSourceByName(sourceName, tmdbId, type, season, episode);
+        usedProvider = 'vidlink';
       }
       
       if (source) {
@@ -550,17 +550,17 @@ export async function GET(request: NextRequest) {
           }
         }
         
-        // Fallback to Videasy for anime if AnimeKai fails (only for auto-detected anime, not explicit requests)
-        console.log('[EXTRACT] Falling back to Videasy for anime...');
-        const videasyResult = await extractVideasyStreams(tmdbId, type, season, episode, true);
-        const workingSources = videasyResult.sources.filter(s => s.status === 'working');
+        // Fallback to VidLink for anime if AnimeKai fails (only for auto-detected anime, not explicit requests)
+        console.log('[EXTRACT] Falling back to VidLink for anime...');
+        const vidlinkResult = await extractVidLinkStreams(tmdbId, type, season, episode, true);
+        const workingSources = vidlinkResult.sources.filter(s => s.status === 'working');
         
         if (workingSources.length > 0) {
-          console.log(`[EXTRACT] ✓ Videasy (anime fallback): ${workingSources.length} working`);
-          return { sources: videasyResult.sources, provider: 'videasy' };
+          console.log(`[EXTRACT] ✓ VidLink (anime fallback): ${workingSources.length} working`);
+          return { sources: vidlinkResult.sources, provider: 'vidlink' };
         }
         
-        throw new Error(videasyResult.error || 'All anime sources failed');
+        throw new Error(vidlinkResult.error || 'All anime sources failed');
       }
       
       // If explicitly requesting 1movies, use it directly (no fallback to preserve tab separation)
@@ -597,26 +597,26 @@ export async function GET(request: NextRequest) {
         throw new Error(flixerResult.error || 'Flixer returned no sources');
       }
       
-      // If explicitly requesting videasy, use it directly
-      if (provider === 'videasy') {
-        console.log('[EXTRACT] Using Videasy (explicit request)...');
-        const videasyResult = await extractVideasyStreams(tmdbId, type, season, episode);
+      // If explicitly requesting vidlink, use it directly
+      if (provider === 'vidlink') {
+        console.log('[EXTRACT] Using VidLink (explicit request)...');
+        const vidlinkResult = await extractVidLinkStreams(tmdbId, type, season, episode);
         
-        if (videasyResult.sources.length > 0) {
-          const workingSources = videasyResult.sources.filter(s => s.status === 'working');
+        if (vidlinkResult.sources.length > 0) {
+          const workingSources = vidlinkResult.sources.filter(s => s.status === 'working');
           
           if (workingSources.length > 0) {
-            console.log(`[EXTRACT] ✓ Videasy: ${workingSources.length} working, ${videasyResult.sources.length} total`);
-            return { sources: videasyResult.sources, provider: 'videasy' };
+            console.log(`[EXTRACT] ✓ VidLink: ${workingSources.length} working, ${vidlinkResult.sources.length} total`);
+            return { sources: vidlinkResult.sources, provider: 'vidlink' };
           }
         }
         
-        if (videasyResult.sources.length > 0) {
-          console.log(`[EXTRACT] Videasy: ${videasyResult.sources.length} sources (none working)`);
-          return { sources: videasyResult.sources, provider: 'videasy' };
+        if (vidlinkResult.sources.length > 0) {
+          console.log(`[EXTRACT] VidLink: ${vidlinkResult.sources.length} sources (none working)`);
+          return { sources: vidlinkResult.sources, provider: 'vidlink' };
         }
         
-        throw new Error(videasyResult.error || 'Videasy returned no sources');
+        throw new Error(vidlinkResult.error || 'VidLink returned no sources');
       }
       
       // If explicitly requesting vidsrc, use it directly (no fallback to preserve tab separation)
@@ -696,7 +696,7 @@ export async function GET(request: NextRequest) {
         throw new Error(multiEmbedResult.error || 'MultiEmbed returned no sources');
       }
       
-      // Default behavior: Flixer FIRST (back online, WASM-based, 2-3s), then Videasy
+      // Default behavior: Flixer FIRST (back online, WASM-based, 2-3s), then VidLink
       // NOTE: 1movies is DISABLED, SmashyStream/MultiMovies/MultiEmbed are DISABLED
       // VidSrc deprioritized due to Cloudflare Turnstile
       
@@ -719,19 +719,19 @@ export async function GET(request: NextRequest) {
         console.log('[EXTRACT] Flixer is DISABLED, skipping...');
       }
       
-      // Try Videasy as SECOND option (multi-language support, WASM decryption)
-      console.log('[EXTRACT] Trying fallback source: Videasy (multi-language)...');
+      // Try VidLink as SECOND option (multi-language support, AES-256 decryption)
+      console.log('[EXTRACT] Trying fallback source: VidLink (multi-language)...');
       try {
-        const videasyResult = await extractVideasyStreams(tmdbId, type, season, episode, true);
-        const workingVideasy = videasyResult.sources.filter(s => s.status === 'working');
+        const vidlinkResult = await extractVidLinkStreams(tmdbId, type, season, episode, true);
+        const workingVidLink = vidlinkResult.sources.filter(s => s.status === 'working');
         
-        if (workingVideasy.length > 0) {
-          console.log(`[EXTRACT] ✓ Videasy succeeded with ${workingVideasy.length} working source(s)`);
-          return { sources: videasyResult.sources, provider: 'videasy' };
+        if (workingVidLink.length > 0) {
+          console.log(`[EXTRACT] ✓ VidLink succeeded with ${workingVidLink.length} working source(s)`);
+          return { sources: vidlinkResult.sources, provider: 'vidlink' };
         }
-        console.log(`[EXTRACT] Videasy: ${videasyResult.error || 'No working sources'}`);
-      } catch (videasyError) {
-        console.warn('[EXTRACT] Videasy failed:', videasyError instanceof Error ? videasyError.message : videasyError);
+        console.log(`[EXTRACT] VidLink: ${vidlinkResult.error || 'No working sources'}`);
+      } catch (vidlinkError) {
+        console.warn('[EXTRACT] VidLink failed:', vidlinkError instanceof Error ? vidlinkError.message : vidlinkError);
       }
       
       // Try 1movies as SECOND option

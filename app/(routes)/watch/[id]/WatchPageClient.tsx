@@ -125,8 +125,8 @@ function WatchContent() {
   const [mobileResumeTime, setMobileResumeTime] = useState(0); // Saved playback time for source/audio changes
   
   // Provider state for mobile player
-  const [currentProvider, setCurrentProvider] = useState<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime' | undefined>(undefined);
-  const [availableProviders, setAvailableProviders] = useState<Array<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime'>>([]);
+  const [currentProvider, setCurrentProvider] = useState<'vidsrc' | '1movies' | 'flixer' | 'vidlink' | 'animekai' | 'hianime' | undefined>(undefined);
+  const [availableProviders, setAvailableProviders] = useState<Array<'vidsrc' | '1movies' | 'flixer' | 'vidlink' | 'animekai' | 'hianime'>>([]);
   const [loadingProvider, setLoadingProvider] = useState(false);
   
   // Anime state for mobile player
@@ -376,7 +376,7 @@ function WatchContent() {
       }
       
       // Check provider availability first
-      let providerAvailability = { vidsrc: true, flixer: true, '1movies': true, videasy: true, animekai: true, hianime: true };
+      let providerAvailability = { vidsrc: true, flixer: true, '1movies': true, vidlink: true, animekai: true, hianime: true };
       try {
         const providerRes = await fetch('/api/providers');
         const providerData = await providerRes.json();
@@ -384,7 +384,7 @@ function WatchContent() {
           vidsrc: providerData.providers?.vidsrc?.enabled ?? true,
           flixer: providerData.providers?.flixer?.enabled ?? true,
           '1movies': providerData.providers?.['1movies']?.enabled ?? true,
-          videasy: providerData.providers?.videasy?.enabled ?? true,
+          vidlink: providerData.providers?.vidlink?.enabled ?? true,
           animekai: providerData.providers?.animekai?.enabled ?? true,
           hianime: providerData.providers?.hianime?.enabled ?? true,
         };
@@ -396,15 +396,15 @@ function WatchContent() {
       const userSettings = getProviderSettings();
       const userOrder = userSettings.providerOrder || [];
       const disabledProviders = new Set(userSettings.disabledProviders || []);
-      const providerOrder: Array<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime'> = [];
+      const providerOrder: Array<'vidsrc' | '1movies' | 'flixer' | 'vidlink' | 'animekai' | 'hianime'> = [];
       
       // Determine if this is anime content - use malId OR previously detected anime
       const isAnime = !!(malId || isAnimeDetectedRef.current);
       
       const animeOnlyProviders = ['animekai', 'hianime'];
-      const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime'> = isAnime
-        ? ['hianime', 'animekai', 'flixer', 'videasy', 'vidsrc', '1movies']
-        : ['flixer', 'videasy', 'vidsrc', '1movies'];
+      const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'vidlink' | 'animekai' | 'hianime'> = isAnime
+        ? ['hianime', 'animekai', 'flixer', 'vidlink', 'vidsrc', '1movies']
+        : ['flixer', 'vidlink', 'vidsrc', '1movies'];
 
       // For ANIME content: always put HiAnime + AnimeKai first (sub/dub toggle needs them)
       if (isAnime) {
@@ -419,7 +419,7 @@ function WatchContent() {
         if (providerOrder.includes(provider)) continue;
         if (disabledProviders.has(provider)) continue;
         if (!isAnime && animeOnlyProviders.includes(provider)) continue;
-        if (provider !== 'videasy' && !providerAvailability[provider as keyof typeof providerAvailability]) continue;
+        if (provider !== 'vidlink' && !providerAvailability[provider as keyof typeof providerAvailability]) continue;
         providerOrder.push(provider);
       }
 
@@ -537,7 +537,7 @@ function WatchContent() {
   }, [fetchMobileStream]);
 
   // Handle provider change for mobile player
-  const handleProviderChange = useCallback(async (provider: 'vidsrc' | '1movies' | 'flixer' | 'videasy' | 'animekai' | 'hianime', currentTime: number = 0) => {
+  const handleProviderChange = useCallback(async (provider: 'vidsrc' | '1movies' | 'flixer' | 'vidlink' | 'animekai' | 'hianime', currentTime: number = 0) => {
     // Save current playback time to resume after provider change
     setMobileResumeTime(currentTime);
     setLoadingProvider(true);

@@ -12,7 +12,7 @@ const sections = [
   { id: '111movies', title: '111movies', icon: '🎬' },
   { id: 'flixer', title: 'Flixer (WASM)', icon: '🔐' },
   { id: 'vidsrc', title: 'VidSrc', icon: '📡' },
-  { id: 'videasy', title: 'Videasy', icon: '🌍' },
+  { id: 'vidlink', title: 'VidLink', icon: '🌍' },
   { id: 'animekai', title: 'AnimeKai', icon: '🎌' },
   { id: 'megaup', title: 'MegaUp', icon: '🔓' },
   { id: 'proxy-architecture', title: 'Proxy Architecture', icon: '🔄' },
@@ -26,7 +26,7 @@ const providerStats = [
   { name: '111movies', status: 'disabled', type: 'Movies/TV', method: 'Hash Obfuscation Changed' },
   { name: 'Flixer', status: 'working', type: 'Movies/TV', method: 'WASM Bundling' },
   { name: 'VidSrc', status: 'working', type: 'Movies/TV', method: 'Static Decoders' },
-  { name: 'Videasy', status: 'working', type: 'Multi-Lang', method: 'External API' },
+  { name: 'VidLink', status: 'working', type: 'Multi-Lang', method: 'AES-256-CBC' },
   { name: 'AnimeKai', status: 'working', type: 'Anime', method: 'Native Crypto (183 Tables)' },
   { name: 'MegaUp', status: 'working', type: 'CDN', method: 'UA-Based Stream Cipher' },
 ];
@@ -803,8 +803,8 @@ function decodeHexFormat(encoded) {
             </motion.div>
           </section>
 
-          {/* Videasy Section */}
-          <section id="videasy" className={styles.section}>
+          {/* VidLink Section */}
+          <section id="vidlink" className={styles.section}>
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -812,7 +812,7 @@ function decodeHexFormat(encoded) {
             >
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🌍</span>
-                Videasy - Multi-Language
+                VidLink - Multi-Language
               </h2>
               
               <div className={styles.statusBadge}>
