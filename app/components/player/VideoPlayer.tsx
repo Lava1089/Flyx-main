@@ -28,7 +28,7 @@ import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useCast, CastMedia } from '@/hooks/useCast';
 import { CastOverlay } from './CastButton';
 import TranscriptButton from './TranscriptButton';
-import { getStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
 import styles from './VideoPlayer.module.css';
 
 // Copy URL button with feedback for external players
@@ -1062,7 +1062,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         console.log('[VideoPlayer] Proxy check:', { requiresSegmentProxy: true, isAlreadyProxied, url: finalUrl.substring(0, 80) });
         if (!isAlreadyProxied) {
           const targetUrl = initialSource.directUrl || initialSource.url;
-          finalUrl = getStreamProxyUrl(targetUrl, successfulProvider, initialSource.referer || '');
+          finalUrl = getAnimeKaiProxyUrl(targetUrl);
           console.log('[VideoPlayer] Applied proxy to URL');
         }
       }

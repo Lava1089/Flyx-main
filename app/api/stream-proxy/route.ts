@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
 
 export const runtime = 'nodejs';
 
@@ -203,7 +203,7 @@ function rewritePlaylistUrls(
       absoluteUrl = `${base.origin}${basePath}${url}`;
     }
     
-    return getStreamProxyUrl(absoluteUrl, source, referer);
+    return getAnimeKaiProxyUrl(absoluteUrl);
   };
   
   for (const line of lines) {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { getStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
 import { getProviderSettings } from '@/lib/sync';
 
 // Dynamically import players to reduce initial bundle size
@@ -193,10 +193,8 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
                 sourceUrl.includes('/animekai');
               
               if (!isAlreadyProxied) {
-                sourceUrl = getStreamProxyUrl(
-                  sources[0].directUrl || sourceUrl,
-                  actualProvider,
-                  sources[0].referer || ''
+                sourceUrl = getAnimeKaiProxyUrl(
+                  sources[0].directUrl || sourceUrl
                 );
               }
             }
@@ -249,11 +247,7 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
         sourceUrl.includes('/animekai');
       
       if (!isAlreadyProxied) {
-        sourceUrl = getStreamProxyUrl(
-          sourceUrl,
-          streamData.provider,
-          ''
-        );
+        sourceUrl = getAnimeKaiProxyUrl(sourceUrl);
       }
     }
 
