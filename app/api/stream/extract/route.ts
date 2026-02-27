@@ -16,6 +16,7 @@ import { registry } from '@/app/lib/providers';
 import type { ExtractionRequest } from '@/app/lib/providers/types';
 import { isAnimeContent } from '@/app/lib/services/animekai-extractor';
 import { performanceMonitor } from '@/app/lib/utils/performance-monitor';
+import { getStreamProxyUrl, getAnimeKaiProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
 
 // ============================================================================
 // RATE LIMITING & ANTI-ABUSE
@@ -61,18 +62,33 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 // ============================================================================
 // PROXY URL HELPER
 // ============================================================================
-function maybeProxyUrl(source: any, _provider: string): string {
+function maybeProxyUrl(source: any, provider: string): string {
   if (!source.url) return '';
-  if (source.requiresSegmentProxy === false) return source.url;
+  // Only proxy if requiresSegmentProxy is true (default behavior for most sources)
+  if (source.requiresSegmentProxy === false) {
+    return source.url; // Return direct URL - browser will fetch directly
+  }
 
-  const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL ||
-                     process.env.CF_STREAM_PROXY_URL ||
-                     'https://media-proxy.vynx.workers.dev/stream';
-  const baseUrl = cfProxyUrl.replace(/\/stream\/?$/, '');
-  let proxiedUrl = `${baseUrl}/animekai?url=${encodeURIComponent(source.url)}`;
-  if (source.referer) proxiedUrl += `&referer=${encodeURIComponent(source.referer)}`;
-  if (source.skipOrigin) proxiedUrl += '&noreferer=true';
-  return proxiedUrl;
+  // These providers/CDNs block datacenter IPs (Cloudflare, AWS, etc.)
+  // They MUST go through /animekai route -> RPI residential proxy
+  const isAnimeKai = provider === 'animekai';
+  const isAnimeKaiSrc = isAnimeKaiSource(source);
+  const isMegaUpCdn = isMegaUpCdnUrl(source.url);
+  const is1moviesCdn = is1moviesCdnUrl(source.url);
+  const is1movies = provider === '1movies';
+  const isFlixer = provider === 'flixer';
+  const isVidLink = provider === 'vidlink';
+  const isMultiEmbed = provider === 'multi-embed' || provider === 'multiembed' || provider === 'hexa';
+  // VidLink CDN domains block datacenter IPs
+  const isVidLinkCdn = source.url.includes('vodvidl.site') || source.url.includes('videostr.net');
+
+  // Route through residential proxy for CDNs that block datacenter IPs
+  if (isAnimeKai || isAnimeKaiSrc || isMegaUpCdn || is1moviesCdn || is1movies || isFlixer || isVidLink || isVidLinkCdn || isMultiEmbed) {
+    return getAnimeKaiProxyUrl(source.url);
+  }
+
+  // Other sources use the standard /stream route
+  return getStreamProxyUrl(source.url, provider, source.referer, source.skipOrigin || false);
 }
 
 // ============================================================================
