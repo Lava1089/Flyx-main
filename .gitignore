@@ -19,6 +19,7 @@ cdn-live-extractor
 .vscode
 /data
 /docker/proxy/node_modules
+/rpi-proxy/node_modules
 # OpenNext / Cloudflare build output
 .open-next
 .wrangler

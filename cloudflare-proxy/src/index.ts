@@ -1,18 +1,16 @@
 /**
  * Combined Stream & TV Proxy Cloudflare Worker
  * 
+ * PURE ROUTING LAYER — matches request paths to handler modules and
+ * handles CORS preflight. All business logic, metrics, and error
+ * formatting live in dedicated modules.
+ * 
  * Routes:
  *   /stream/*    - Anti-leech stream proxy (requires token)
  *   /tv/*        - TV proxy for DLHD live streams
  *   /analytics/* - Analytics proxy (presence, events, pageviews)
  *   /decode      - Isolated decoder sandbox for untrusted scripts
  *   /health      - Health check endpoint
- * 
- * Anti-Leech Protection:
- *   - All stream requests require cryptographic tokens
- *   - Tokens are bound to browser fingerprint + session
- *   - Tokens expire after 5 minutes
- *   - Unauthorized requests get the ORIGINAL URL (not proxied)
  * 
  * Deploy: wrangler deploy
  * Tail logs: npx wrangler tail media-proxy
@@ -37,129 +35,52 @@ import { handlePPVRequest } from './ppv-proxy';
 import { handleVIPRowRequest } from './viprow-proxy';
 import { handleVidSrcRequest } from './vidsrc-proxy';
 import { handleHiAnimeRequest } from './hianime-proxy';
-import { createLogger, generateRequestId, type LogLevel } from './logger';
+import { createLogger, type LogLevel } from './logger';
+import { incrementMetric } from './metrics';
+import { corsPreflightResponse } from './cors';
+import { errorResponse, detailedErrorResponse } from './errors';
+import { buildHealthResponse, buildRootResponse } from './health';
 
-export interface Env {
-  API_KEY?: string;
-  RPI_PROXY_URL?: string;
-  RPI_PROXY_KEY?: string;
-  LOG_LEVEL?: string;
-  // TMDB API key for content proxy
-  TMDB_API_KEY?: string;
-  // Hetzner VPS proxy (for PPV.to streams only)
-  HETZNER_PROXY_URL?: string;
-  HETZNER_PROXY_KEY?: string;
-  // Anti-leech settings
-  ALLOWED_ORIGINS?: string;
-  SIGNING_SECRET?: string;
-  NONCE_KV?: KVNamespace;
-  SESSION_KV?: KVNamespace;
-  BLACKLIST_KV?: KVNamespace;
-  WATERMARK_SECRET?: string;
-  // Protection modes: 'none' | 'basic' | 'fortress' | 'quantum'
-  PROTECTION_MODE?: string;
-  // Legacy - kept for backwards compatibility
-  ENABLE_ANTI_LEECH?: string;
-  // Oxylabs proxy settings
-  OXYLABS_USERNAME?: string;
-  OXYLABS_PASSWORD?: string;
-  OXYLABS_ENDPOINT?: string;
-  OXYLABS_COUNTRY?: string;
-  OXYLABS_CITY?: string;
+export type { Env } from './env';
+import type { Env } from './env';
+
+
+/**
+ * Route table: maps path prefixes to their handler + metric key.
+ * Order matters — more specific prefixes must come before less specific ones.
+ * This is the single source of truth for all CF Worker routing.
+ */
+export interface RouteEntry {
+  /** Path prefix to match (startsWith) or exact path (exact match) */
+  prefix: string;
+  /** Whether this is an exact match (not prefix) */
+  exact?: boolean;
+  /** The handler function */
+  handler: (request: Request, env: Env, ctx: ExecutionContext, logger: ReturnType<typeof createLogger>) => Promise<Response>;
 }
 
-// Simple in-memory metrics (resets on worker restart)
-const metrics = {
-  requests: 0,
-  errors: 0,
-  streamRequests: 0,
-  tvRequests: 0,
-  dlhdRequests: 0,
-  decodeRequests: 0,
-  animekaiRequests: 0,
-  flixerRequests: 0,
-  analyticsRequests: 0,
-  tmdbRequests: 0,
-  viprowRequests: 0,
-  vidsrcRequests: 0,
-  hianimeRequests: 0,
-  startTime: Date.now(),
-};
-
-// CORS headers for all responses
-function getCorsHeaders(origin?: string | null): Record<string, string> {
-  // Always allow all origins for stream proxy - CORS is handled by the browser
-  // The anti-leech protection is done via tokens, not CORS
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Range, Content-Type, X-Request-ID, Authorization',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
-    'Access-Control-Max-Age': '86400',
-  };
+/** Resolve the stream protection mode from env */
+function resolveProtectionMode(env: Env): string {
+  return env.PROTECTION_MODE || (env.ENABLE_ANTI_LEECH === 'true' ? 'basic' : 'none');
 }
 
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const logLevel = (env.LOG_LEVEL || 'debug') as LogLevel;
-    const logger = createLogger(request, logLevel);
-    const requestOrigin = request.headers.get('origin');
+/** Build the route table. Defined as a function so it's testable. */
+export function buildRouteTable(): RouteEntry[] {
+  return [
+    // Health check
+    {
+      prefix: '/health',
+      exact: true,
+      handler: async () => buildHealthResponse(),
+    },
 
-    metrics.requests++;
-
-    // Handle CORS preflight for ALL routes
-    if (request.method === 'OPTIONS') {
-      logger.info('CORS preflight request', { path, origin: requestOrigin });
-      return new Response(null, {
-        status: 204,
-        headers: getCorsHeaders(requestOrigin),
-      });
-    }
-
-    // Health check endpoint
-    if (path === '/health' || path === '/health/') {
-      const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
-      logger.info('Health check', { uptime, metrics });
-      
-      return new Response(JSON.stringify({
-        status: 'healthy',
-        uptime: `${uptime}s`,
-        metrics: {
-          totalRequests: metrics.requests,
-          errors: metrics.errors,
-          streamRequests: metrics.streamRequests,
-          tvRequests: metrics.tvRequests,
-          dlhdRequests: metrics.dlhdRequests,
-          decodeRequests: metrics.decodeRequests,
-          animekaiRequests: metrics.animekaiRequests,
-          flixerRequests: metrics.flixerRequests,
-          analyticsRequests: metrics.analyticsRequests,
-          tmdbRequests: metrics.tmdbRequests,
-          viprowRequests: metrics.viprowRequests,
-          vidsrcRequests: metrics.vidsrcRequests,
-          hianimeRequests: metrics.hianimeRequests,
-        },
-        timestamp: new Date().toISOString(),
-      }, null, 2), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        },
-      });
-    }
-
-    // Route to stream proxy (with protection based on mode)
-    if (path.startsWith('/stream')) {
-      metrics.streamRequests++;
-      
-      // Determine protection mode
-      const protectionMode = env.PROTECTION_MODE || 
-        (env.ENABLE_ANTI_LEECH === 'true' ? 'basic' : 'none');
-      
-      try {
+    // Stream proxy (with protection mode routing)
+    {
+      prefix: '/stream',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('streamRequests');
+        const path = new URL(request.url).pathname;
+        const protectionMode = resolveProtectionMode(env);
         const newUrl = new URL(request.url);
         newUrl.pathname = path.replace(/^\/stream/, '') || '/';
         const newRequest = new Request(newUrl.toString(), request);
@@ -167,541 +88,277 @@ export default {
         switch (protectionMode) {
           case 'quantum-v3':
           case 'paranoid':
-            // QUANTUM V3 PARANOID MODE: Maximum security
-            // Requires: 3 challenges, PoW, fingerprint, behavioral data
-            // Tokens expire in 10 seconds, strict rate limiting
             logger.info('Routing to QUANTUM SHIELD V3 (PARANOID)', { path });
             return await quantumShieldV3.fetch(newRequest, env as any);
-
           case 'quantum-v2':
-            // QUANTUM V2: Enhanced with behavioral analysis, automation detection
-            // Dynamic challenges, impossible travel detection, mouse entropy
             logger.info('Routing to QUANTUM SHIELD V2', { path });
             return await quantumShieldV2.fetch(newRequest, env as any);
-
           case 'quantum':
-            // QUANTUM MODE: The most paranoid protection ever created
-            // Requires SESSION_KV, BLACKLIST_KV, WATERMARK_SECRET
-            // Features: Browser proofs, WASM challenges, Merkle trees,
-            // Honeypots, Watermarking, Behavioral analysis, ASN binding
             logger.info('Routing to QUANTUM SHIELD', { path });
             return await quantumShield.fetch(newRequest, env as any);
-
           case 'fortress':
-            // FORTRESS MODE: PoW + Session + Chaining
-            // Requires SESSION_KV binding and client-side fortress-client.ts
             logger.info('Routing to FORTRESS proxy', { path });
             return await fortressProxy.fetch(newRequest, env as any);
-            
           case 'basic':
-            // BASIC MODE: Token + Fingerprint binding
             logger.info('Routing to anti-leech proxy', { path });
             return await antiLeechProxy.fetch(newRequest, env as any);
-            
           default:
-            // NO PROTECTION: Legacy mode
             logger.info('Routing to stream proxy (NO PROTECTION)', { path });
             return await streamProxy.fetch(newRequest, env);
         }
-      } catch (error) {
-        metrics.errors++;
-        logger.error('Stream proxy error', error as Error);
-        return errorResponse('Stream proxy error', 500);
-      }
-    }
-    
-    // FORTRESS endpoints (session init, challenge)
-    if (path === '/init' || path === '/challenge') {
-      const mode = env.PROTECTION_MODE || 'fortress';
-      if (mode === 'quantum') {
-        logger.info('Routing to quantum endpoint', { path });
-        return await quantumShield.fetch(request, env as any);
-      }
-      logger.info('Routing to fortress endpoint', { path });
-      return await fortressProxy.fetch(request, env as any);
-    }
+      },
+    },
 
-    // QUANTUM SHIELD V3 endpoints (PARANOID MODE)
-    if (path.startsWith('/v3/')) {
-      logger.info('Routing to quantum shield v3 (PARANOID)', { path });
-      return await quantumShieldV3.fetch(request, env as any);
-    }
-
-    // QUANTUM SHIELD V2 endpoints
-    if (path.startsWith('/v2/')) {
-      logger.info('Routing to quantum shield v2', { path });
-      return await quantumShieldV2.fetch(request, env as any);
-    }
-
-    // QUANTUM SHIELD endpoints
-    if (path.startsWith('/quantum/')) {
-      logger.info('Routing to quantum shield', { path });
-      return await quantumShield.fetch(request, env as any);
-    }
-
-    // Route to DLHD proxy (Oxylabs residential IPs)
-    if (path.startsWith('/dlhd')) {
-      metrics.dlhdRequests++;
-      logger.info('Routing to DLHD proxy (Oxylabs)', { path });
-      
-      try {
-        return await handleDLHDRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        const err = error as Error;
-        logger.error('DLHD proxy error', err);
-        return new Response(JSON.stringify({
-          error: 'DLHD proxy error',
-          message: err.message,
-          stack: err.stack,
-          timestamp: new Date().toISOString(),
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
-      }
-    }
-
-    // Route to AnimeKai proxy (MegaUp CDN via RPI residential IP)
-    if (path.startsWith('/animekai')) {
-      metrics.animekaiRequests++;
-      logger.info('Routing to AnimeKai proxy (RPI)', { path });
-      
-      try {
-        return await handleAnimeKaiRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('AnimeKai proxy error', error as Error);
-        return errorResponse('AnimeKai proxy error', 500);
-      }
-    }
-
-    // Route to Flixer proxy (WASM-based extraction)
-    if (path.startsWith('/flixer')) {
-      metrics.flixerRequests++;
-      logger.info('Routing to Flixer proxy', { path });
-      
-      try {
-        return await handleFlixerRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('Flixer proxy error', error as Error);
-        return errorResponse('Flixer proxy error', 500);
-      }
-    }
-
-    // Route to Analytics proxy (presence, events, pageviews)
-    if (path.startsWith('/analytics')) {
-      metrics.analyticsRequests++;
-      logger.info('Routing to Analytics proxy', { path });
-      
-      try {
-        return await handleAnalyticsRequest(request, env as any);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('Analytics proxy error', error as Error);
-        return errorResponse('Analytics proxy error', 500);
-      }
-    }
-
-    // Route to TMDB proxy (content API)
-    if (path.startsWith('/tmdb')) {
-      metrics.tmdbRequests++;
-      logger.info('Routing to TMDB proxy', { path });
-      
-      try {
-        return await handleTMDBRequest(request, env as any);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('TMDB proxy error', error as Error);
-        return errorResponse('TMDB proxy error', 500);
-      }
-    }
-
-    // Route to CDN-Live.tv proxy (live TV streams)
-    // Proxies m3u8/ts with proper Referer headers
-    if (path.startsWith('/cdn-live')) {
-      logger.info('Routing to CDN-Live proxy', { path });
-      
-      try {
-        return await handleCDNLiveRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('CDN-Live proxy error', error as Error);
-        return errorResponse('CDN-Live proxy error', 500);
-      }
-    }
-
-    // Route to PPV.to proxy (PPV streams)
-    // Proxies m3u8/ts with proper Referer headers for pooembed.top
-    if (path.startsWith('/ppv')) {
-      logger.info('Routing to PPV proxy', { path });
-      
-      try {
-        return await handlePPVRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('PPV proxy error', error as Error);
-        return errorResponse('PPV proxy error', 500);
-      }
-    }
-
-    // Route to VIPRow/Casthill proxy (live sports streams)
-    // Extracts m3u8 from VIPRow, proxies with proper Origin/Referer headers
-    if (path.startsWith('/viprow')) {
-      metrics.viprowRequests++;
-      logger.info('Routing to VIPRow proxy', { path });
-      
-      try {
-        return await handleVIPRowRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('VIPRow proxy error', error as Error);
-        return errorResponse('VIPRow proxy error', 500);
-      }
-    }
-
-    // Route to VidSrc proxy (2embed.stream API)
-    // Extracts m3u8 from v1.2embed.stream API - NO TURNSTILE!
-    if (path.startsWith('/vidsrc')) {
-      metrics.vidsrcRequests++;
-      logger.info('Routing to VidSrc proxy', { path });
-      
-      try {
-        return await handleVidSrcRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('VidSrc proxy error', error as Error);
-        return errorResponse('VidSrc proxy error', 500);
-      }
-    }
-
-    // Route to HiAnime proxy (MegaCloud extraction + stream proxy)
-    // Full extraction pipeline: HiAnime search → episodes → servers → MegaCloud decrypt
-    if (path.startsWith('/hianime')) {
-      metrics.hianimeRequests++;
-      logger.info('Routing to HiAnime proxy', { path });
-      
-      try {
-        return await handleHiAnimeRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('HiAnime proxy error', error as Error);
-        return errorResponse('HiAnime proxy error', 500);
-      }
-    }
-
-    // Route to IPTV proxy (Stalker portals)
-    // Handle both /iptv/* and /tv/iptv/* (legacy path from NEXT_PUBLIC_CF_TV_PROXY_URL)
-    if (path.startsWith('/iptv') || path.startsWith('/tv/iptv')) {
-      logger.info('Routing to IPTV proxy', { path });
-      
-      try {
-        // If path starts with /tv/iptv, strip the /tv prefix for the handler
-        if (path.startsWith('/tv/iptv')) {
-          const newUrl = new URL(request.url);
-          newUrl.pathname = path.replace(/^\/tv/, '');
-          const newRequest = new Request(newUrl.toString(), request);
-          return await handleIPTVRequest(newRequest, env);
+    // Fortress/Quantum init and challenge endpoints
+    {
+      prefix: '/init',
+      exact: true,
+      handler: async (request, env, _ctx, logger) => {
+        const mode = env.PROTECTION_MODE || 'fortress';
+        if (mode === 'quantum') {
+          logger.info('Routing to quantum endpoint', { path: '/init' });
+          return await quantumShield.fetch(request, env as any);
         }
-        return await handleIPTVRequest(request, env);
-      } catch (error) {
-        metrics.errors++;
-        logger.error('IPTV proxy error', error as Error);
-        return errorResponse('IPTV proxy error', 500);
-      }
-    }
+        logger.info('Routing to fortress endpoint', { path: '/init' });
+        return await fortressProxy.fetch(request, env as any);
+      },
+    },
+    {
+      prefix: '/challenge',
+      exact: true,
+      handler: async (request, env, _ctx, logger) => {
+        const mode = env.PROTECTION_MODE || 'fortress';
+        if (mode === 'quantum') {
+          logger.info('Routing to quantum endpoint', { path: '/challenge' });
+          return await quantumShield.fetch(request, env as any);
+        }
+        logger.info('Routing to fortress endpoint', { path: '/challenge' });
+        return await fortressProxy.fetch(request, env as any);
+      },
+    },
 
-    // CRITICAL: Direct /segment route for cdn-live-tv.ru segments
-    // This bypasses the /tv route for performance - segments go straight to worker
-    // Manifests still use /tv/cdnlive route for proper handling
-    if (path === '/segment') {
-      metrics.tvRequests++;
-      logger.info('Routing to direct segment proxy (bypassing /tv)', { path });
-      
-      try {
-        return await tvProxy.fetch(request, env);
-      } catch (error) {
-        metrics.errors++;
-        const err = error as Error;
-        logger.error('Direct segment proxy error', err);
-        return new Response(JSON.stringify({
-          error: 'Segment proxy error',
-          message: err.message,
-          stack: err.stack,
-          timestamp: new Date().toISOString(),
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
-      }
-    }
+    // Quantum Shield versioned endpoints
+    {
+      prefix: '/v3/',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to quantum shield v3 (PARANOID)', { path: new URL(request.url).pathname });
+        return await quantumShieldV3.fetch(request, env as any);
+      },
+    },
+    {
+      prefix: '/v2/',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to quantum shield v2', { path: new URL(request.url).pathname });
+        return await quantumShieldV2.fetch(request, env as any);
+      },
+    },
+    {
+      prefix: '/quantum/',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to quantum shield', { path: new URL(request.url).pathname });
+        return await quantumShield.fetch(request, env as any);
+      },
+    },
 
-    // Route to TV proxy (DLHD streams - NOT IPTV)
-    if (path.startsWith('/tv')) {
-      metrics.tvRequests++;
-      logger.info('Routing to TV proxy', { path });
-      
-      try {
+    // Provider-specific routes
+    {
+      prefix: '/dlhd',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('dlhdRequests');
+        logger.info('Routing to DLHD proxy (Oxylabs)', { path: new URL(request.url).pathname });
+        return await handleDLHDRequest(request, env);
+      },
+    },
+    {
+      prefix: '/animekai',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('animekaiRequests');
+        logger.info('Routing to AnimeKai proxy (RPI)', { path: new URL(request.url).pathname });
+        return await handleAnimeKaiRequest(request, env);
+      },
+    },
+    {
+      prefix: '/flixer',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('flixerRequests');
+        logger.info('Routing to Flixer proxy', { path: new URL(request.url).pathname });
+        return await handleFlixerRequest(request, env);
+      },
+    },
+    {
+      prefix: '/analytics',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('analyticsRequests');
+        logger.info('Routing to Analytics proxy', { path: new URL(request.url).pathname });
+        return await handleAnalyticsRequest(request, env as any);
+      },
+    },
+    {
+      prefix: '/tmdb',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('tmdbRequests');
+        logger.info('Routing to TMDB proxy', { path: new URL(request.url).pathname });
+        return await handleTMDBRequest(request, env as any);
+      },
+    },
+    {
+      prefix: '/cdn-live',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to CDN-Live proxy', { path: new URL(request.url).pathname });
+        return await handleCDNLiveRequest(request, env);
+      },
+    },
+    {
+      prefix: '/ppv',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to PPV proxy', { path: new URL(request.url).pathname });
+        return await handlePPVRequest(request, env);
+      },
+    },
+    {
+      prefix: '/viprow',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('viprowRequests');
+        logger.info('Routing to VIPRow proxy', { path: new URL(request.url).pathname });
+        return await handleVIPRowRequest(request, env);
+      },
+    },
+    {
+      prefix: '/vidsrc',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('vidsrcRequests');
+        logger.info('Routing to VidSrc proxy', { path: new URL(request.url).pathname });
+        return await handleVidSrcRequest(request, env);
+      },
+    },
+    {
+      prefix: '/hianime',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('hianimeRequests');
+        logger.info('Routing to HiAnime proxy', { path: new URL(request.url).pathname });
+        return await handleHiAnimeRequest(request, env);
+      },
+    },
+
+    // IPTV — handles both /iptv/* and legacy /tv/iptv/*
+    {
+      prefix: '/tv/iptv',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to IPTV proxy (legacy /tv/iptv path)', { path: new URL(request.url).pathname });
         const newUrl = new URL(request.url);
-        const originalSearch = newUrl.search; // Preserve query string
+        newUrl.pathname = newUrl.pathname.replace(/^\/tv/, '');
+        const newRequest = new Request(newUrl.toString(), request);
+        return await handleIPTVRequest(newRequest, env);
+      },
+    },
+    {
+      prefix: '/iptv',
+      handler: async (request, env, _ctx, logger) => {
+        logger.info('Routing to IPTV proxy', { path: new URL(request.url).pathname });
+        return await handleIPTVRequest(request, env);
+      },
+    },
+
+    // Direct /segment route for cdn-live-tv.ru segments (bypasses /tv)
+    {
+      prefix: '/segment',
+      exact: true,
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('tvRequests');
+        logger.info('Routing to direct segment proxy (bypassing /tv)', { path: '/segment' });
+        return await tvProxy.fetch(request, env);
+      },
+    },
+
+    // TV proxy (DLHD streams — NOT IPTV, must come after /tv/iptv)
+    {
+      prefix: '/tv',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('tvRequests');
+        const url = new URL(request.url);
+        const path = url.pathname;
+        const originalSearch = url.search;
+        const newUrl = new URL(request.url);
         newUrl.pathname = path.replace(/^\/tv/, '') || '/';
-        // Ensure query string is preserved
         if (!newUrl.search && originalSearch) {
           newUrl.search = originalSearch;
         }
         const newRequest = new Request(newUrl.toString(), request);
-        logger.debug('TV proxy request', { 
-          originalPath: path,
-          newPathname: newUrl.pathname,
-          search: newUrl.search,
-          fullUrl: newUrl.toString() 
-        });
+        logger.info('Routing to TV proxy', { path, newPathname: newUrl.pathname });
         return await tvProxy.fetch(newRequest, env);
-      } catch (error) {
-        metrics.errors++;
-        const err = error as Error;
-        logger.error('TV proxy error', err);
-        return new Response(JSON.stringify({
-          error: 'TV proxy error',
-          message: err.message,
-          stack: err.stack,
-          timestamp: new Date().toISOString(),
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
-      }
-    }
+      },
+    },
 
-    // Route to decoder sandbox
-    if (path === '/decode' || path === '/decode/') {
-      metrics.decodeRequests++;
-      logger.info('Routing to decoder sandbox');
-      
-      try {
+    // Decoder sandbox
+    {
+      prefix: '/decode',
+      exact: true,
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('decodeRequests');
+        logger.info('Routing to decoder sandbox');
         return await decoderSandbox.fetch(request, env);
+      },
+    },
+  ];
+}
+
+/**
+ * Match a request path against the route table.
+ * Returns the first matching route entry, or undefined.
+ */
+export function matchRoute(path: string, routes: RouteEntry[]): RouteEntry | undefined {
+  for (const route of routes) {
+    if (route.exact) {
+      if (path === route.prefix || path === route.prefix + '/') {
+        return route;
+      }
+    } else {
+      if (path.startsWith(route.prefix)) {
+        return route;
+      }
+    }
+  }
+  return undefined;
+}
+
+// Build the route table once at module level
+const routeTable = buildRouteTable();
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const logLevel = (env.LOG_LEVEL || 'debug') as LogLevel;
+    const logger = createLogger(request, logLevel);
+
+    incrementMetric('requests');
+
+    // Handle CORS preflight for ALL routes
+    if (request.method === 'OPTIONS') {
+      logger.info('CORS preflight request', { path, origin: request.headers.get('origin') });
+      return corsPreflightResponse();
+    }
+
+    // Match route
+    const route = matchRoute(path, routeTable);
+
+    if (route) {
+      try {
+        return await route.handler(request, env, ctx, logger);
       } catch (error) {
-        metrics.errors++;
-        logger.error('Decoder sandbox error', error as Error);
-        return errorResponse('Decoder sandbox error', 500);
+        incrementMetric('errors');
+        const err = error as Error;
+        logger.error('Route handler error', err);
+        // DLHD and TV routes historically return detailed errors
+        if (path.startsWith('/dlhd') || path.startsWith('/tv') || path === '/segment') {
+          return detailedErrorResponse(`${path.split('/')[1] || 'Unknown'} proxy error`, err);
+        }
+        return errorResponse(`${path.split('/')[1] || 'Unknown'} proxy error`, 500);
       }
     }
 
-    // Root - show usage and status
+    // No route matched — return root info
     logger.info('Root endpoint accessed');
-    
-    const antiLeechEnabled = env.ENABLE_ANTI_LEECH === 'true';
-    
-    return new Response(JSON.stringify({
-      name: 'Cloudflare Stream & TV Proxy',
-      version: '3.0.0',
-      status: 'operational',
-      uptime: `${Math.floor((Date.now() - metrics.startTime) / 1000)}s`,
-      antiLeech: {
-        enabled: antiLeechEnabled,
-        description: antiLeechEnabled 
-          ? 'Requests require cryptographic tokens bound to browser fingerprint'
-          : 'Legacy mode - no protection (set ENABLE_ANTI_LEECH=true to enable)',
-      },
-      routes: {
-        stream: {
-          path: '/stream/',
-          description: antiLeechEnabled 
-            ? 'Anti-leech HLS stream proxy (requires token)'
-            : 'HLS stream proxy for 2embed',
-          usage: antiLeechEnabled
-            ? '/stream/?url=<url>&t=<token>&f=<fingerprint>&s=<session>'
-            : '/stream/?url=<encoded_url>&source=2embed&referer=<encoded_referer>',
-          tokenEndpoint: antiLeechEnabled ? '/stream/token' : undefined,
-        },
-        tv: {
-          path: '/tv/',
-          description: 'DLHD live TV proxy (direct/RPI fallback)',
-          usage: '/tv/?channel=<id>',
-          subRoutes: {
-            key: '/tv/key?url=<encoded_url>',
-            segment: '/tv/segment?url=<encoded_url>',
-          },
-        },
-        dlhd: {
-          path: '/dlhd/',
-          description: 'DLHD proxy with Oxylabs residential IP rotation',
-          usage: '/dlhd?channel=<id>',
-          subRoutes: {
-            key: '/dlhd/key?url=<encoded_url>',
-            segment: '/dlhd/segment?url=<encoded_url>',
-            health: '/dlhd/health',
-          },
-          config: {
-            oxylabs: !!(env.OXYLABS_USERNAME && env.OXYLABS_PASSWORD) ? 'configured' : 'not configured',
-            country: env.OXYLABS_COUNTRY || 'auto',
-          },
-        },
-        iptv: {
-          path: '/iptv/',
-          description: 'IPTV Stalker portal proxy',
-          subRoutes: {
-            api: '/iptv/api?url=<encoded_url>&mac=<mac>&token=<token>',
-            stream: '/iptv/stream?url=<encoded_url>&mac=<mac>&token=<token>',
-          },
-        },
-        animekai: {
-          path: '/animekai/',
-          description: 'AnimeKai stream proxy via RPI residential IP (MegaUp CDN)',
-          usage: '/animekai?url=<encoded_url>',
-          subRoutes: {
-            health: '/animekai/health',
-          },
-          config: {
-            rpiProxy: !!(env.RPI_PROXY_URL && env.RPI_PROXY_KEY) ? 'configured' : 'not configured',
-          },
-        },
-        flixer: {
-          path: '/flixer/',
-          description: 'Flixer stream extraction via WASM-based decryption',
-          usage: '/flixer/extract?tmdbId=<id>&type=<movie|tv>&season=<n>&episode=<n>&server=<name>',
-          subRoutes: {
-            extract: '/flixer/extract - Extract m3u8 URL from Flixer',
-            health: '/flixer/health - Health check',
-          },
-          servers: ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'],
-        },
-        ppv: {
-          path: '/ppv/',
-          description: 'PPV.to stream proxy (modistreams.org/poocloud.in)',
-          usage: '/ppv/stream?url=<encoded_url>',
-          subRoutes: {
-            stream: '/ppv/stream?url=<encoded_url> - Proxy m3u8/ts with proper Referer',
-            health: '/ppv/health - Health check',
-            test: '/ppv/test - Test upstream connectivity',
-          },
-          validDomains: ['poocloud.in', 'modistreams.org', 'pooembed.top'],
-          requiredHeaders: {
-            Referer: 'https://modistreams.org/',
-            Origin: 'https://modistreams.org',
-          },
-        },
-        cdnLive: {
-          path: '/cdn-live/',
-          description: 'CDN-Live.tv stream proxy',
-          usage: '/cdn-live/stream?url=<encoded_url>',
-          subRoutes: {
-            stream: '/cdn-live/stream?url=<encoded_url> - Proxy m3u8/ts',
-            health: '/cdn-live/health - Health check',
-          },
-        },
-        viprow: {
-          path: '/viprow/',
-          description: 'VIPRow/Casthill live sports stream proxy',
-          usage: '/viprow/stream?url=<viprow_event_url>&link=<1-10>',
-          subRoutes: {
-            stream: '/viprow/stream?url=/nba/event-online-stream&link=1 - Extract and proxy m3u8',
-            manifest: '/viprow/manifest?url=<encoded_url> - Proxy manifest with URL rewriting',
-            key: '/viprow/key?url=<encoded_url> - Proxy decryption key',
-            segment: '/viprow/segment?url=<encoded_url> - Proxy video segment',
-            health: '/viprow/health - Health check',
-          },
-          features: [
-            'Direct m3u8 extraction (no iframe)',
-            'Automatic token refresh via boanki.net',
-            'URL rewriting for browser playback',
-            'AES-128 key proxying',
-          ],
-        },
-        vidsrc: {
-          path: '/vidsrc/',
-          description: 'VidSrc stream extraction via 2embed.stream API (NO TURNSTILE!)',
-          usage: '/vidsrc/extract?tmdbId=<id>&type=<movie|tv>&season=<n>&episode=<n>',
-          subRoutes: {
-            extract: '/vidsrc/extract - Extract m3u8 URL from 2embed.stream API',
-            stream: '/vidsrc/stream?url=<encoded_url> - Proxy m3u8/ts segments',
-            health: '/vidsrc/health - Health check (tests API reachability)',
-          },
-          features: [
-            'Direct API access - NO Turnstile/captcha',
-            'Multiple quality streams (480p, 720p, 1080p)',
-            'URL rewriting for browser playback',
-            'Source: lk21_database',
-          ],
-        },
-        hianime: {
-          path: '/hianime/',
-          description: 'HiAnime extraction + MegaCloud stream proxy (full server-side pipeline)',
-          usage: '/hianime/extract?malId=<mal_id>&title=<anime_title>&episode=<number>',
-          subRoutes: {
-            extract: '/hianime/extract - Full extraction: search → episodes → servers → MegaCloud decrypt',
-            stream: '/hianime/stream?url=<encoded_url> - Proxy HLS m3u8/ts segments',
-            health: '/hianime/health - Health check',
-          },
-          features: [
-            'Full server-side extraction (no frontend decryption)',
-            'MegaCloud v3 decryption with client key + megacloud key',
-            'Sub + Dub extraction in parallel',
-            'Subtitle extraction',
-            'Skip intro/outro markers',
-            'HLS URL rewriting for browser playback',
-          ],
-        },
-        analytics: {
-          path: '/analytics/',
-          description: 'Analytics proxy - forwards events to Analytics Worker (D1)',
-          subRoutes: {
-            presence: 'POST /analytics/presence - User presence heartbeat',
-            pageview: 'POST /analytics/pageview - Page view tracking',
-            event: 'POST /analytics/event - Generic analytics event',
-            health: 'GET /analytics/health - Health check',
-          },
-          benefits: [
-            'Cloudflare free tier: 100k requests/day',
-            'Lower latency (edge closer to users)',
-            'No cold starts',
-          ],
-        },
-        decode: {
-          path: '/decode',
-          description: 'Isolated decoder sandbox for untrusted scripts',
-          method: 'POST',
-          body: '{ script: string, divId: string, encodedContent: string }',
-        },
-        health: {
-          path: '/health',
-          description: 'Health check and metrics',
-        },
-      },
-      observability: {
-        logs: 'View in Cloudflare Dashboard > Workers > Logs',
-        tailCommand: 'npx wrangler tail media-proxy',
-        logLevel: logLevel,
-      },
-    }, null, 2), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
+    return buildRootResponse(env, logLevel);
   },
 };
-
-function errorResponse(message: string, status: number): Response {
-  return new Response(JSON.stringify({ 
-    error: message,
-    timestamp: new Date().toISOString(),
-  }), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-}

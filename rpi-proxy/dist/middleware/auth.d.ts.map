@@ -1,0 +1,1 @@
+{"version":3,"file":"auth.d.ts","sourceRoot":"","sources":["../../src/middleware/auth.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAIH,OAAO,KAAK,EAAc,UAAU,EAAE,MAAM,UAAU,CAAC;AA6BvD,qCAAqC;AACrC,wBAAgB,qBAAqB,CAAC,QAAQ,EAAE,MAAM,GAAG,IAAI,GAAG,SAAS,EAAE,QAAQ,EAAE,MAAM,GAAG,OAAO,CAapG;AAED;;;GAGG;AACH,wBAAgB,oBAAoB,CAAC,MAAM,EAAE,MAAM,GAAG,UAAU,CA0C/D"}

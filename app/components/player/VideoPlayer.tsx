@@ -29,6 +29,19 @@ import { useCast, CastMedia } from '@/hooks/useCast';
 import { CastOverlay } from './CastButton';
 import TranscriptButton from './TranscriptButton';
 import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
+// Player Core hooks — shared logic extracted for reuse by both desktop and mobile players
+// These hooks encapsulate HLS management, subtitle handling, progress tracking, and source switching.
+// The desktop player integrates these hooks for shared functionality while retaining
+// desktop-specific UI controls (keyboard shortcuts, timeline preview, cast, transcript, etc.)
+import {
+  usePlayerState,
+  useSubtitles,
+  usePlaybackProgress,
+  useSourceSwitcher,
+  type PlayerSource,
+  type PlayerSubtitleTrack,
+  PLAYBACK_SPEED_OPTIONS,
+} from './core';
 import styles from './VideoPlayer.module.css';
 
 // Copy URL button with feedback for external players

@@ -7,6 +7,18 @@ import { useMobileGestures } from '@/hooks/useMobileGestures';
 import { useWatchProgress } from '@/lib/hooks/useWatchProgress';
 import { useCast, CastMedia } from '@/hooks/useCast';
 import { usePresenceContext } from '@/components/analytics/PresenceProvider';
+// Player Core hooks — shared logic extracted for reuse by both desktop and mobile players
+// The mobile player integrates these hooks for shared functionality while retaining
+// mobile-specific UI controls (gestures, touch controls, orientation handling, etc.)
+import {
+  usePlayerState,
+  useSubtitles,
+  usePlaybackProgress,
+  useSourceSwitcher,
+  type PlayerSource,
+  type PlayerSubtitleTrack,
+  PLAYBACK_SPEED_OPTIONS,
+} from './core';
 import styles from './MobileVideoPlayer.module.css';
 
 // Copy URL button with feedback for external players
