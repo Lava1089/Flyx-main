@@ -1,16 +1,16 @@
 /**
  * Analytics Endpoints Configuration
  * 
- * Routes analytics through Cloudflare Worker when configured.
+ * Routes analytics through Cloudflare Worker.
  * Supports two modes:
  *   1. Dedicated Analytics Worker (NEXT_PUBLIC_CF_ANALYTICS_WORKER_URL) - Preferred
  *   2. Main CF Proxy with analytics route (NEXT_PUBLIC_CF_ANALYTICS_URL) - Legacy
  * 
- * This reduces Vercel Edge function costs by leveraging CF's free tier (100k req/day).
+ * Leverages CF's free tier (100k req/day).
  * 
  * Usage:
  *   import { getAnalyticsEndpoint } from '@/lib/utils/analytics-endpoints';
- *   const url = getAnalyticsEndpoint('presence'); // Returns CF or Vercel URL
+ *   const url = getAnalyticsEndpoint('presence');
  */
 
 // Hardcoded fallback for CF analytics worker URL
@@ -29,12 +29,12 @@ function getCfAnalyticsUrl(): string | null {
 
 /**
  * Get the appropriate analytics endpoint URL
- * Routes through Cloudflare Worker if configured, otherwise falls back to Vercel
+ * Routes through Cloudflare Worker
  * 
  * Priority:
  *   1. Dedicated Analytics Worker (NEXT_PUBLIC_CF_ANALYTICS_WORKER_URL)
  *   2. Main CF Proxy (NEXT_PUBLIC_CF_ANALYTICS_URL)
- *   3. Vercel Edge (fallback)
+ *   3. Local API routes (fallback)
  * 
  * @param endpoint - The endpoint name (presence, pageview, event, watch-session, live-activity, page-view, stats)
  * @returns The full URL to use for the analytics request
@@ -92,8 +92,8 @@ export function getAnalyticsEndpoint(endpoint: 'presence' | 'pageview' | 'page-v
     return `${cfUrl}${cfEndpoints[endpoint] || `/${endpoint}`}`;
   }
   
-  // Fallback to Vercel Edge
-  const vercelEndpoints: Record<string, string> = {
+  // Fallback to local API routes
+  const localEndpoints: Record<string, string> = {
     'presence': '/api/analytics/presence',
     'pageview': '/api/analytics/page-view',
     'page-view': '/api/analytics/page-view',
@@ -111,7 +111,7 @@ export function getAnalyticsEndpoint(endpoint: 'presence' | 'pageview' | 'page-v
     'activity-history': '/api/admin/analytics/activity-history',
     'system-health': '/api/admin/system-health',
   };
-  return vercelEndpoints[endpoint] || `/api/analytics/${endpoint}`;
+  return localEndpoints[endpoint] || `/api/analytics/${endpoint}`;
 }
 
 /**
@@ -125,7 +125,7 @@ export function isUsingCloudflareAnalytics(): boolean {
  * Get analytics configuration info (for debugging)
  */
 export function getAnalyticsConfig(): {
-  provider: 'cloudflare-dedicated' | 'cloudflare-proxy' | 'vercel';
+  provider: 'cloudflare-dedicated' | 'cloudflare-proxy' | 'local';
   baseUrl: string | null;
 } {
   const dedicatedUrl = getCfAnalyticsDedicatedWorkerUrl();
@@ -146,7 +146,7 @@ export function getAnalyticsConfig(): {
   }
   
   return {
-    provider: 'vercel',
+    provider: 'local',
     baseUrl: null,
   };
 }

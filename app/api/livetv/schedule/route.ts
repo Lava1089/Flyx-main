@@ -282,7 +282,7 @@ function parseCategories(html: string): ScheduleCategory[] {
 
 /**
  * Fetch schedule HTML via Cloudflare Worker → RPI Proxy → DLHD
- * This ensures requests come from residential IP, not Vercel datacenter
+ * This ensures requests come from residential IP, not a datacenter
  */
 async function fetchScheduleHTML(source?: string): Promise<string> {
   const cfProxyUrl = process.env.NEXT_PUBLIC_CF_TV_PROXY_URL;

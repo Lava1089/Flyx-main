@@ -34,7 +34,6 @@ import { extractSmashyStreamStreams, fetchSmashyStreamSourceByName, SMASHYSTREAM
 import { extractMultiMoviesStreams, fetchMultiMoviesSourceByName, MULTIMOVIES_ENABLED } from '@/app/lib/services/multimovies-extractor';
 import { extractFlixerStreams, fetchFlixerSourceByName, FLIXER_ENABLED } from '@/app/lib/services/flixer-extractor';
 import { performanceMonitor } from '@/app/lib/utils/performance-monitor';
-import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
 
 // Node.js runtime (default) - required for fetch
 
@@ -93,7 +92,7 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 }
 
 // Helper to conditionally proxy URLs based on requiresSegmentProxy flag
-// ALL provider streams go through /animekai route -> RPI residential proxy
+// ALL provider streams go through /animekai route -> local proxy (Docker) or RPI residential proxy (CF Workers)
 // The /stream route should NOT be used for any provider
 function maybeProxyUrl(source: any, provider: string): string {
   if (!source.url) return '';
@@ -102,9 +101,25 @@ function maybeProxyUrl(source: any, provider: string): string {
     return source.url; // Return direct URL - browser will fetch directly
   }
   
-  // ALL providers route through /animekai -> RPI residential proxy
-  const proxiedUrl = getAnimeKaiProxyUrl(source.url);
-  console.log(`[maybeProxyUrl] provider=${provider}, → Using /animekai route (residential proxy): ${proxiedUrl.substring(0, 80)}...`);
+  // Build proxy URL with referer so the proxy can forward it to the CDN
+  const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL || 
+                     process.env.CF_STREAM_PROXY_URL || 
+                     'https://media-proxy.vynx.workers.dev/stream';
+  const baseUrl = cfProxyUrl.replace(/\/stream\/?$/, '');
+  
+  let proxiedUrl = `${baseUrl}/animekai?url=${encodeURIComponent(source.url)}`;
+  
+  // Pass referer through so the proxy includes it when fetching from CDN
+  if (source.referer) {
+    proxiedUrl += `&referer=${encodeURIComponent(source.referer)}`;
+  }
+  
+  // For MegaUp CDN sources, don't send Origin header (it blocks requests with Origin)
+  if (source.skipOrigin) {
+    proxiedUrl += '&noreferer=true';
+  }
+  
+  console.log(`[maybeProxyUrl] provider=${provider}, → Using /animekai route: ${proxiedUrl.substring(0, 80)}...`);
   return proxiedUrl;
 }
 
@@ -924,10 +939,9 @@ export async function OPTIONS(request: NextRequest) {
     'http://localhost:3001',
   ].filter(Boolean);
   
-  // Check if origin is allowed (including Vercel/Cloudflare preview deployments)
+  // Check if origin is allowed (including Cloudflare preview deployments)
   const isAllowed = origin && (
     allowedOrigins.includes(origin) ||
-    origin.endsWith('.vercel.app') ||
     origin.endsWith('.pages.dev') ||
     origin.includes('localhost')
   );

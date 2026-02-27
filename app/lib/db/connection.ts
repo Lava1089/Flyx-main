@@ -55,11 +55,7 @@ class DatabaseConnection {
 
   private constructor() {
     // Determine database path based on environment
-    if (process.env.NODE_ENV === 'production' && process.env.VERCEL) {
-      // Vercel serverless environment - use in-memory database
-      this.dbPath = ':memory:';
-      console.log('Using in-memory database for Vercel deployment');
-    } else if (process.env.DATABASE_PATH) {
+    if (process.env.DATABASE_PATH) {
       // Custom database path from environment
       this.dbPath = process.env.DATABASE_PATH;
     } else {
@@ -147,7 +143,6 @@ class DatabaseConnection {
       console.error('Current working directory:', process.cwd());
       console.error('Environment:', {
         NODE_ENV: process.env.NODE_ENV,
-        VERCEL: process.env.VERCEL,
         DATABASE_PATH: process.env.DATABASE_PATH
       });
       throw new Error(`Database initialization failed: ${error}`);

@@ -102,7 +102,7 @@ function getKaiAjax(): string {
  * Fetch a URL through Cloudflare Worker → RPI residential proxy
  * Used for MegaUp CDN which blocks datacenter IPs
  * 
- * Flow: Vercel → Cloudflare Worker (/animekai) → RPI Proxy → MegaUp CDN
+ * Flow: Next.js → Cloudflare Worker (/animekai) → RPI Proxy → MegaUp CDN
  */
 // @ts-ignore - Reserved for future use
 async function _fetchViaCfAnimeKaiProxy(
@@ -1007,7 +1007,7 @@ function _unpackPACKED(packed: string): string {
  * Manually extract sources from MegaUp embed page
  * Uses /media/ endpoint + native decryption (no enc-dec.app dependency)
  * 
- * IMPORTANT: MegaUp blocks datacenter IPs (Vercel, Cloudflare, AWS, etc.)
+ * IMPORTANT: MegaUp blocks datacenter IPs (Cloudflare, AWS, etc.)
  * We route the /media/ API call through the Cloudflare Worker -> RPI residential proxy
  */
 async function extractMegaUpSourcesManually(embedUrl: string): Promise<string | null> {

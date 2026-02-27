@@ -36,8 +36,6 @@ const ALLOWED_ORIGINS = [
   'https://www.flyx.tv',
   'http://localhost:3000',
   'http://localhost:3001',
-  // Allow Vercel preview deployments
-  '.vercel.app',
   // Cloudflare Pages and Workers deployments
   '.pages.dev',
   '.workers.dev',
@@ -273,7 +271,7 @@ function isAllowedOrigin(origin: string, env: Env): boolean {
       return origin.includes('localhost');
     }
     
-    // Handle domain suffix patterns (e.g., '.pages.dev', '.workers.dev', '.vercel.app')
+    // Handle domain suffix patterns (e.g., '.pages.dev', '.workers.dev')
     if (a.startsWith('.')) {
       try {
         const originHost = new URL(origin).hostname;

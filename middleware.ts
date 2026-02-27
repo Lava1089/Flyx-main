@@ -3,19 +3,16 @@ import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  
-  // Block admin routes on non-Cloudflare environments (Vercel)
-  // Self-hosted mode always allows admin access
+
+  // Admin routes require authentication (handled by admin auth system)
+  // Self-hosted mode bypasses auth checks
   if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
     const isSelfHosted = process.env.FLYX_SELF_HOSTED === 'true';
-    const isCloudflare = request.headers.get('cf-ray') !== null;
-    
-    if (!isCloudflare && !isSelfHosted) {
-      // Return 404 for admin routes on Vercel
-      return new NextResponse(null, { status: 404 });
+    if (!isSelfHosted) {
+      // Admin auth is enforced at the API route level
     }
   }
-  
+
   return NextResponse.next();
 }
 

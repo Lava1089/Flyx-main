@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       quality,
     } = body;
 
-    // Get geo data from Vercel/Cloudflare headers using utility
+    // Get geo data from Cloudflare headers using utility
     const locationData = getLocationFromHeaders(request);
     const country = locationData.countryCode;
     const city = locationData.city;

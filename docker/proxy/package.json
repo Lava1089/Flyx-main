@@ -1,10 +1,15 @@
 {
-  "name": "flyx-local-proxy",
-  "version": "1.0.0",
+  "name": "flyx-proxy",
+  "version": "2.0.0",
   "private": true,
-  "description": "Local stream proxy for self-hosted Flyx (replaces Cloudflare Workers)",
-  "main": "index.js",
-  "dependencies": {
-    "node-fetch": "^3.3.2"
+  "description": "Modular Bun-based stream proxy for self-hosted Flyx",
+  "type": "module",
+  "scripts": {
+    "start": "bun run server.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fast-check": "^3.22.0"
   }
 }

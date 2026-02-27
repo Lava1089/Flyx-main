@@ -58,8 +58,9 @@ PROTECTION_MODE = "none"
 # SECRETS - Set via wrangler secret put <NAME>
 # =============================================================================
 # ANALYTICS PROXY (required for /analytics/* routes):
-#   wrangler secret put DATABASE_URL        # Neon connection string
-#                                           # Format: postgresql://user:pass@host/db?sslmode=require
+#   Analytics data is forwarded to the Analytics Worker (cf-analytics-worker)
+#   which persists to D1. Optionally set ANALYTICS_WORKER_URL:
+#   wrangler secret put ANALYTICS_WORKER_URL  # URL of the cf-analytics-worker
 #
 # TMDB PROXY (required for /tmdb/* routes):
 #   wrangler secret put TMDB_API_KEY        # Your TMDB API key (v3 auth)

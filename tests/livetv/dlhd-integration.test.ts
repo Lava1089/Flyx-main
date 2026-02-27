@@ -3,8 +3,9 @@
  * 
  * Tests the DLHD channels API and stream proxying.
  * 
- * Updated January 2026:
- * - Domain changed from kiko2.ru/giokko.ru to dvalna.ru
+ * Updated February 25, 2026:
+ * - Domain changed to adsfadfds.cfd/soyspace.cyou (was dvalna.ru)
+ * - Player domain changed to www.ksohls.ru (was epaly.fun)
  * - New PoW (Proof-of-Work) authentication for key requests
  * - HMAC-SHA256 + MD5 nonce computation
  */
@@ -12,12 +13,12 @@
 import { describe, test, expect } from 'bun:test';
 import { createHmac, createHash } from 'crypto';
 
-const PLAYER_DOMAIN = 'epaly.fun';
-const PARENT_DOMAIN = 'daddyhd.com';
+const PLAYER_DOMAIN = 'www.ksohls.ru';
+const PARENT_DOMAIN = 'daddylive.mp';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-const ALL_SERVER_KEYS = ['zeko', 'wind', 'nfs', 'ddy6', 'chevy', 'top1/cdn'];
-const CDN_DOMAIN = 'dvalna.ru';
+const ALL_SERVER_KEYS = ['ddy6'];
+const CDN_DOMAIN = 'adsfadfds.cfd';
 
 // PoW authentication constants (January 2026)
 // CORRECT SECRET - extracted from WASM module

@@ -319,14 +319,16 @@ function isAllowedOrigin(origin) {
 // ============================================================================
 const PROXY_ALLOWED_DOMAINS = [
   // DLHD key servers
-  'kiko2.ru',
-  'giokko.ru',
+  'soyspace.cyou',
+  'adsfadfds.cfd',
   'dvalna.ru',
   'topembed.pw',
-  'epicplayplay.cfd',
   'dlhd.link',
-  'lefttoplay.xyz', // Current primary player domain (Feb 2026)
-  'hitsplay.fun', // JWT source for DLHD streams (slow fallback)
+  'daddylive.mp', // New main site domain (Feb 25, 2026)
+  'www.ksohls.ru', // Current primary player domain (Feb 25, 2026)
+  'ksohls.ru',
+  'lefttoplay.xyz', // Dead but kept for reference
+  'hitsplay.fun', // Dead but kept for reference
   'codepcplay.fun', // Dead but kept for reference
   // AnimeKai/MegaUp (domains rotate frequently)
   'megaup.net',
@@ -1106,7 +1108,7 @@ function proxyIPTVStream(targetUrl, mac, token, res, redirectCount = 0) {
  *   1. Datacenter IPs (Cloudflare, AWS, etc.)
  *   2. Requests WITHOUT Referer header (requires https://flixer.sh/)
  * 
- * dvalna.ru (DLHD) blocks:
+ * dvalna.ru/soyspace.cyou/adsfadfds.cfd (DLHD) blocks:
  *   1. Datacenter IPs (Cloudflare, AWS, etc.)
  *   2. Requests WITHOUT proper Referer AND Origin headers
  *   3. M3U8 requests WITHOUT Authorization: Bearer <JWT> header (returns E9 error)
@@ -1115,9 +1117,9 @@ function proxyIPTVStream(targetUrl, mac, token, res, redirectCount = 0) {
  * 
  * IMPORTANT: The User-Agent MUST be consistent with what's sent to enc-dec.app
  * for decryption. Pass ?ua=<user-agent> to use a custom User-Agent.
- * Pass ?referer=<url> to include a Referer header (needed for Flixer CDN and dvalna.ru).
- * Pass ?origin=<url> to include an Origin header (needed for dvalna.ru).
- * Pass ?auth=<value> to include an Authorization header (needed for dvalna.ru M3U8).
+ * Pass ?referer=<url> to include a Referer header (needed for Flixer CDN and DLHD CDN).
+ * Pass ?origin=<url> to include an Origin header (needed for DLHD CDN).
+ * Pass ?auth=<value> to include an Authorization header (needed for DLHD M3U8).
  */
 function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOrigin, customAuth, res) {
   // NO CACHING - always fetch fresh
@@ -1199,8 +1201,8 @@ function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOr
   // Check if this is VidLink CDN (storm.vodvidl.site, videostr.net)
   const isVidLinkCdn = url.hostname.includes('vodvidl.site') || url.hostname.includes('videostr.net');
   
-  // Check if this is dvalna.ru (DLHD CDN)
-  const isDvalnaCdn = url.hostname.includes('dvalna.ru') || url.hostname.includes('kiko2.ru') || url.hostname.includes('giokko.ru');
+  // Check if this is DLHD CDN
+  const isDlhdCdn = url.hostname.includes('dvalna.ru') || url.hostname.includes('soyspace.cyou') || url.hostname.includes('adsfadfds.cfd') || url.hostname.includes('ksohls.ru');
   
   // IMPORTANT: User-Agent MUST match the keystream used for decryption
   // Use the SHORT UA that matches MEGAUP_USER_AGENT constant
@@ -1215,16 +1217,16 @@ function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOr
     'Connection': 'keep-alive',
   };
   
-  // dvalna.ru REQUIRES Referer, Origin, AND Authorization headers for M3U8
-  if (isDvalnaCdn) {
-    headers['Referer'] = customReferer || 'https://dlhd.link/';
-    headers['Origin'] = customOrigin || 'https://dlhd.link';
+  // DLHD CDN REQUIRES Referer, Origin, AND Authorization headers for M3U8
+  if (isDlhdCdn) {
+    headers['Referer'] = customReferer || 'https://www.ksohls.ru/';
+    headers['Origin'] = customOrigin || 'https://www.ksohls.ru';
     // Add Authorization header if provided (required for M3U8 requests)
     if (customAuth) {
       headers['Authorization'] = customAuth;
-      console.log(`[AnimeKai] dvalna.ru - adding Auth header: ${customAuth.substring(0, 30)}...`);
+      console.log(`[AnimeKai] DLHD CDN - adding Auth header: ${customAuth.substring(0, 30)}...`);
     }
-    console.log(`[AnimeKai] dvalna.ru CDN detected - Referer: ${headers['Referer']}, Origin: ${headers['Origin']}, Auth: ${customAuth ? 'YES' : 'NO'}`);
+    console.log(`[AnimeKai] DLHD CDN detected - Referer: ${headers['Referer']}, Origin: ${headers['Origin']}, Auth: ${customAuth ? 'YES' : 'NO'}`);
   }
   // Flixer CDN REQUIRES Referer header, MegaUp CDN BLOCKS it
   else if (isFlixerCdn) {
@@ -1918,13 +1920,13 @@ const server = http.createServer(async (req, res) => {
   if (reqUrl.pathname === '/heartbeat') {
     const channel = reqUrl.searchParams.get('channel');
     const server = reqUrl.searchParams.get('server');
-    const domain = reqUrl.searchParams.get('domain') || 'kiko2.ru';
+    const domain = reqUrl.searchParams.get('domain') || 'soyspace.cyou';
     
     if (!channel || !server) {
       res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify({ 
         error: 'Missing channel or server parameter',
-        usage: '/heartbeat?channel=51&server=zeko&domain=kiko2.ru'
+        usage: '/heartbeat?channel=51&server=zeko&domain=soyspace.cyou'
       }));
     }
     
@@ -3062,7 +3064,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`[DLHD-Key-V4] ts=${timestamp} nonce=${nonce}`);
     
     // Simple fetch with the provided auth headers
-    // CRITICAL: Use dlhd.link as Origin/Referer (not topembed.pw)
+    // CRITICAL: Use www.ksohls.ru as Origin/Referer
     const url = new URL(targetUrl);
     const options = {
       hostname: url.hostname,
@@ -3071,8 +3073,8 @@ const server = http.createServer(async (req, res) => {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
-        'Origin': 'https://dlhd.link',
-        'Referer': 'https://dlhd.link/',
+        'Origin': 'https://www.ksohls.ru',
+        'Referer': 'https://www.ksohls.ru/',
         'Authorization': `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp,
         'X-Key-Nonce': nonce,
@@ -3132,7 +3134,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // DLHD Key endpoint - fetches encryption key from residential IP
-  // The key server (chevy.dvalna.ru) blocks Cloudflare IPs
+  // The key server (chevy.soyspace.cyou) blocks Cloudflare IPs
   // CF Worker calls this when direct key fetch fails
   // Updated January 2026: Uses v3 auth module for full PoW authentication
   if (reqUrl.pathname === '/dlhd-key') {
@@ -3395,7 +3397,7 @@ const server = http.createServer(async (req, res) => {
   // AnimeKai proxy endpoint - proxies MegaUp/Flixer/DLHD CDN streams from residential IP
   // MegaUp blocks datacenter IPs and requests with Origin/Referer headers
   // Flixer CDN blocks datacenter IPs but REQUIRES Referer header
-  // dvalna.ru (DLHD) blocks datacenter IPs and REQUIRES Referer, Origin, AND Authorization headers
+  // dvalna.ru/soyspace.cyou/adsfadfds.cfd (DLHD) blocks datacenter IPs and REQUIRES Referer, Origin, AND Authorization headers
   if (reqUrl.pathname === '/animekai') {
     const targetUrl = reqUrl.searchParams.get('url');
     const customUserAgent = reqUrl.searchParams.get('ua');

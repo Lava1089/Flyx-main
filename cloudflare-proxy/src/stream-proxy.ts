@@ -381,8 +381,6 @@ const ALLOWED_ORIGINS = [
   'https://www.flyx.tv',
   'http://localhost:3000',
   'http://localhost:3001',
-  // Allow Vercel preview deployments
-  '.vercel.app',
   // Cloudflare Pages and Workers deployments
   '.pages.dev',
   '.workers.dev',

@@ -2,7 +2,7 @@
  * Sync Endpoints Configuration
  * 
  * Routes sync requests through Cloudflare Worker when available,
- * falls back to Vercel API routes.
+ * falls back to local API routes.
  */
 
 // Cloudflare Sync Worker URL (set in environment)
@@ -17,7 +17,7 @@ export function isUsingCloudflareSyncWorker(): boolean {
 
 /**
  * Get the sync endpoint URL
- * Returns CF Worker URL if configured, otherwise falls back to Vercel API
+ * Returns CF Worker URL if configured, otherwise falls back to local API
  */
 export function getSyncEndpoint(): string {
   if (isUsingCloudflareSyncWorker()) {

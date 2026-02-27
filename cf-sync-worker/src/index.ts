@@ -3,6 +3,7 @@
  * 
  * Cloudflare Worker for anonymous cross-device sync.
  * Handles: watch progress, watchlist, provider settings, subtitle/player preferences
+ * Storage: Cloudflare D1 (SQLite)
  * 
  * Endpoints:
  *   GET  /sync     - Pull sync data (requires X-Sync-Code header)
@@ -12,11 +13,10 @@
  */
 
 export interface Env {
-  DATABASE_URL?: string;
   SYNC_ENCRYPTION_KEY?: string;
   ALLOWED_ORIGINS?: string;
   LOG_LEVEL?: string;
-  // D1 Database (alternative to Neon)
+  // D1 Database
   SYNC_DB?: D1Database;
   // KV for caching
   SYNC_CACHE?: KVNamespace;
@@ -131,13 +131,8 @@ export default {
         status: 'ok', 
         service: 'flyx-sync',
         timestamp: Date.now(),
-        hasDatabase: !!env.DATABASE_URL || !!env.SYNC_DB,
+        hasD1: !!env.SYNC_DB,
       }, { headers: corsHeaders });
-    }
-
-    // Admin migration endpoint (for Neon → D1 migration)
-    if (url.pathname === '/admin/migrate' && request.method === 'POST') {
-      return await handleAdminMigrate(request, env, corsHeaders);
     }
 
     // Sync endpoints - support both /sync and /analytics/sync paths
@@ -184,23 +179,19 @@ export default {
   },
 };
 
-// GET /sync - Pull data from server
+// GET /sync - Pull data from server (D1 only)
 async function handleGet(
   codeHash: string, 
   env: Env, 
   corsHeaders: HeadersInit
 ): Promise<Response> {
-  // Try D1 first, then Neon
-  if (env.SYNC_DB) {
-    return await handleGetD1(codeHash, env.SYNC_DB, corsHeaders);
-  } else if (env.DATABASE_URL) {
-    return await handleGetNeon(codeHash, env.DATABASE_URL, corsHeaders);
+  if (!env.SYNC_DB) {
+    return Response.json(
+      { success: false, error: 'D1 database not configured' },
+      { status: 503, headers: corsHeaders }
+    );
   }
-  
-  return Response.json(
-    { success: false, error: 'No database configured' },
-    { status: 500, headers: corsHeaders }
-  );
+  return await handleGetD1(codeHash, env.SYNC_DB, corsHeaders);
 }
 
 async function handleGetD1(
@@ -208,7 +199,7 @@ async function handleGetD1(
   db: D1Database, 
   corsHeaders: HeadersInit
 ): Promise<Response> {
-  // Ensure table exists using prepare().run() instead of exec()
+  // Ensure table exists
   try {
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS sync_accounts (
@@ -249,60 +240,7 @@ async function handleGetD1(
   }, { headers: corsHeaders });
 }
 
-async function handleGetNeon(
-  codeHash: string, 
-  databaseUrl: string, 
-  corsHeaders: HeadersInit
-): Promise<Response> {
-  // Use Neon's HTTP API for serverless
-  const response = await fetch(`${getNeonHttpUrl(databaseUrl)}/query`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Neon-Connection-String': databaseUrl,
-    },
-    body: JSON.stringify({
-      query: 'SELECT sync_data, last_sync_at FROM sync_accounts WHERE code_hash = $1',
-      params: [codeHash],
-    }),
-  });
-
-  if (!response.ok) {
-    // Table might not exist, try to create it
-    await ensureNeonTable(databaseUrl);
-    return Response.json({
-      success: true,
-      data: null,
-      message: 'No synced data found for this code',
-      isNew: true,
-    }, { headers: corsHeaders });
-  }
-
-  const data = await response.json() as { rows: any[] };
-  
-  if (!data.rows || data.rows.length === 0) {
-    return Response.json({
-      success: true,
-      data: null,
-      message: 'No synced data found for this code',
-      isNew: true,
-    }, { headers: corsHeaders });
-  }
-
-  const row = data.rows[0];
-  const syncData = typeof row.sync_data === 'string' 
-    ? JSON.parse(row.sync_data) 
-    : row.sync_data;
-
-  return Response.json({
-    success: true,
-    data: syncData,
-    lastSyncedAt: row.last_sync_at,
-    isNew: false,
-  }, { headers: corsHeaders });
-}
-
-// POST /sync - Push data to server
+// POST /sync - Push data to server (D1 only)
 async function handlePost(
   request: Request,
   codeHash: string, 
@@ -318,16 +256,13 @@ async function handlePost(
     );
   }
 
-  if (env.SYNC_DB) {
-    return await handlePostD1(codeHash, body, env.SYNC_DB, corsHeaders);
-  } else if (env.DATABASE_URL) {
-    return await handlePostNeon(codeHash, body, env.DATABASE_URL, corsHeaders);
+  if (!env.SYNC_DB) {
+    return Response.json(
+      { success: false, error: 'D1 database not configured' },
+      { status: 503, headers: corsHeaders }
+    );
   }
-  
-  return Response.json(
-    { success: false, error: 'No database configured' },
-    { status: 500, headers: corsHeaders }
-  );
+  return await handlePostD1(codeHash, body, env.SYNC_DB, corsHeaders);
 }
 
 async function handlePostD1(
@@ -339,7 +274,7 @@ async function handlePostD1(
   const now = Date.now();
   const syncDataStr = JSON.stringify(body);
 
-  // Ensure table exists using prepare().run() instead of exec()
+  // Ensure table exists
   try {
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS sync_accounts (
@@ -393,201 +328,25 @@ async function handlePostD1(
   }, { headers: corsHeaders });
 }
 
-async function handlePostNeon(
-  codeHash: string,
-  body: SyncData,
-  databaseUrl: string,
-  corsHeaders: HeadersInit
-): Promise<Response> {
-  const now = Date.now();
-  const syncDataStr = JSON.stringify(body);
-
-  await ensureNeonTable(databaseUrl);
-
-  // Check if exists
-  const checkResponse = await neonQuery(databaseUrl, 
-    'SELECT id FROM sync_accounts WHERE code_hash = $1',
-    [codeHash]
-  );
-
-  const checkData = await checkResponse.json() as { rows: any[] };
-  const exists = checkData.rows && checkData.rows.length > 0;
-
-  if (!exists) {
-    // Create new
-    const id = generateId();
-    await neonQuery(databaseUrl,
-      `INSERT INTO sync_accounts (id, code_hash, sync_data, created_at, updated_at, last_sync_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6)`,
-      [id, codeHash, syncDataStr, now, now, now]
-    );
-
-    return Response.json({
-      success: true,
-      message: 'Sync account created',
-      lastSyncedAt: now,
-      isNew: true,
-    }, { headers: corsHeaders });
-  }
-
-  // Update existing
-  await neonQuery(databaseUrl,
-    `UPDATE sync_accounts 
-     SET sync_data = $1::jsonb, updated_at = $2, last_sync_at = $3
-     WHERE code_hash = $4`,
-    [syncDataStr, now, now, codeHash]
-  );
-
-  return Response.json({
-    success: true,
-    message: 'Sync data updated',
-    lastSyncedAt: now,
-    isNew: false,
-  }, { headers: corsHeaders });
-}
-
-// DELETE /sync - Delete sync account
+// DELETE /sync - Delete sync account (D1 only)
 async function handleDelete(
   codeHash: string, 
   env: Env, 
   corsHeaders: HeadersInit
 ): Promise<Response> {
-  if (env.SYNC_DB) {
-    await env.SYNC_DB.prepare(
-      'DELETE FROM sync_accounts WHERE code_hash = ?'
-    ).bind(codeHash).run();
-  } else if (env.DATABASE_URL) {
-    await neonQuery(env.DATABASE_URL,
-      'DELETE FROM sync_accounts WHERE code_hash = $1',
-      [codeHash]
-    );
-  } else {
+  if (!env.SYNC_DB) {
     return Response.json(
-      { success: false, error: 'No database configured' },
-      { status: 500, headers: corsHeaders }
+      { success: false, error: 'D1 database not configured' },
+      { status: 503, headers: corsHeaders }
     );
   }
+
+  await env.SYNC_DB.prepare(
+    'DELETE FROM sync_accounts WHERE code_hash = ?'
+  ).bind(codeHash).run();
 
   return Response.json({
     success: true,
     message: 'Sync account deleted',
   }, { headers: corsHeaders });
-}
-
-// Neon HTTP API helpers
-function getNeonHttpUrl(connectionString: string): string {
-  // Extract host from connection string
-  const match = connectionString.match(/@([^/]+)/);
-  if (!match) throw new Error('Invalid Neon connection string');
-  return `https://${match[1]}`;
-}
-
-async function neonQuery(databaseUrl: string, query: string, params: any[]): Promise<Response> {
-  // Parse connection string for Neon serverless driver format
-  const url = new URL(databaseUrl.replace('postgresql://', 'https://').replace('postgres://', 'https://'));
-  const host = url.hostname;
-  const database = url.pathname.slice(1);
-  const [username, password] = (url.username + ':' + url.password).split(':');
-
-  // Use Neon's serverless HTTP API
-  const response = await fetch(`https://${host}/sql`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${password}`,
-    },
-    body: JSON.stringify({
-      query,
-      params,
-    }),
-  });
-
-  return response;
-}
-
-async function ensureNeonTable(databaseUrl: string): Promise<void> {
-  await neonQuery(databaseUrl, `
-    CREATE TABLE IF NOT EXISTS sync_accounts (
-      id TEXT PRIMARY KEY,
-      code_hash TEXT UNIQUE NOT NULL,
-      sync_data JSONB NOT NULL,
-      created_at BIGINT NOT NULL,
-      updated_at BIGINT NOT NULL,
-      last_sync_at BIGINT NOT NULL,
-      device_count INTEGER DEFAULT 1
-    )
-  `, []);
-
-  await neonQuery(databaseUrl, `
-    CREATE INDEX IF NOT EXISTS idx_sync_accounts_hash ON sync_accounts(code_hash)
-  `, []);
-}
-
-// Admin migration endpoint - insert raw account data directly
-async function handleAdminMigrate(
-  request: Request,
-  env: Env,
-  corsHeaders: HeadersInit
-): Promise<Response> {
-  if (!env.SYNC_DB) {
-    return Response.json(
-      { success: false, error: 'D1 database not configured' },
-      { status: 500, headers: corsHeaders }
-    );
-  }
-
-  try {
-    const body = await request.json() as {
-      id: string;
-      code_hash: string;
-      sync_data: string;
-      created_at: number;
-      updated_at: number;
-      last_sync_at: number;
-      device_count: number;
-    };
-
-    // Ensure table exists
-    try {
-      await env.SYNC_DB.prepare(`
-        CREATE TABLE IF NOT EXISTS sync_accounts (
-          id TEXT PRIMARY KEY,
-          code_hash TEXT UNIQUE NOT NULL,
-          sync_data TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          last_sync_at INTEGER NOT NULL,
-          device_count INTEGER DEFAULT 1
-        )
-      `).run();
-    } catch (e) {
-      // Table exists
-    }
-
-    // Insert or replace
-    await env.SYNC_DB.prepare(`
-      INSERT OR REPLACE INTO sync_accounts (id, code_hash, sync_data, created_at, updated_at, last_sync_at, device_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      body.id,
-      body.code_hash,
-      body.sync_data,
-      body.created_at,
-      body.updated_at,
-      body.last_sync_at,
-      body.device_count || 1
-    ).run();
-
-    return Response.json({
-      success: true,
-      message: 'Account migrated',
-      id: body.id,
-    }, { headers: corsHeaders });
-  } catch (error: any) {
-    console.error('[Admin Migrate] Error:', error);
-    return Response.json(
-      { success: false, error: error.message },
-      { status: 500, headers: corsHeaders }
-    );
-  }
 }

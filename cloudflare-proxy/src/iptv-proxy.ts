@@ -190,7 +190,7 @@ async function handleChannelRequest(
       stalkerChannelId: string;
       channelId?: string;
       channelName?: string;
-      clientIp?: string; // Real client IP passed from Vercel/caller
+      clientIp?: string; // Real client IP passed from caller
     };
 
     if (!body.portal || !body.mac || !body.stalkerChannelId) {
@@ -204,7 +204,7 @@ async function handleChannelRequest(
     const portalBase = portal.replace(/\/c\/?$/, '').replace(/\/+$/, '');
 
     // Get client IP for token binding (prevents restreaming)
-    // PRIORITY: Use clientIp from request body (passed by Vercel with real user IP)
+    // PRIORITY: Use clientIp from request body (passed by the caller with real user IP)
     // Fallback to headers only for direct CF worker calls
     const clientIp = body.clientIp || 
                      request.headers.get('CF-Connecting-IP') || 

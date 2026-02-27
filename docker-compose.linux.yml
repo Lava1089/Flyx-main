@@ -1,0 +1,11 @@
+###############################################################################
+# Linux override — enables host networking
+# Used automatically by flyx.sh on Linux
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+###############################################################################
+
+services:
+  flyx:
+    network_mode: host
+    ports: []

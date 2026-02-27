@@ -187,7 +187,7 @@ export default function IPTVDebugPage() {
       setCdnStreamDebug(data);
       
       if (data.success && data.streamUrl) {
-        // Proxy the stream through Cloudflare worker (not Vercel)
+        // Proxy the stream through Cloudflare worker
         // The raw URL from edge.cdn-live-tv.ru requires Referer header
         // Strip /tv suffix if present (CF_TV_PROXY_URL may include it)
         const cfBaseUrl = CF_PROXY_URL.replace(/\/tv\/?$/, '').replace(/\/+$/, '');

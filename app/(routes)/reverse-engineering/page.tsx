@@ -1031,7 +1031,7 @@ const MEGAUP_KEYSTREAM_HEX =
                 <div className={styles.archArrow}>↓</div>
                 <div className={styles.archLayer}>
                   <span className={styles.archIcon}>▲</span>
-                  <span>Vercel API Route</span>
+                  <span>Next.js API Route</span>
                 </div>
                 <div className={styles.archArrow}>↓</div>
                 <div className={styles.archLayer}>

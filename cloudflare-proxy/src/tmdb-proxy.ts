@@ -1,7 +1,7 @@
 /**
  * TMDB API Proxy - Routes TMDB requests through Cloudflare Worker
  * 
- * This proxy handles all TMDB API requests, reducing Vercel Edge invocations.
+ * This proxy handles all TMDB API requests with edge caching.
  * 
  * Routes:
  *   GET /tmdb/search?query=<query>&type=<movie|tv|multi>
@@ -17,7 +17,6 @@
  *   - Cloudflare free tier: 100k requests/day
  *   - Built-in caching at edge
  *   - Lower latency
- *   - Reduced Vercel costs
  */
 
 import { createLogger, type LogLevel } from './logger';

@@ -3,35 +3,18 @@
  * Creates the bot_detections table and indexes for the unified admin panel
  */
 
-const { initializeDB, getDB } = require('../app/lib/db/neon-connection.ts');
+const { getAdapter } = require('../app/lib/db/adapter');
 
 async function setupBotDetectionTables() {
   try {
     console.log('🤖 Setting up bot detection tables...');
     
-    await initializeDB();
-    const db = getDB();
-    const adapter = db.getAdapter();
-    const isNeon = db.isUsingNeon();
+    const adapter = getAdapter();
 
-    console.log(`📊 Using ${isNeon ? 'Neon' : 'SQLite'} database`);
+    console.log('📊 Using D1 database');
 
-    // Create bot_detections table
-    const createBotDetectionsTable = isNeon
-      ? `CREATE TABLE IF NOT EXISTS bot_detections (
-          id SERIAL PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          ip_address TEXT NOT NULL,
-          user_agent TEXT,
-          confidence_score INTEGER NOT NULL CHECK (confidence_score >= 0 AND confidence_score <= 100),
-          detection_reasons TEXT NOT NULL,
-          status TEXT DEFAULT 'suspected' CHECK (status IN ('suspected', 'confirmed_bot', 'confirmed_human', 'pending_review')),
-          reviewed_by TEXT,
-          reviewed_at BIGINT,
-          created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000,
-          updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()) * 1000
-        )`
-      : `CREATE TABLE IF NOT EXISTS bot_detections (
+    // Create bot_detections table (D1/SQLite)
+    const createBotDetectionsTable = `CREATE TABLE IF NOT EXISTS bot_detections (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id TEXT NOT NULL,
           ip_address TEXT NOT NULL,
@@ -112,11 +95,7 @@ async function setupBotDetectionTables() {
     const now = Date.now();
     
     for (const detection of sampleDetections) {
-      const insertQuery = isNeon
-        ? `INSERT INTO bot_detections (user_id, ip_address, user_agent, confidence_score, detection_reasons, status, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (user_id) DO NOTHING`
-        : `INSERT OR IGNORE INTO bot_detections (user_id, ip_address, user_agent, confidence_score, detection_reasons, status, created_at, updated_at)
+      const insertQuery = `INSERT OR IGNORE INTO bot_detections (user_id, ip_address, user_agent, confidence_score, detection_reasons, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
       const insertParams = [

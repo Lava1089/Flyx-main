@@ -10,7 +10,7 @@
  * 
  * Set NEXT_PUBLIC_USE_DLHD_PROXY=true to use Oxylabs residential proxies for Live TV.
  * 
- * No fallback to Vercel Edge - Cloudflare Workers are required for proper
+ * Cloudflare Workers are required for proper
  * stream proxying with correct headers and CORS handling.
  */
 
@@ -232,11 +232,13 @@ export function isAnimeKaiProxyConfigured(): boolean {
 /**
  * Get AnimeKai stream proxy URL
  * Routes through Cloudflare Worker -> RPI Proxy -> MegaUp CDN
+ * In Docker mode, routes through local Bun proxy
  * 
- * @param url - The MegaUp CDN stream URL (m3u8 or segment)
- * @returns Proxied URL through Cloudflare /animekai route
+ * @param url - The CDN stream URL (m3u8 or segment)
+ * @param referer - Optional referer to pass through to the CDN
+ * @returns Proxied URL through /animekai route
  */
-export function getAnimeKaiProxyUrl(url: string): string {
+export function getAnimeKaiProxyUrl(url: string, referer?: string): string {
   // Try both NEXT_PUBLIC_ (available at build time) and server-side env var
   // Fallback to hardcoded URL for production if env vars aren't set
   const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL || 
@@ -247,14 +249,18 @@ export function getAnimeKaiProxyUrl(url: string): string {
   // Strip /stream suffix if present (the base URL might include it)
   const baseUrl = cfProxyUrl.replace(/\/stream\/?$/, '');
   
-  return `${baseUrl}/animekai?url=${encodeURIComponent(url)}`;
+  let proxyUrl = `${baseUrl}/animekai?url=${encodeURIComponent(url)}`;
+  if (referer) {
+    proxyUrl += `&referer=${encodeURIComponent(referer)}`;
+  }
+  return proxyUrl;
 }
 
 /**
  * Check if a URL is from AnimeKai CDN (requires RPI residential proxy)
  * 
  * AnimeKai uses multiple CDN domains that ALL block:
- *   1. Datacenter IPs (Cloudflare, AWS, Vercel, etc.)
+ *   1. Datacenter IPs (Cloudflare, AWS, etc.)
  *   2. Requests with Origin header
  * 
  * ALL these domains need to go through the /animekai route -> RPI proxy
@@ -301,7 +307,7 @@ export function isMegaUpCdnUrl(url: string): boolean {
  * Check if a URL is from 1movies CDN (requires RPI residential proxy)
  * 
  * 1movies uses Cloudflare Workers CDN domains that block:
- *   1. Datacenter IPs (Cloudflare, AWS, Vercel, etc.)
+ *   1. Datacenter IPs (Cloudflare, AWS, etc.)
  *   2. Requests from other Cloudflare Workers
  * 
  * These domains need to go through the /animekai route -> RPI proxy

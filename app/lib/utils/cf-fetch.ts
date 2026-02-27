@@ -22,7 +22,7 @@ function isCloudflareWorker(): boolean {
     const hasCachesDefault = typeof caches !== 'undefined' && typeof caches.default !== 'undefined';
     
     // In Cloudflare Workers, process.versions.node is undefined
-    // In Node.js/Vercel, it's defined
+    // In Node.js, it's defined
     const isNotNode = typeof process === 'undefined' || 
                       typeof process.versions === 'undefined' || 
                       typeof process.versions.node === 'undefined';
@@ -39,10 +39,10 @@ function isCloudflareWorker(): boolean {
 
 /**
  * Get RPI proxy configuration from environment
- * Works in both Node.js (Vercel) and Cloudflare Workers
+ * Works in both Node.js and Cloudflare Workers
  */
 function getRpiConfig(): { url: string | undefined; key: string | undefined } {
-  // Try process.env first (works in Node.js/Vercel and build time)
+  // Try process.env first (works in Node.js and build time)
   let url = process.env.RPI_PROXY_URL || process.env.NEXT_PUBLIC_RPI_PROXY_URL;
   let key = process.env.RPI_PROXY_KEY || process.env.NEXT_PUBLIC_RPI_PROXY_KEY;
   
@@ -129,7 +129,7 @@ export async function cfFetch(
     }
   }
   
-  // Direct fetch (Vercel or local, or RPI not configured)
+  // Direct fetch (local dev, or RPI not configured)
   if (useProxy && (!RPI_PROXY_URL || !RPI_PROXY_KEY)) {
     console.warn(`[cfFetch] On CF Worker but RPI not configured! Direct fetch will likely fail.`);
   }

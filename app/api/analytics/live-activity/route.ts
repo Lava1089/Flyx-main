@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
         // Forward geo headers
         'CF-IPCountry': request.headers.get('CF-IPCountry') || '',
-        'X-Vercel-IP-Country': request.headers.get('X-Vercel-IP-Country') || '',
         'User-Agent': request.headers.get('User-Agent') || '',
       },
       body: JSON.stringify(data),

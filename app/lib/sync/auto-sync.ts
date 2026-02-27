@@ -104,7 +104,7 @@ export async function performSync(): Promise<{ success: boolean; error?: string 
     const localData = collectLocalSyncData();
     const endpoint = getSyncEndpoint();
     
-    console.log(`[AutoSync] Pushing to ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'Vercel API'}: ${endpoint}`);
+    console.log(`[AutoSync] Pushing to ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'local API'}: ${endpoint}`);
     
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

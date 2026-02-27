@@ -616,30 +616,30 @@ export async function POST(request: NextRequest) {
           });
         }
         
-        // 1. Test direct from Vercel (datacenter IP)
+        // 1. Test direct fetch (datacenter IP)
         try {
-          const startVercel = Date.now();
-          const vercelRes = await fetch(testUrl, {
+          const startDirect = Date.now();
+          const directRes = await fetch(testUrl, {
             headers: buildHeaders(macAddress),
             signal: AbortSignal.timeout(10000),
           });
-          const vercelText = await vercelRes.text();
-          const vercelClean = vercelText.replace(/^\/\*-secure-\s*/, '').replace(/\s*\*\/$/, '');
-          let vercelData;
-          try { vercelData = JSON.parse(vercelClean); } catch { vercelData = null; }
+          const directText = await directRes.text();
+          const directClean = directText.replace(/^\/\*-secure-\s*/, '').replace(/\s*\*\/$/, '');
+          let directData;
+          try { directData = JSON.parse(directClean); } catch { directData = null; }
           
-          results.vercel = {
-            source: 'Vercel (Datacenter)',
-            status: vercelRes.status,
-            success: vercelRes.ok && vercelData?.js?.token,
-            token: vercelData?.js?.token ? vercelData.js.token.substring(0, 20) + '...' : null,
-            latency: Date.now() - startVercel,
-            error: !vercelRes.ok ? `HTTP ${vercelRes.status}` : (!vercelData?.js?.token ? 'No token in response' : null),
-            rawResponse: vercelText.substring(0, 200),
+          results.direct = {
+            source: 'Direct (Datacenter)',
+            status: directRes.status,
+            success: directRes.ok && directData?.js?.token,
+            token: directData?.js?.token ? directData.js.token.substring(0, 20) + '...' : null,
+            latency: Date.now() - startDirect,
+            error: !directRes.ok ? `HTTP ${directRes.status}` : (!directData?.js?.token ? 'No token in response' : null),
+            rawResponse: directText.substring(0, 200),
           };
         } catch (e: any) {
-          results.vercel = {
-            source: 'Vercel (Datacenter)',
+          results.direct = {
+            source: 'Direct (Datacenter)',
             success: false,
             error: e.message || String(e),
           };
@@ -880,20 +880,20 @@ export async function POST(request: NextRequest) {
           recommendation = 'CF Worker → RPi works! Streaming should work through this path.';
         } else if (results.cloudflare?.success && !cfRpiConfigured) {
           recommendation = 'CF Worker works directly but no proxy configured. Set proxy secrets in CF worker for streaming.';
-        } else if (results.vercel?.success) {
+        } else if (results.direct?.success) {
           if (results.hetznerProxy?.hetznerHealthy === false) {
-            recommendation = 'Vercel works. Hetzner proxy unreachable - check if server is running.';
+            recommendation = 'Direct fetch works. Hetzner proxy unreachable - check if server is running.';
           } else if (!results.rpiProxy?.rpiHealthy) {
-            recommendation = 'Vercel works but RPi unreachable. Try Hetzner VPS or check RPi tunnel.';
+            recommendation = 'Direct fetch works but RPi unreachable. Try Hetzner VPS or check RPi tunnel.';
           } else {
-            recommendation = 'Vercel works. For streaming, configure Hetzner or RPi proxy in CF worker.';
+            recommendation = 'Direct fetch works. For streaming, configure Hetzner or RPi proxy in CF worker.';
           }
         } else {
           recommendation = 'All sources failed - check portal URL and MAC address';
         }
         
         const summary = {
-          vercelBlocked: !results.vercel?.success,
+          directBlocked: !results.direct?.success,
           cloudflareBlocked: !results.cloudflare?.success,
           rpiWorks: results.rpiProxy?.success === true,
           hetznerWorks: results.hetznerProxy?.success === true,

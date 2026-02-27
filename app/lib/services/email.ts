@@ -47,7 +47,7 @@ function encodeBase64(str: string): string {
 }
 
 /**
- * Send an email using Forward Email SMTP via fetch (Vercel-compatible)
+ * Send an email using Forward Email SMTP via fetch (Cloudflare Workers compatible)
  * Uses the Forward Email HTTP API as an alternative to SMTP
  */
 export async function sendEmail(options: EmailOptions): Promise<EmailResult> {

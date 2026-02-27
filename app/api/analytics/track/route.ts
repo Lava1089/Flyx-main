@@ -35,7 +35,6 @@ export async function POST(request: NextRequest) {
         // Forward geo headers for location tracking
         'CF-IPCountry': request.headers.get('CF-IPCountry') || '',
         'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') || '',
-        'X-Vercel-IP-Country': request.headers.get('X-Vercel-IP-Country') || '',
         'X-Forwarded-For': request.headers.get('X-Forwarded-For') || '',
         'User-Agent': request.headers.get('User-Agent') || '',
       },

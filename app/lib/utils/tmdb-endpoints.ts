@@ -2,13 +2,12 @@
  * TMDB API Endpoint Utility
  * 
  * Routes TMDB requests through Cloudflare Worker when configured,
- * otherwise falls back to Vercel API routes.
+ * otherwise falls back to local API routes.
  * 
  * Benefits of CF routing:
- * - 100k free requests/day (vs Vercel's limited edge invocations)
+ * - 100k free requests/day
  * - Built-in edge caching
  * - Lower latency
- * - Reduced Vercel costs
  */
 
 // Get the CF proxy URL from environment
@@ -139,7 +138,7 @@ export function getTMDBDiscoverUrl(
   if (isCFTMDBEnabled()) {
     return `${base}/discover?${params.toString()}`;
   }
-  // Vercel route might have different param names
+  // Local route uses the same param names
   return `${base}/discover?${params.toString()}`;
 }
 

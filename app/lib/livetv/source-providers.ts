@@ -142,7 +142,7 @@ export async function getVIPRowStream(viprowUrl: string, linkNum: number = 1): P
     const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL;
     
     if (!cfProxyUrl) {
-      // Fallback to Vercel API which returns embed URL
+      // Fallback to local API route which returns embed URL
       const apiUrl = `/api/livetv/viprow-stream?url=${encodeURIComponent(viprowUrl)}&link=${linkNum}`;
       const response = await fetch(apiUrl);
       const data = await response.json();

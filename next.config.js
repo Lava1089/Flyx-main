@@ -49,6 +49,9 @@ const nextConfig = {
     ],
   },
 
+  // Keep these packages external (not bundled) — they use dynamic require or native modules
+  serverExternalPackages: ['libsodium-wrappers', 'libsodium'],
+
   // Compiler optimizations
   compiler: {
     // Remove console.log in production

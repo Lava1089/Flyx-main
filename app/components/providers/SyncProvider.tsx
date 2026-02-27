@@ -74,7 +74,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         headers['X-Sync-Passphrase'] = status.passphrase;
       }
 
-      console.log(`[SyncProvider] Auto-syncing via ${isUsingCloudflareSyncWorker() ? 'Cloudflare' : 'Vercel'}...`);
+      console.log(`[SyncProvider] Auto-syncing via ${isUsingCloudflareSyncWorker() ? 'Cloudflare' : 'local API'}...`);
 
       // Pull remote data first
       const pullResponse = await fetch(endpoint, {

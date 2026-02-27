@@ -2,7 +2,7 @@
  * Database Adapter Abstraction
  * 
  * Provides a unified interface for database operations using Cloudflare D1.
- * This adapter is now D1-only after the Vercel to Cloudflare migration.
+ * This adapter is D1-only for the Cloudflare-native architecture.
  * 
  * Requirements: 3.6, 12.8
  */

@@ -1,264 +1,146 @@
 #!/usr/bin/env bash
 ###############################################################################
-# Flyx 2.0 - Self-Hosted Setup & Launcher
+# Flyx 2.0 - One-Command Setup (Linux/Mac)
 #
-# Usage:
-#   ./flyx.sh          - Full setup + start (first time)
-#   ./flyx.sh start    - Start all services
-#   ./flyx.sh stop     - Stop all services
-#   ./flyx.sh restart  - Restart all services
-#   ./flyx.sh status   - Show service status
-#   ./flyx.sh logs     - Tail logs
-#   ./flyx.sh dns      - Re-configure DNS only
-#   ./flyx.sh clean    - Stop + remove volumes + undo DNS
+# Usage (run with sudo for hosts file):
+#   ./flyx.sh              - Build + start
+#   ./flyx.sh stop         - Stop
+#   ./flyx.sh restart      - Restart
+#   ./flyx.sh logs         - Tail logs
+#   ./flyx.sh status       - Show status
+#   ./flyx.sh clean        - Stop + remove data
 ###############################################################################
 
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/docker/.env"
+ENV_EXAMPLE="$SCRIPT_DIR/docker/.env.example"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
-HOSTS_MARKER="# flyx-self-hosted"
+COMPOSE_LINUX="$SCRIPT_DIR/docker-compose.linux.yml"
 DOMAIN="flyx.local"
+MARKER="# flyx-self-hosted"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+# On Linux, use host networking override
+COMPOSE_CMD="docker compose -f $COMPOSE_FILE"
+if [ "$(uname -s)" = "Linux" ] && [ -f "$COMPOSE_LINUX" ]; then
+    COMPOSE_CMD="$COMPOSE_CMD -f $COMPOSE_LINUX"
+fi
 
-log()  { echo -e "${GREEN}[flyx]${NC} $*"; }
-warn() { echo -e "${YELLOW}[flyx]${NC} $*"; }
-err()  { echo -e "${RED}[flyx]${NC} $*" >&2; }
+log()  { echo -e "\033[32m[flyx]\033[0m $1"; }
+warn() { echo -e "\033[33m[flyx]\033[0m $1"; }
+err()  { echo -e "\033[31m[flyx]\033[0m $1"; }
 
-# Detect the host's LAN IP (not 127.0.0.1, not docker bridge)
-detect_lan_ip() {
-  local ip=""
-
-  # macOS
-  if command -v ipconfig &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
-    ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
-  fi
-
-  # Linux - try ip command first
-  if [[ -z "$ip" ]] && command -v ip &>/dev/null; then
-    ip=$(ip -4 route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[\d.]+' || true)
-  fi
-
-  # Fallback - hostname
-  if [[ -z "$ip" ]] && command -v hostname &>/dev/null; then
-    ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
-  fi
-
-  # Last resort
-  if [[ -z "$ip" ]]; then
-    ip="127.0.0.1"
-    warn "Could not detect LAN IP, falling back to 127.0.0.1"
-    warn "Set HOST_IP manually in docker/.env if needed"
-  fi
-
-  echo "$ip"
-}
-
-# Detect the system's current upstream DNS server
-detect_upstream_dns() {
-  local dns=""
-
-  # Try systemd-resolve
-  if command -v resolvectl &>/dev/null; then
-    dns=$(resolvectl status 2>/dev/null | grep -m1 'DNS Servers' | awk '{print $NF}' || true)
-  fi
-
-  # Try /etc/resolv.conf
-  if [[ -z "$dns" ]] && [[ -f /etc/resolv.conf ]]; then
-    dns=$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}' || true)
-    # Skip localhost entries (likely systemd-resolved stub)
-    if [[ "$dns" == "127.0.0.53" || "$dns" == "127.0.0.1" ]]; then
-      # Try to get the real upstream
-      if command -v resolvectl &>/dev/null; then
-        dns=$(resolvectl status 2>/dev/null | grep -oP 'DNS Servers:\s*\K[\d.]+' | head -1 || true)
-      fi
-      [[ -z "$dns" ]] && dns="8.8.8.8"
+get_lan_ip() {
+    local ip=""
+    if command -v ip &>/dev/null; then
+        ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
     fi
-  fi
-
-  # macOS
-  if [[ -z "$dns" ]] && command -v scutil &>/dev/null; then
-    dns=$(scutil --dns 2>/dev/null | grep -m1 'nameserver\[0\]' | awk '{print $NF}' || true)
-  fi
-
-  [[ -z "$dns" ]] && dns="8.8.8.8"
-  echo "$dns"
+    if [ -z "$ip" ] && command -v ifconfig &>/dev/null; then
+        ip=$(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | head -1)
+    fi
+    echo "${ip:-127.0.0.1}"
 }
 
-# Add flyx.local to /etc/hosts
-setup_hosts() {
-  local ip="$1"
-
-  if grep -q "$HOSTS_MARKER" /etc/hosts 2>/dev/null; then
-    # Update existing entry
-    log "Updating /etc/hosts entry for $DOMAIN → $ip"
-    sudo sed -i.bak "/$HOSTS_MARKER/c\\$ip  $DOMAIN $HOSTS_MARKER" /etc/hosts
-  else
-    log "Adding $DOMAIN → $ip to /etc/hosts"
-    echo "$ip  $DOMAIN $HOSTS_MARKER" | sudo tee -a /etc/hosts >/dev/null
-  fi
-}
-
-# Remove flyx.local from /etc/hosts
-remove_hosts() {
-  if grep -q "$HOSTS_MARKER" /etc/hosts 2>/dev/null; then
-    log "Removing $DOMAIN from /etc/hosts"
-    sudo sed -i.bak "/$HOSTS_MARKER/d" /etc/hosts
-  fi
-}
-
-# Ensure docker/.env exists with required values
 ensure_env() {
-  local ip="$1"
-  local upstream_dns="$2"
+    if [ ! -f "$ENV_FILE" ]; then
+        log "Creating docker/.env from template..."
+        cp "$ENV_EXAMPLE" "$ENV_FILE"
 
-  if [[ ! -f "$ENV_FILE" ]]; then
-    log "Creating docker/.env from template..."
-    cp "$SCRIPT_DIR/docker/.env.example" "$ENV_FILE"
-    warn "Edit ${BOLD}docker/.env${NC} and add your TMDB API key before continuing."
-    warn "Get a free key at: https://www.themoviedb.org/settings/api"
-    echo ""
-    read -p "Press Enter after editing docker/.env (or Ctrl+C to abort)..."
-  fi
+        echo ""
+        err "A TMDB API key is REQUIRED for Flyx to work."
+        warn "Get a free one at: https://www.themoviedb.org/settings/api"
+        echo ""
 
-  # Inject/update HOST_IP and UPSTREAM_DNS
-  if grep -q '^HOST_IP=' "$ENV_FILE" 2>/dev/null; then
-    sed -i.bak "s|^HOST_IP=.*|HOST_IP=$ip|" "$ENV_FILE"
-  else
-    echo "" >> "$ENV_FILE"
-    echo "# Auto-detected by flyx.sh" >> "$ENV_FILE"
-    echo "HOST_IP=$ip" >> "$ENV_FILE"
-  fi
+        tmdb_key=""
+        while [ -z "$tmdb_key" ]; do
+            printf "Enter your TMDB API key (v3): "
+            read -r tmdb_key
+            if [ -z "$tmdb_key" ]; then
+                err "TMDB key cannot be empty. Flyx needs it to fetch movie/show data."
+            fi
+        done
 
-  if grep -q '^UPSTREAM_DNS=' "$ENV_FILE" 2>/dev/null; then
-    sed -i.bak "s|^UPSTREAM_DNS=.*|UPSTREAM_DNS=$upstream_dns|" "$ENV_FILE"
-  else
-    echo "UPSTREAM_DNS=$upstream_dns" >> "$ENV_FILE"
-  fi
+        sed -i.bak "s|NEXT_PUBLIC_TMDB_API_KEY=.*|NEXT_PUBLIC_TMDB_API_KEY=$tmdb_key|" "$ENV_FILE"
+        sed -i.bak "s|TMDB_API_KEY=.*|TMDB_API_KEY=$tmdb_key|" "$ENV_FILE"
+        rm -f "$ENV_FILE.bak"
 
-  # Clean up backup files from sed -i
-  rm -f "$ENV_FILE.bak"
+        # Generate random secrets
+        for secret in JWT_SECRET SIGNING_SECRET WATERMARK_SECRET ADMIN_SECRET; do
+            rand=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+            sed -i.bak "s|$secret=change-me.*|$secret=$rand|" "$ENV_FILE"
+        done
+        rm -f "$ENV_FILE.bak"
+        log "Generated random security secrets."
+    fi
 }
 
-# Print network info for other devices
-print_network_info() {
-  local ip="$1"
-  echo ""
-  echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-  echo -e "${BOLD}  Flyx is running at: ${GREEN}http://flyx.local${NC}"
-  echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-  echo ""
-  echo -e "  ${BOLD}This machine:${NC} http://flyx.local works automatically"
-  echo ""
-  echo -e "  ${BOLD}Other devices on your network:${NC}"
-  echo -e "  Option A: Set device DNS to ${BOLD}$ip${NC} (uses built-in DNS server)"
-  echo -e "  Option B: Access directly at ${BOLD}http://$ip${NC}"
-  echo ""
-  echo -e "  ${BOLD}DNS server:${NC} $ip:53 (resolves flyx.local, forwards everything else)"
-  echo ""
-  echo -e "  ${BOLD}To set DNS on other devices:${NC}"
-  echo -e "    iPhone/iPad: Settings → Wi-Fi → (i) → Configure DNS → Manual → $ip"
-  echo -e "    Android:     Settings → Wi-Fi → long-press network → Modify → DNS → $ip"
-  echo -e "    Windows:     Network Settings → Change adapter → IPv4 → DNS → $ip"
-  echo -e "    Mac:         System Preferences → Network → Advanced → DNS → $ip"
-  echo -e "    Linux:       Edit /etc/resolv.conf → nameserver $ip"
-  echo ""
-  echo -e "  ${BOLD}Or set it network-wide:${NC}"
-  echo -e "    Router admin → DHCP settings → Primary DNS → $ip"
-  echo ""
-  echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+set_hosts_entry() {
+    local ip="$1"
+    local entry="$ip  $DOMAIN $MARKER"
+    local hosts_file="/etc/hosts"
+
+    if [ ! -w "$hosts_file" ]; then
+        warn "Cannot write to $hosts_file. Run with sudo, or add manually:"
+        echo "  $entry"
+        return
+    fi
+
+    if grep -q "$MARKER" "$hosts_file" 2>/dev/null; then
+        sed -i.bak "s/.*${MARKER}.*/${entry}/" "$hosts_file"
+        rm -f "${hosts_file}.bak"
+    else
+        echo "" >> "$hosts_file"
+        echo "$entry" >> "$hosts_file"
+    fi
+    log "Added $DOMAIN -> $ip to hosts file"
 }
 
 cmd_start() {
-  local ip
-  ip=$(detect_lan_ip)
-  local upstream_dns
-  upstream_dns=$(detect_upstream_dns)
+    ensure_env
+    local ip=$(get_lan_ip)
 
-  log "Detected LAN IP: $ip"
-  log "Detected upstream DNS: $upstream_dns"
+    set_hosts_entry "$ip"
 
-  ensure_env "$ip" "$upstream_dns"
-  setup_hosts "$ip"
+    log "Building and starting Flyx..."
+    $COMPOSE_CMD up -d --build
 
-  log "Starting Flyx services..."
-  docker compose -f "$COMPOSE_FILE" up -d --build
+    log "Waiting for startup..."
+    local retries=0
+    while [ $retries -lt 30 ]; do
+        if curl -sf http://localhost:3000/ >/dev/null 2>&1; then break; fi
+        sleep 3
+        retries=$((retries + 1))
+    done
 
-  # Wait for health
-  log "Waiting for services to be healthy..."
-  local retries=0
-  while [[ $retries -lt 30 ]]; do
-    if curl -sf http://localhost:8787/health >/dev/null 2>&1; then
-      break
-    fi
-    sleep 2
-    retries=$((retries + 1))
-  done
-
-  if curl -sf http://localhost:8787/health >/dev/null 2>&1; then
-    log "All services are up!"
-    print_network_info "$ip"
-  else
-    warn "Services are starting but may not be fully ready yet."
-    warn "Run 'docker compose logs -f' to check progress."
-    print_network_info "$ip"
-  fi
+    echo ""
+    echo "================================================"
+    echo "  Flyx is running!"
+    echo ""
+    echo "  http://flyx.local    (via hosts file)"
+    echo "  http://localhost     (direct on this machine)"
+    echo "  http://$ip     (LAN access from other devices)"
+    echo "================================================"
+    echo ""
 }
 
 cmd_stop() {
-  log "Stopping Flyx services..."
-  docker compose -f "$COMPOSE_FILE" down
-  log "Stopped."
-}
-
-cmd_restart() {
-  cmd_stop
-  cmd_start
-}
-
-cmd_status() {
-  docker compose -f "$COMPOSE_FILE" ps
-}
-
-cmd_logs() {
-  docker compose -f "$COMPOSE_FILE" logs -f
-}
-
-cmd_dns() {
-  local ip
-  ip=$(detect_lan_ip)
-  log "Detected LAN IP: $ip"
-  setup_hosts "$ip"
-  log "DNS configured: $DOMAIN → $ip"
+    log "Stopping Flyx..."
+    $COMPOSE_CMD down
+    log "Stopped."
 }
 
 cmd_clean() {
-  log "Stopping services and cleaning up..."
-  docker compose -f "$COMPOSE_FILE" down -v
-  remove_hosts
-  log "Cleaned up. Volumes removed, /etc/hosts restored."
+    log "Stopping and cleaning up..."
+    $COMPOSE_CMD down -v
+    log "Cleaned. Volumes removed."
 }
 
-# Main
-case "${1:-}" in
-  start)   cmd_start ;;
-  stop)    cmd_stop ;;
-  restart) cmd_restart ;;
-  status)  cmd_status ;;
-  logs)    cmd_logs ;;
-  dns)     cmd_dns ;;
-  clean)   cmd_clean ;;
-  "")      cmd_start ;;
-  *)
-    echo "Usage: $0 {start|stop|restart|status|logs|dns|clean}"
-    exit 1
-    ;;
+case "${1:-start}" in
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    restart) cmd_stop; cmd_start ;;
+    status)  $COMPOSE_CMD ps ;;
+    logs)    $COMPOSE_CMD logs -f ;;
+    clean)   cmd_clean ;;
+    *)       echo "Usage: $0 {start|stop|restart|status|logs|clean}"; exit 1 ;;
 esac

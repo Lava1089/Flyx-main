@@ -123,7 +123,7 @@ export function useSync(options: UseSyncOptions = {}): UseSyncReturn {
       const localData = collectLocalSyncData();
       const endpoint = getSyncEndpoint();
       
-      console.log(`[Sync] Pushing to ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'Vercel API'}`);
+      console.log(`[Sync] Pushing to ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'local API'}`);
       
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -179,7 +179,7 @@ export function useSync(options: UseSyncOptions = {}): UseSyncReturn {
     try {
       const endpoint = getSyncEndpoint();
       
-      console.log(`[Sync] Pulling from ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'Vercel API'}`);
+      console.log(`[Sync] Pulling from ${isUsingCloudflareSyncWorker() ? 'Cloudflare Worker' : 'local API'}`);
       
       const headers: Record<string, string> = {
         'X-Sync-Code': code,

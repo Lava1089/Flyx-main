@@ -57,22 +57,20 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
   // SECURITY: Removed '*' - was allowing all origins, defeating anti-leech protection
-  '.vercel.app',
   '.pages.dev',
   '.workers.dev',
 ];
 
-// UPDATED February 2026: epaly.fun is the new player domain (was codepcplay.fun, before that epicplayplay.cfd)
-const PLAYER_DOMAIN = 'epaly.fun';
+// UPDATED February 25, 2026: www.ksohls.ru is the new player domain (was lefttoplay.xyz, before that epaly.fun)
+const PLAYER_DOMAIN = 'www.ksohls.ru';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 
-// UPDATED January 2026: ONLY USE ddy6 server for DLHD live TV
-// All other servers disabled - ddy6 is the most reliable for our use case
+// UPDATED February 25, 2026: M3U8 now via proxy pattern
 const ALL_SERVER_KEYS = [
-  'ddy6',     // ONLY server we use - most reliable with epaly.fun premium keys
+  'ddy6',     // ONLY server we use - most reliable
 ];
-const CDN_DOMAIN = 'dvalna.ru';
+const CDN_DOMAIN = 'adsfadfds.cfd';
 
 // CORRECT SECRET - extracted from WASM module (January 2026)
 // The old 64-char hex secret is WRONG! This is the real one from the WASM.
@@ -289,19 +287,18 @@ const JWT_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (JWT valid for 5)
 // This allows us to find the JWT when we only have the channel key from a key URL
 const channelKeyToTopembed = new Map<string, string>();
 
-// DLHD channel ID → dvalna.ru channel key mapping
+// DLHD channel ID → channel key mapping
 // This is populated when we successfully fetch JWTs
 // Format: { '51': 'ustvabc', '44': 'eplayerespn_usa', ... }
 const dlhdIdToChannelKey = new Map<string, string>();
 
 /**
- * Fetch JWT from epaly.fun, topembed.pw, or hitsplay.fun player page - this is the REAL auth token needed for key requests
+ * Fetch JWT from www.ksohls.ru or hitsplay.fun player page - this is the REAL auth token needed for key requests
  * 
- * UPDATED February 2026: 
- * - epaly.fun is the new primary player domain (replaces codepcplay.fun)
- * - topembed.pw uses the same dvalna.ru backend but with CORRECT channel naming (e.g., 'skyaction' not 'premium37')
- * - hitsplay.fun provides JWT directly but uses 'premium{id}' keys which don't work on all servers
- * - PRIORITY: epaly.fun first (fast), then hitsplay.fun (fallback)
+ * UPDATED February 25, 2026: 
+ * - www.ksohls.ru is the new primary player domain (replaces epaly.fun/lefttoplay.xyz)
+ * - hitsplay.fun provides JWT directly but uses 'premium{id}' keys which may not work on all servers
+ * - PRIORITY: www.ksohls.ru first (fast), then hitsplay.fun (fallback)
  */
 async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<string | null> {
   const cacheKey = channel;
@@ -319,11 +316,11 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
   logger.info('Fetching fresh JWT', { channel });
   
   // ============================================================================
-  // METHOD 1: Try epaly.fun first (FAST, new primary domain - Feb 2026)
+  // METHOD 1: Try www.ksohls.ru first (primary domain - Feb 25, 2026)
   // ============================================================================
   try {
-    const epalyUrl = `https://epaly.fun/premiumtv/daddyhd.php?id=${channel}`;
-    logger.info('Trying epaly.fun for JWT (primary)', { channel });
+    const epalyUrl = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`;
+    logger.info('Trying www.ksohls.ru for JWT (primary)', { channel });
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -332,7 +329,7 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
       const res = await fetch(epalyUrl, {
         headers: {
           'User-Agent': USER_AGENT,
-          'Referer': 'https://dlhd.link/',
+          'Referer': 'https://daddylive.mp/',
         },
         signal: controller.signal,
       });
@@ -350,7 +347,7 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
             const payload = JSON.parse(atob(payloadB64));
             channelKey = payload.sub || channelKey;
             exp = payload.exp || exp;
-            logger.info('JWT from epaly.fun', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
+            logger.info('JWT from www.ksohls.ru', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
           } catch (e) {
             logger.warn('JWT decode failed, using defaults');
           }
@@ -364,10 +361,10 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
       }
     } catch (e) {
       clearTimeout(timeoutId);
-      logger.warn('epaly.fun fetch error', { error: (e as Error).message });
+      logger.warn('www.ksohls.ru fetch error', { error: (e as Error).message });
     }
   } catch (e) {
-    logger.warn('epaly.fun JWT fetch failed', { error: (e as Error).message });
+    logger.warn('www.ksohls.ru JWT fetch failed', { error: (e as Error).message });
   }
 
   // ============================================================================
@@ -383,7 +380,7 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
     
     // Try RPI proxy first (hitsplay blocks CF IPs)
     if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
-      const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(hitsplayUrl)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://dlhd.link/')}`;
+      const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(hitsplayUrl)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://daddylive.mp/')}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 sec timeout
       
@@ -408,7 +405,7 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
         const res = await fetch(hitsplayUrl, {
           headers: {
             'User-Agent': USER_AGENT,
-            'Referer': 'https://dlhd.link/',
+            'Referer': 'https://daddylive.mp/',
           },
           signal: controller.signal,
         });
@@ -516,19 +513,14 @@ async function getServerKey(channelKey: string, logger: any, env?: Env): Promise
 }
 
 function constructM3U8Url(serverKey: string, channelKey: string): string {
-  // UPDATED January 2026: Added 'wiki', 'hzt', 'x4', 'dokko1', 'top2', 'nfs' servers used by topembed.pw
-  if (serverKey === 'wiki') return `https://wikinew.${CDN_DOMAIN}/wiki/${channelKey}/mono.css`;
-  if (serverKey === 'hzt') return `https://hztnew.${CDN_DOMAIN}/hzt/${channelKey}/mono.css`;
-  if (serverKey === 'x4') return `https://x4new.${CDN_DOMAIN}/x4/${channelKey}/mono.css`;
-  if (serverKey === 'dokko1') return `https://dokko1new.${CDN_DOMAIN}/dokko1/${channelKey}/mono.css`;
-  if (serverKey === 'top1/cdn') return `https://top1.${CDN_DOMAIN}/top1/cdn/${channelKey}/mono.css`;
-  if (serverKey === 'top2') return `https://top2new.${CDN_DOMAIN}/top2/${channelKey}/mono.css`;
-  if (serverKey === 'nfs') return `https://nfsnew.${CDN_DOMAIN}/nfs/${channelKey}/mono.css`;
-  return `https://${serverKey}new.${CDN_DOMAIN}/${serverKey}/${channelKey}/mono.css`;
+  // UPDATED February 25, 2026: M3U8 now served via proxy pattern
+  // OLD: https://{server}new.dvalna.ru/{server}/premium{ch}/mono.css
+  // NEW: https://chevy.adsfadfds.cfd/proxy/{server}/premium{ch}/mono.css
+  return `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
 }
 
 /**
- * Fetch server key from dvalna.ru server_lookup endpoint
+ * Fetch server key from server_lookup endpoint
  * This returns the correct server for a given channel key
  */
 async function fetchServerKeyFromLookup(channelKey: string, logger: any, env?: Env): Promise<string | null> {
@@ -571,7 +563,7 @@ async function fetchServerKeyFromLookup(channelKey: string, logger: any, env?: E
 // BACKEND 2: cdn-live.tv → cdn-live-tv.ru (NO JWT/PoW NEEDED!)
 // ============================================================================
 // This backend uses simple token-based auth embedded in the player page.
-// Much simpler than dvalna.ru which requires JWT + PoW.
+// Much simpler than the DLHD CDN backend which requires JWT + PoW.
 // ============================================================================
 
 interface CdnLiveResult {
@@ -647,7 +639,7 @@ async function fetchCdnLiveStream(channelName: string, countryCode: string, logg
     
     let res: Response;
     if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
-      const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(playerUrl)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://dlhd.link/')}`;
+      const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(playerUrl)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://daddylive.mp/')}`;
       res = await fetch(rpiUrl);
     } else {
       // Fallback to direct fetch if RPI not configured (will likely fail)
@@ -655,7 +647,7 @@ async function fetchCdnLiveStream(channelName: string, countryCode: string, logg
       res = await fetch(playerUrl, {
         headers: {
           'User-Agent': USER_AGENT,
-          'Referer': 'https://dlhd.link/',
+          'Referer': 'https://daddylive.mp/',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         },
       });
@@ -892,11 +884,11 @@ async function extractPlayer5Stream(channel: string, logger: any): Promise<Playe
   
   try {
     // Step 1: Get DLHD /casting/ page to find ddyplayer iframe
-    const dlhdUrl = `https://dlhd.link/casting/stream-${channel}.php`;
+    const dlhdUrl = `https://daddylive.mp/casting/stream-${channel}.php`;
     const dlhdRes = await fetch(dlhdUrl, {
       headers: {
         'User-Agent': USER_AGENT,
-        'Referer': 'https://dlhd.link/'
+        'Referer': 'https://daddylive.mp/'
       }
     });
     
@@ -923,7 +915,7 @@ async function extractPlayer5Stream(channel: string, logger: any): Promise<Playe
     const ddyRes = await fetch(ddyUrl, {
       headers: {
         'User-Agent': USER_AGENT,
-        'Referer': 'https://dlhd.link/'
+        'Referer': 'https://daddylive.mp/'
       }
     });
     
@@ -1101,7 +1093,7 @@ async function fetchViaRpiProxy(
     });
   }
   
-  // Pass both referer AND origin for dvalna.ru requests
+  // Pass both referer AND origin for DLHD CDN requests
   const originParam = origin ? `&origin=${encodeURIComponent(origin)}` : '';
   const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent(referer)}${originParam}`;
   return fetch(rpiUrl, { signal });
@@ -1174,7 +1166,7 @@ async function tryCdnLiveBackend(
       return null;
     }
     
-    // Pass both referer AND origin - cdn-live-tv.ru may require both like dvalna.ru
+    // Pass both referer AND origin - cdn-live-tv.ru may require both like DLHD CDN
     const m3u8Res = await fetchViaRpiProxy(
       cdnResult.m3u8Url,
       'https://cdn-live.tv/',
@@ -1218,9 +1210,9 @@ async function tryCdnLiveBackend(
  * Try to fetch M3U8 from a specific server/channelKey combination
  * Returns the content if successful, null otherwise
  * 
- * CRITICAL: dvalna.ru requires:
- * - Origin: https://dlhd.link
- * - Referer: https://dlhd.link/
+ * CRITICAL: DLHD CDN requires:
+ * - Origin: https://www.ksohls.ru
+ * - Referer: https://www.ksohls.ru/
  * - Authorization: Bearer <JWT> (optional - not always needed)
  */
 async function tryDvalnaServer(
@@ -1236,9 +1228,9 @@ async function tryDvalnaServer(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    // Use RPI proxy with dlhd.link referer - JWT is optional
+    // Use RPI proxy with www.ksohls.ru referer - JWT is optional
     let rpiUrl = env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY
-      ? `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://dlhd.link/')}`
+      ? `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`
       : null;
     
     if (!rpiUrl) {
@@ -1259,7 +1251,7 @@ async function tryDvalnaServer(
     const content = await m3u8Res.text();
     
     // Check for error responses (E9 = missing headers, E2 = no session, etc.)
-    // dvalna.ru returns JSON errors like: {"error":"E9","message":"Missing headers"}
+    // DLHD CDN returns JSON errors like: {"error":"E9","message":"Missing headers"}
     // Be more specific to avoid false positives with valid M3U8 content
     if (content.startsWith('{') && (content.includes('"error"') || content.includes('"E'))) {
       logger.debug('dvalna returned error', { serverKey, channelKey, error: content.substring(0, 100) });
@@ -1353,7 +1345,7 @@ async function tryDvalnaBackend(
             'X-DLHD-Channel': channel,
             'X-DLHD-ChannelKey': channelKey,
             'X-DLHD-Server': server,
-            'X-DLHD-Backend': 'dvalna.ru',
+            'X-DLHD-Backend': 'dlhd-cdn',
             'X-Fast-Path': 'true',
           },
         });
@@ -1390,7 +1382,7 @@ async function handlePlaylistRequest(channel: string, proxyOrigin: string, logge
 
 
   // ============================================================================
-  // BACKEND 3: dvalna.ru (needs JWT + PoW - uses ddy6 server ONLY)
+  // BACKEND 3: DLHD CDN (needs JWT + PoW - uses ddy6 server ONLY)
   // ============================================================================
   if (!skipBackends.includes('dvalna')) {
     try {
@@ -1424,7 +1416,7 @@ async function handlePlaylistRequest(channel: string, proxyOrigin: string, logge
     channel,
     errors: errors.slice(0, 10),
     backendsTriedCount: 3,
-    hint: 'moveonjoy.com, cdn-live-tv.ru, and dvalna.ru all failed'
+    hint: 'moveonjoy.com, cdn-live-tv.ru, and DLHD CDN all failed'
   }, 502, origin);
 }
 
@@ -1701,115 +1693,19 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
   
   logger.info('Key request parsed', { channelKey, keyNumber });
 
-  // Strategy to find JWT:
-  // 1. Check if we have a cached JWT for this exact channel key
-  // 2. If channelKey is premium{id}, try to fetch JWT for that channel ID
-  // 3. Use reverse mapping (channelKeyToTopembed) to find the topembed name
-  // 4. Search all cached JWTs for matching channelKey
-  
-  let jwt: string | null = null;
-  let jwtSource = 'unknown';
-  
-  // Method 1: Check reverse mapping (channelKey → topembed name)
-  const topembedName = channelKeyToTopembed.get(channelKey);
-  if (topembedName) {
-    const cached = jwtCache.get(topembedName);
-    if (cached && cached.channelKey === channelKey) {
-      const now = Math.floor(Date.now() / 1000);
-      if (cached.exp > now + 60) { // At least 1 min remaining
-        jwt = cached.jwt;
-        jwtSource = `reverse-mapping:${topembedName}`;
-        logger.info('JWT found via reverse mapping', { channelKey, topembedName });
-      }
-    }
-  }
-  
-  // Method 2: If channelKey is premium{id}, fetch JWT for that channel
-  if (!jwt) {
-    const premiumMatch = channelKey.match(/^premium(\d+)$/);
-    if (premiumMatch) {
-      const channelId = premiumMatch[1];
-      logger.info('Trying to fetch JWT for premium channel', { channelId });
-      jwt = await fetchPlayerJWT(channelId, logger, env);
-      if (jwt) {
-        jwtSource = `fetch:premium${channelId}`;
-        // Verify the JWT's channelKey matches what we need
-        try {
-          const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-          const payload = JSON.parse(atob(payloadB64));
-          if (payload.sub && payload.sub !== channelKey) {
-            logger.warn('JWT channelKey mismatch', { expected: channelKey, got: payload.sub });
-            // The JWT is for a different channel key - this is actually correct!
-            // The M3U8 uses premium{id} but the JWT uses the real channel key
-            // We need to update our key URL to use the JWT's channel key
-          }
-        } catch (e) {
-          logger.warn('Could not verify JWT channelKey');
-        }
-      }
-    }
-  }
-  
-  // Method 3: Search all cached JWTs for matching channelKey
-  if (!jwt) {
-    for (const [cacheKey, entry] of jwtCache.entries()) {
-      if (entry.channelKey === channelKey) {
-        const now = Math.floor(Date.now() / 1000);
-        if (entry.exp > now + 60) {
-          jwt = entry.jwt;
-          jwtSource = `cache-search:${cacheKey}`;
-          logger.info('JWT found via cache search', { channelKey, cacheKey });
-          break;
-        }
-      }
-    }
-  }
-  
-  // Method 4: Extract DLHD channel ID from premium{id} format key
-  // Simplified Jan 2026 - all keys use premium{id} format now
-  if (!jwt) {
-    const premiumMatch = channelKey.match(/^premium(\d+)$/);
-    if (premiumMatch) {
-      const dlhdId = premiumMatch[1];
-      logger.info('Extracted DLHD ID from premium key', { channelKey, dlhdId });
-      jwt = await fetchPlayerJWT(dlhdId, logger, env);
-      if (jwt) {
-        jwtSource = `premium-key:${dlhdId}`;
-      }
-    }
-  }
-  
-  if (!jwt) {
-    logger.warn('No JWT found for channel key', { channelKey });
-    return jsonResponse({ 
-      error: 'Failed to fetch JWT for key decryption',
-      channelKey,
-      keyNumber,
-      hint: 'Channel may not be mapped to topembed.pw. Try using moveonjoy or cdn-live-tv backend instead.',
-      cachedChannelKeys: Array.from(channelKeyToTopembed.keys()).slice(0, 10)
-    }, 502, origin);
-  }
-  
-  logger.info('JWT found', { channelKey, jwtSource });
-
-  // Compute PoW nonce using WASM
-  // Use current timestamp (no offset needed with WASM PoW)
-  const timestamp = Math.floor(Date.now() / 1000);
-  const nonce = await computePoWNonce(channelKey, keyNumber, timestamp);
-  if (nonce === null) {
-    return jsonResponse({ error: 'Failed to compute PoW nonce' }, 500, origin);
-  }
-
-  logger.info('Key fetch with WASM PoW', { channelKey, keyNumber, timestamp, nonce: nonce.toString(), jwtSource });
+  // UPDATED February 25, 2026: DLHD key endpoint requires full V5 auth:
+  // - EPlayerAuth token (XOR-encrypted, extracted from player page)
+  // - PoW nonce (MD5-based, computed with channelSalt from player page)
+  // - X-Key-Path, X-Fingerprint headers
+  // The /dlhd-key endpoint on RPI handles ALL of this automatically.
 
   const newKeyUrl = `https://chevy.${CDN_DOMAIN}/key/${channelKey}/${keyNumber}`;
 
   try {
     let data: ArrayBuffer;
-    let fetchedVia = 'rpi-proxy-v4';
+    let fetchedVia = 'rpi-dlhd-key-v5';
     
-    // Use RPI proxy for key fetch - DLHD blocks Cloudflare IPs
-    // But now we compute PoW in CF Worker and pass headers to RPI
+    // Use RPI proxy's dedicated /dlhd-key endpoint - handles V5 auth (EPlayerAuth + PoW + channelSalt)
     if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
       return jsonResponse({ 
         error: 'RPI proxy not configured', 
@@ -1817,15 +1713,10 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
       }, 502, origin);
     }
     
-    // Use the new /dlhd-key-v4 endpoint that accepts pre-computed auth headers
-    const rpiKeyUrl = new URL(`${env.RPI_PROXY_URL}/dlhd-key-v4`);
-    rpiKeyUrl.searchParams.set('url', newKeyUrl);
-    rpiKeyUrl.searchParams.set('key', env.RPI_PROXY_KEY);
-    rpiKeyUrl.searchParams.set('jwt', jwt);
-    rpiKeyUrl.searchParams.set('timestamp', timestamp.toString());
-    rpiKeyUrl.searchParams.set('nonce', nonce.toString());
+    // /dlhd-key does the full auth flow: fetch player page → extract XOR-encrypted salt/token → compute PoW → fetch key
+    const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key?url=${encodeURIComponent(newKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
     
-    logger.info('Fetching key via RPI proxy v4', { url: rpiKeyUrl.toString().substring(0, 100) });
+    logger.info('Fetching key via RPI /dlhd-key (V5 auth)', { channelKey, keyNumber });
     
     // Add timeout to prevent hanging
     const controller = new AbortController();
@@ -1833,7 +1724,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
     
     let rpiRes: Response;
     try {
-      rpiRes = await fetch(rpiKeyUrl.toString(), { signal: controller.signal });
+      rpiRes = await fetch(rpiKeyUrl, { signal: controller.signal });
     } catch (e) {
       clearTimeout(timeoutId);
       if ((e as Error).name === 'AbortError') {
@@ -1859,21 +1750,29 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
     data = await rpiRes.arrayBuffer();
 
     if (data.byteLength === 16) {
-      const text = new TextDecoder().decode(data);
-      // Make sure it's not an error message
-      if (!text.startsWith('{') && !text.startsWith('[') && !text.startsWith('E')) {
-        logger.info('Key fetched successfully', { size: 16, fetchedVia });
-        return new Response(data, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': '16',
-            ...corsHeaders(origin),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'X-Fetched-Via': fetchedVia,
-          },
-        });
+      // Check for known fake error key
+      const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
+      if (hex === '455806f8bc592fdacb6ed5e071a517b1') {
+        logger.warn('Got fake error key (455806...) - V5 auth failed');
+        return jsonResponse({ 
+          error: 'Key auth failed - got error response disguised as 16-byte key',
+          hint: 'RPI /dlhd-key V5 auth may have failed to extract channelSalt',
+          channelKey,
+          keyNumber,
+        }, 502, origin);
       }
+      
+      logger.info('Key fetched successfully', { size: 16, fetchedVia, hex: hex.substring(0, 16) });
+      return new Response(data, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': '16',
+          ...corsHeaders(origin),
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'X-Fetched-Via': fetchedVia,
+        },
+      });
     }
 
     const text = new TextDecoder().decode(data);
@@ -1891,7 +1790,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
 }
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['dvalna.ru', 'kiko2.ru', 'giokko.ru', 'soyspace.cyou'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'adsfadfds.cfd', 'arbitrageai.cc', 'r2.cloudflarestorage.com'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs
@@ -1941,8 +1840,10 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
 
   // SECURITY: Validate domain whitelist to prevent proxying arbitrary URLs
   const allowedDomains = [
-    'dvalna.ru',
     'soyspace.cyou',
+    'adsfadfds.cfd',
+    'arbitrageai.cc',
+    'r2.cloudflarestorage.com',
     'cdn-live-tv.ru',
     'cdn-live-tv.cfd',
     'cdn-live.tv',
@@ -1981,10 +1882,10 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     } else if (urlHost.includes('moveonjoy.com')) {
       referer = 'https://tv-bu1.blogspot.com/';
       requestOrigin = 'https://tv-bu1.blogspot.com';
-    } else if (urlHost.includes('dvalna.ru') || urlHost.includes('kiko2.ru') || urlHost.includes('giokko.ru')) {
-      // DLHD CDN requires dlhd.link referer (NOT topembed.pw)
-      referer = 'https://dlhd.link/';
-      requestOrigin = 'https://dlhd.link';
+    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('adsfadfds.cfd') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
+      // DLHD CDN requires www.ksohls.ru referer
+      referer = 'https://www.ksohls.ru/';
+      requestOrigin = 'https://www.ksohls.ru';
     }
   } catch {}
   
@@ -1996,11 +1897,11 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     
     // Try RPI proxy first, then fallback to direct fetch
     // cdn-live-tv.ru may work from CF IPs, so we try both
-    // dvalna.ru REQUIRES residential IP - direct fetch will fail
+    // DLHD CDN REQUIRES residential IP - direct fetch will fail
     if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
       logger.info('Trying RPI proxy for segment');
       try {
-        // Pass both referer AND origin for dvalna.ru segments
+        // Pass both referer AND origin for DLHD CDN segments
         const rpiUrl = `${env.RPI_PROXY_URL}/animekai?url=${encodeURIComponent(decodedUrl)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent(referer)}&origin=${encodeURIComponent(requestOrigin)}`;
         logger.info('RPI URL', { rpiUrl: rpiUrl.substring(0, 150) });
         
@@ -2053,7 +1954,7 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     }
     
     // Log segment info but DON'T reject based on format
-    // dvalna.ru segments may be encrypted or have non-standard headers
+    // DLHD segments may be encrypted or have non-standard headers
     const firstBytes = new Uint8Array(data.slice(0, 8));
     const isValidTS = firstBytes[0] === 0x47; // TS sync byte
     const firstChars = new TextDecoder().decode(firstBytes);
@@ -2097,7 +1998,7 @@ function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string):
   let modified = content;
 
   // Rewrite key URLs - keys MUST be proxied (require PoW auth)
-  // Key URLs can be on kiko2.ru, dvalna.ru, or giokko.ru domains
+  // Key URLs now come from chevy.soyspace.cyou
   // Channel keys can be premium{id} OR named keys like eplayerespn_usa, ustvabc, etc.
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
     // Skip if already proxied through our worker
@@ -2114,7 +2015,7 @@ function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string):
     // Match key URLs with any channel key format (premium{id} or named like eplayerespn_usa)
     const keyPathMatch = absoluteKeyUrl.match(/\/key\/([^/]+)\/(\d+)/);
     if (keyPathMatch) {
-      // Normalize to chevy.dvalna.ru for our proxy
+      // Normalize to chevy.{CDN_DOMAIN} for our proxy
       absoluteKeyUrl = `https://chevy.${CDN_DOMAIN}/key/${keyPathMatch[1]}/${keyPathMatch[2]}`;
     }
     // proxyOrigin already contains /tv, so just append /key (not /tv/key)
@@ -2159,7 +2060,7 @@ function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string):
   }
 
   // Proxy segment URLs through our worker
-  // dvalna.ru blocks direct browser requests (CORS/geo-blocking)
+  // DLHD CDN blocks direct browser requests (CORS/geo-blocking)
   // so we MUST proxy segments through the worker
   const lines = joinedLines.map(line => {
     const trimmed = line.trim();
@@ -2192,7 +2093,7 @@ function isAllowedOrigin(origin: string | null, referer: string | null): boolean
   
   const check = (o: string) => ALLOWED_ORIGINS.some(a => {
     if (a.includes('localhost')) return o.includes('localhost');
-    // Handle domain suffix patterns (e.g., '.pages.dev', '.workers.dev', '.vercel.app')
+    // Handle domain suffix patterns (e.g., '.pages.dev', '.workers.dev')
     if (a.startsWith('.')) {
       try {
         const originHost = new URL(o).hostname;

@@ -357,8 +357,8 @@ export default function AboutPage() {
               <h4>Our Model (For Comparison)</h4>
               <ul>
                 <li><strong>Content Hosting:</strong> $0 (we also don&apos;t host content)</li>
-                <li><strong>Server Costs:</strong> $0 (Vercel free tier, Cloudflare Workers free tier)</li>
-                <li><strong>Database:</strong> $0 (Neon PostgreSQL free tier)</li>
+                <li><strong>Server Costs:</strong> $0 (Cloudflare Pages + Workers free tier)</li>
+                <li><strong>Database:</strong> $0 (Cloudflare D1 free tier)</li>
                 <li><strong>Revenue:</strong> $0 (no ads, no tracking, no monetization)</li>
                 <li><strong>Profit Margin:</strong> Undefined (0/0 is mathematically problematic)</li>
               </ul>
@@ -373,8 +373,8 @@ export default function AboutPage() {
 
             <p>
               Modern serverless platforms offer free tiers that can handle substantial traffic. 
-              Cloudflare Workers provides 100,000 requests per day for free. Vercel offers generous 
-              bandwidth allowances. Neon PostgreSQL has a free tier that is more than sufficient for 
+              Cloudflare Workers provides 100,000 requests per day for free. Cloudflare Pages 
+              offers generous bandwidth allowances. Cloudflare D1 has a free tier that is more than sufficient for 
               user data. The infrastructure costs for a streaming aggregation service are, in 2026, 
               effectively zero for moderate traffic levels.
             </p>
@@ -454,7 +454,7 @@ export default function AboutPage() {
               <div className="constraint">
                 <span className="icon">💸</span>
                 <h4>Zero Budget</h4>
-                <p>Only free tiers of services utilized. Vercel, Neon, Cloudflare Workers.</p>
+                <p>Only free tiers of services utilized. Cloudflare Pages, D1, Workers.</p>
               </div>
               <div className="constraint">
                 <span className="icon">🌙</span>
@@ -487,7 +487,7 @@ export default function AboutPage() {
                 <p>Edge proxy for DLHD Live TV, Flixer WASM bundling, stream proxying. Global CDN.</p>
               </div>
               <div className="tech-item">
-                <strong>Vercel + Neon PostgreSQL</strong>
+                <strong>Cloudflare Pages + D1</strong>
                 <p>Hosting and serverless database. Free tiers handle all traffic.</p>
               </div>
               <div className="tech-item">
@@ -507,7 +507,7 @@ export default function AboutPage() {
             <div className="proxy-flow">
               <div className="proxy-step">Browser (XHR with Origin)</div>
               <div className="proxy-arrow">↓</div>
-              <div className="proxy-step">Vercel API Route</div>
+              <div className="proxy-step">Next.js API Route</div>
               <div className="proxy-arrow">↓</div>
               <div className="proxy-step">Cloudflare Worker</div>
               <div className="proxy-arrow">↓</div>
@@ -705,7 +705,7 @@ export default function AboutPage() {
                 <span className="number">2</span>
                 <div>
                   <h4>Zero-Cost Operation Is Achievable</h4>
-                  <p>The platform runs entirely on free tiers. Vercel, Neon, Cloudflare Workers. 
+                  <p>The platform runs entirely on free tiers. Cloudflare Pages, D1, Workers. 
                   The &quot;we need aggressive ads to pay for servers&quot; argument is demonstrably false.</p>
                 </div>
               </div>

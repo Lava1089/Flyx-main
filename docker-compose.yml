@@ -1,118 +1,29 @@
 ###############################################################################
-# Flyx 2.0 - Self-Hosted Docker Compose
+# Flyx 2.0 - Simplified Container Setup
 #
-# Usage:
-#   ./flyx.sh              (Linux/Mac)
-#   .\flyx.ps1             (Windows - run as Administrator)
+# Just run:  docker compose up -d --build
+# Access:    http://localhost
 #
-# The setup script auto-detects your LAN IP, configures DNS, and starts
-# everything. Access at http://flyx.local from any device on your network.
+# On Linux, use docker-compose.linux.yml override for host networking.
 ###############################################################################
 
 services:
-  # Main Next.js application
   flyx:
     build:
       context: .
       dockerfile: docker/Dockerfile
       args:
         - NEXT_PUBLIC_TMDB_API_KEY=${NEXT_PUBLIC_TMDB_API_KEY:-}
-        - NEXT_PUBLIC_CF_STREAM_PROXY_URL=http://flyx.local:8787/stream
-        - NEXT_PUBLIC_CF_TV_PROXY_URL=http://flyx.local:8787
-        - NEXT_PUBLIC_CF_ANALYTICS_WORKER_URL=http://flyx.local:8787/analytics
-        - NEXT_PUBLIC_CF_SYNC_URL=http://flyx.local:8787/sync
-        - NEXT_PUBLIC_DLHD_WORKER_URL=http://flyx.local:8787/dlhd
-        - NEXT_PUBLIC_PROXY_URL=http://flyx.local:8787
-        - NEXT_PUBLIC_CDN_LIVE_WORKER_URL=http://flyx.local:8787/cdn-live
-        - NEXT_PUBLIC_CF_TMDB_URL=http://flyx.local:8787
-    container_name: flyx-app
+    container_name: flyx
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - HOSTNAME=0.0.0.0
-      - PORT=3000
-      - FLYX_SELF_HOSTED=true
-      - DATABASE_PATH=/app/data/analytics.db
-      - NEXT_PUBLIC_CF_STREAM_PROXY_URL=http://flyx.local:8787/stream
-      - NEXT_PUBLIC_CF_TV_PROXY_URL=http://flyx.local:8787
-      - NEXT_PUBLIC_CF_TMDB_URL=http://flyx.local:8787
-      - NEXT_PUBLIC_CF_ANALYTICS_WORKER_URL=http://flyx.local:8787/analytics
-      - NEXT_PUBLIC_CF_SYNC_URL=http://flyx.local:8787/sync
-      - NEXT_PUBLIC_DLHD_WORKER_URL=http://flyx.local:8787/dlhd
-      - NEXT_PUBLIC_PROXY_URL=http://flyx.local:8787
-      - NEXT_PUBLIC_CDN_LIVE_WORKER_URL=http://flyx.local:8787/cdn-live
+      - "80:3000"
+      - "8787:8787"
     env_file:
       - docker/.env
     volumes:
       - flyx-data:/app/data
-    depends_on:
-      proxy:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-
-  # Local stream proxy (replaces Cloudflare Workers)
-  proxy:
-    build:
-      context: docker/proxy
-      dockerfile: Dockerfile
-    container_name: flyx-proxy
-    restart: unless-stopped
-    ports:
-      - "8787:8787"
-    environment:
-      - PORT=8787
-    env_file:
-      - docker/.env
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
-      interval: 30s
-      timeout: 5s
-      start_period: 5s
-      retries: 3
-
-  # Local DNS server - resolves flyx.local for all devices on the network
-  dns:
-    build:
-      context: docker/dns
-      dockerfile: Dockerfile
-    container_name: flyx-dns
-    restart: unless-stopped
-    ports:
-      - "53:53/udp"
-      - "53:53/tcp"
-    environment:
-      - HOST_IP=${HOST_IP:-127.0.0.1}
-      - UPSTREAM_DNS=${UPSTREAM_DNS:-8.8.8.8}
-    cap_add:
-      - NET_ADMIN
-
-  # Caddy reverse proxy - serves http://flyx.local (port 80) cleanly
-  caddy:
-    image: caddy:2-alpine
-    container_name: flyx-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - flyx
-      - proxy
 
 volumes:
   flyx-data:
-    driver: local
-  caddy-data:
-    driver: local
-  caddy-config:
     driver: local

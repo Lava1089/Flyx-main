@@ -22,7 +22,7 @@ type AdminEndpoint =
 
 /**
  * Get the URL for an admin analytics endpoint
- * Uses CF Worker if configured, otherwise falls back to Vercel API
+ * Uses CF Worker if configured, otherwise falls back to local API
  */
 export function getAdminAnalyticsUrl(endpoint: AdminEndpoint, params?: Record<string, string | number>): string {
   const baseUrl = getAnalyticsEndpoint(endpoint);

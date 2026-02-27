@@ -1,6 +1,6 @@
 /**
  * Geolocation Utility
- * Get location from IP address using Vercel/Cloudflare headers
+ * Get location from IP address using Cloudflare headers
  */
 
 export interface LocationData {
@@ -13,29 +13,11 @@ export interface LocationData {
 }
 
 /**
- * Get location from request headers (Vercel/Cloudflare)
- * Vercel automatically provides geo headers on Edge/Serverless functions
+ * Get location from request headers (Cloudflare)
+ * Cloudflare automatically provides geo headers on Workers/Pages
  */
 export function getLocationFromHeaders(request: Request): LocationData {
-  // Try Vercel headers first (automatically set by Vercel Edge Network)
-  const vercelCountry = request.headers.get('x-vercel-ip-country');
-  const vercelRegion = request.headers.get('x-vercel-ip-country-region');
-  const vercelCity = request.headers.get('x-vercel-ip-city');
-  const vercelLatitude = request.headers.get('x-vercel-ip-latitude');
-  const vercelLongitude = request.headers.get('x-vercel-ip-longitude');
-  
-  if (vercelCountry && vercelCountry !== 'XX') {
-    return {
-      country: getCountryName(vercelCountry),
-      countryCode: vercelCountry,
-      region: vercelRegion ? decodeHeader(vercelRegion) : 'Unknown',
-      city: vercelCity ? decodeHeader(vercelCity) : 'Unknown',
-      latitude: vercelLatitude || undefined,
-      longitude: vercelLongitude || undefined,
-    };
-  }
-  
-  // Try Cloudflare headers
+  // Cloudflare headers
   const cfCountry = request.headers.get('cf-ipcountry');
   const cfCity = request.headers.get('cf-ipcity');
   const cfRegion = request.headers.get('cf-region');

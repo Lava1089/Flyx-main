@@ -10,7 +10,7 @@ A Cloudflare Worker that proxies HLS streams and live TV with proper headers and
 - **TV Proxy** (`/tv/`) - Proxies DLHD live TV streams
 - **IPTV Proxy** (`/iptv/`) - Proxies Stalker portal IPTV streams
 - **DLHD Proxy** (`/dlhd/`) - Proxies DLHD via Oxylabs residential IPs
-- **Analytics Proxy** (`/analytics/`) - Routes analytics through CF instead of Vercel Edge
+- **Analytics Proxy** (`/analytics/`) - Routes analytics to the dedicated Analytics Worker
 - **Decoder Sandbox** (`/decode`) - Isolated script execution environment
 - **Health Check** (`/health`) - Status and metrics endpoint
 - **Full Observability** - Structured JSON logging with request tracing
@@ -273,24 +273,18 @@ Content-Type: application/json
 
 ### Analytics Proxy
 
-Routes analytics through Cloudflare Worker instead of Vercel Edge functions.
+Routes analytics through Cloudflare Worker to the dedicated Analytics Worker (D1-backed).
 
 **Benefits:**
-- Cloudflare free tier: 100k requests/day (vs Vercel's 100k/month)
+- Cloudflare free tier: 100k requests/day
 - Lower latency (edge closer to users)
 - No cold starts
-- Reduced Vercel costs
-- More frequent real-time tracking
+- Real-time tracking
 
-**Tracking Intervals (when using CF):**
+**Tracking Intervals:**
 - Heartbeat: Every 30 seconds (real-time presence)
 - Min gap: 10 seconds between heartbeats
 - Inactivity timeout: 5 minutes
-
-**Fallback Intervals (Vercel):**
-- Heartbeat: Every 30 minutes (conservative)
-- Min gap: 5 minutes
-- Inactivity timeout: 60 minutes
 
 **Endpoints:**
 
@@ -324,45 +318,36 @@ GET  /analytics/health        - Health check
 
 **Setup:**
 
-1. **Set DATABASE_URL secret** (your Neon connection string):
-   ```bash
-   cd cloudflare-proxy
-   npx wrangler secret put DATABASE_URL
-   # Paste your Neon connection string when prompted
-   # Format: postgresql://user:password@host/database?sslmode=require
-   ```
-
-2. **Set ALLOWED_ORIGINS** (optional, for CORS):
+1. **Set ALLOWED_ORIGINS** (optional, for CORS):
    ```bash
    npx wrangler secret put ALLOWED_ORIGINS
    # Enter: https://tv.vynx.cc,https://localhost:3000
    ```
 
-3. **Deploy the worker**:
+2. **Deploy the worker**:
    ```bash
    npx wrangler deploy
    ```
 
-4. **Set NEXT_PUBLIC_CF_ANALYTICS_URL** in your Next.js app's `.env.local`:
+3. **Set NEXT_PUBLIC_CF_ANALYTICS_URL** in your Next.js app's `.env.local`:
    ```bash
    NEXT_PUBLIC_CF_ANALYTICS_URL=https://media-proxy.your-subdomain.workers.dev
    ```
 
-5. **Test the analytics endpoint**:
+4. **Test the analytics endpoint**:
    ```bash
    curl https://media-proxy.your-subdomain.workers.dev/analytics/health
-   # Should return: {"status":"healthy","hasDatabase":true,...}
+   # Should return: {"status":"healthy",...}
    ```
 
 ### TMDB Proxy
 
-Routes all TMDB API calls through Cloudflare Worker instead of Vercel Edge.
+Routes all TMDB API calls through Cloudflare Worker with edge caching.
 
 **Benefits:**
 - Built-in edge caching (5-60 min depending on endpoint)
 - Cloudflare free tier: 100k requests/day
 - Lower latency
-- Reduced Vercel costs
 
 **Endpoints:**
 
@@ -410,9 +395,6 @@ GET /tmdb/health
 Set via `wrangler secret` or Cloudflare Dashboard:
 
 ```bash
-# Required for analytics proxy (Neon PostgreSQL connection string)
-wrangler secret put DATABASE_URL
-
 # Required for DLHD proxy (residential IP proxy for dvalna.ru)
 wrangler secret put RPI_PROXY_URL
 wrangler secret put RPI_PROXY_KEY

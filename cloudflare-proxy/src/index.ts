@@ -294,7 +294,6 @@ export default {
     }
 
     // Route to Analytics proxy (presence, events, pageviews)
-    // This bypasses Vercel Edge and writes directly to Neon
     if (path.startsWith('/analytics')) {
       metrics.analyticsRequests++;
       logger.info('Routing to Analytics proxy', { path });
@@ -309,7 +308,6 @@ export default {
     }
 
     // Route to TMDB proxy (content API)
-    // This bypasses Vercel Edge for all TMDB API calls
     if (path.startsWith('/tmdb')) {
       metrics.tmdbRequests++;
       logger.info('Routing to TMDB proxy', { path });
@@ -656,7 +654,7 @@ export default {
         },
         analytics: {
           path: '/analytics/',
-          description: 'Analytics proxy - bypasses Vercel Edge, writes directly to Neon',
+          description: 'Analytics proxy - forwards events to Analytics Worker (D1)',
           subRoutes: {
             presence: 'POST /analytics/presence - User presence heartbeat',
             pageview: 'POST /analytics/pageview - Page view tracking',
@@ -667,7 +665,6 @@ export default {
             'Cloudflare free tier: 100k requests/day',
             'Lower latency (edge closer to users)',
             'No cold starts',
-            'Reduced Vercel costs',
           ],
         },
         decode: {
