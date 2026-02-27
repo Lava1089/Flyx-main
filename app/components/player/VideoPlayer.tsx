@@ -300,6 +300,10 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   const lastWatchTimeUpdateRef = useRef<number>(0);
   const sourceConfirmedWorkingRef = useRef<boolean>(false);
   
+  // Resolver for source playback confirmation — initializePlayer sets this,
+  // HLS MANIFEST_PARSED or resume prompt resolves it to signal "this source works"
+  const sourceReadyResolverRef = useRef<(() => void) | null>(null);
+  
   // Skip intro/outro refs (to avoid stale closures in event handlers)
   const skipIntroRef = useRef<[number, number] | null>(null);
   const skipOutroRef = useRef<[number, number] | null>(null);
@@ -930,23 +934,20 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     }
 
     const initializePlayer = async () => {
-      // Provider availability — use defaults immediately, fetch in background
-      // This saves ~200-500ms of blocking on /api/providers before extraction starts
-      let availability: Record<string, boolean> = {
-        flixer: true,
-        vidlink: true,
-        hexa: false,
-        vidsrc: true,
-        '1movies': true,
-        animekai: true,
-        hianime: true,
-      };
+      // ================================================================
+      // PARALLEL SOURCE POOL
+      // Fire ALL providers at once. Sources pool as they arrive.
+      // Auto-play picks from the pool respecting user's provider order.
+      // ================================================================
 
-      // Non-blocking provider availability fetch (fire-and-forget)
+      const isAnime = !!malId;
+      setIsAnimeContent(isAnime);
+
+      // Non-blocking background fetches
       fetch('/api/providers').then(async res => {
         try {
           const data = await res.json();
-          const updated = {
+          setProviderAvailability({
             flixer: data.providers?.flixer?.enabled ?? true,
             vidlink: data.providers?.vidlink?.enabled ?? true,
             hexa: false,
@@ -954,247 +955,213 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
             '1movies': data.providers?.['1movies']?.enabled ?? true,
             animekai: data.providers?.animekai?.enabled ?? true,
             hianime: data.providers?.hianime?.enabled ?? true,
-          };
-          setProviderAvailability(updated);
-          return updated;
-        } catch { return availability; }
-      }).catch(() => availability);
+          });
+        } catch {}
+      }).catch(() => {});
 
-      // Check if this is anime content
-      // If malId is provided, it's definitely anime — skip the API check
-      // For non-anime: DON'T block on the anime check — start Flixer immediately
-      // The anime check runs in the background and only matters if we need AnimeKai
-      let isAnime = !!malId;
-      
-      // Non-blocking anime check — we'll start loading Flixer while this runs
-      let animeCheckPromise: Promise<boolean> | null = null;
       if (!isAnime) {
-        animeCheckPromise = (async () => {
-          try {
-            const animeCheckRes = await fetch(`/api/content/check-anime?tmdbId=${tmdbId}&type=${mediaType}`);
-            if (animeCheckRes.ok) {
-              const animeData = await animeCheckRes.json();
-              return animeData.isAnime === true;
-            }
-          } catch {}
-          return false;
-        })();
-      } else {
-        console.log(`[VideoPlayer] malId=${malId} provided - this is anime content`);
+        fetch(`/api/content/check-anime?tmdbId=${tmdbId}&type=${mediaType}`)
+          .then(async res => { if (res.ok) { const d = await res.json(); if (d.isAnime) setIsAnimeContent(true); } })
+          .catch(() => {});
       }
-      setIsAnimeContent(isAnime);
-      // Build provider priority list based on content type
-      // For ANIME: HiAnime/AnimeKai first
-      // For non-anime: Flixer (PRIMARY), VidLink, then others
+
+      // Build provider priority order (user preferences respected)
       const userProviderSettings = getProviderSettings();
       const userOrder = userProviderSettings.providerOrder || [];
       const disabledProviders = new Set(userProviderSettings.disabledProviders || []);
-      
-      // Check if user has a last successful provider for this content
-      const contentKey = `${tmdbId}-${mediaType}${season ? `-s${season}` : ''}${episode ? `-e${episode}` : ''}`;
-      
-      const providerOrder: string[] = [];
-      const animeOnlyProviders = ['animekai', 'hianime'];
-      
-      // For ANIME content: HiAnime FIRST (primary), AnimeKai as fallback
-      // This ensures the sub/dub toggle works properly
-      if (isAnime && !disabledProviders.has('hianime')) {
-        providerOrder.push('hianime'); // HiAnime as PRIMARY for anime
-        console.log(`[VideoPlayer] ✓ HiAnime is PRIMARY for anime content`);
-      }
-      if (isAnime && availability.animekai && !disabledProviders.has('animekai')) {
-        providerOrder.push('animekai'); // AnimeKai as fallback for anime
-        console.log(`[VideoPlayer] ✓ AnimeKai is FALLBACK for anime content`);
-      }
-      
-      // For non-anime content: respect user's preferred provider order
-      // Add providers from user's saved order first (skipping anime-only for non-anime)
-      for (const providerName of userOrder) {
-        if (providerOrder.includes(providerName)) continue;
-        if (disabledProviders.has(providerName)) continue;
-        if (!isAnime && animeOnlyProviders.includes(providerName)) continue;
-        // vidlink is always available, others need availability check
-        if (providerName !== 'vidlink' && !availability[providerName as keyof typeof availability]) continue;
-        providerOrder.push(providerName);
-      }
-      
-      // Add any remaining available providers not in user's order as fallback
-      const allProviders = isAnime 
-        ? ['hianime', 'animekai', 'flixer', 'vidlink', 'hexa', 'vidsrc', '1movies']
-        : ['flixer', 'vidlink', 'hexa', 'vidsrc', '1movies'];
-      for (const providerName of allProviders) {
-        if (providerOrder.includes(providerName)) continue;
-        if (disabledProviders.has(providerName)) continue;
-        if (!availability[providerName as keyof typeof availability]) continue;
-        providerOrder.push(providerName);
-      }
 
-      console.log(`[VideoPlayer] Provider order: ${providerOrder.join(' → ')} (isAnime=${isAnime}, animekai=${availability.animekai})`);
+      const defaultOrder: string[] = isAnime
+        ? ['hianime', 'animekai', 'flixer', 'vidlink', 'vidsrc']
+        : ['flixer', 'vidlink', 'vidsrc'];
 
-      // Store the computed order for tab rendering and keyboard navigation
-      setProviderTabOrder([...providerOrder]);
-      // Try each provider in order until one works
-      let result: { sources: any[], provider: string } | null = null;
-      
-      for (const providerName of providerOrder) {
-        result = await fetchFromProvider(providerName);
-        if (result) {
-          break;
+      // Merge: user order first, then defaults for anything not in user order
+      const priorityOrder: string[] = [];
+      for (const p of userOrder) {
+        if (!disabledProviders.has(p) && defaultOrder.includes(p) && !priorityOrder.includes(p)) {
+          priorityOrder.push(p);
         }
-        console.log(`[VideoPlayer] ${providerName} failed, trying next provider...`);
+      }
+      for (const p of defaultOrder) {
+        if (!disabledProviders.has(p) && !priorityOrder.includes(p)) {
+          priorityOrder.push(p);
+        }
       }
 
-      if (!result) {
-        console.error('[VideoPlayer] All providers failed');
+      console.log(`[VideoPlayer] Pool: priority order [${priorityOrder.join(' → ')}], firing all in parallel`);
+      setProviderTabOrder([...priorityOrder]);
+
+      const FLIXER_SERVERS = ['alpha', 'bravo', 'delta', 'echo'];
+      const SERVER_DISPLAY: Record<string, string> = { alpha: 'Ares', bravo: 'Balder', delta: 'Dionysus', echo: 'Eros' };
+      const contentKey = `${tmdbId}-${mediaType}${season ? `-s${season}` : ''}${episode ? `-e${episode}` : ''}`;
+
+      // Source pool: keyed by provider name
+      const pool: Record<string, any[]> = {};
+      let playbackStarted = false;
+
+      // Resolve function — called by the selection loop when it picks a source
+      let resolveFirstSource: ((value: { source: any; provider: string } | null) => void) | null = null;
+      const firstSourcePromise = new Promise<{ source: any; provider: string } | null>(resolve => {
+        resolveFirstSource = resolve;
+      });
+
+      // Called when any source arrives from any provider
+      const onSourceArrived = (source: any, providerName: string) => {
+        if (!pool[providerName]) pool[providerName] = [];
+        pool[providerName].push(source);
+
+        // Update UI progressively
+        setSourcesCache(prev => ({
+          ...prev,
+          [providerName]: [...(prev[providerName] || []), source],
+        }));
+        setAvailableSources(prev => [...prev, source]);
+
+        // Try to pick a source if playback hasn't started
+        if (!playbackStarted) {
+          tryPickSource();
+        }
+      };
+
+      // Pick the best source from the pool based on user's priority order
+      const tryPickSource = () => {
+        if (playbackStarted) return;
+        for (const providerName of priorityOrder) {
+          if (pool[providerName]?.length) {
+            playbackStarted = true;
+            // For anime, try to match audio preference
+            let picked = pool[providerName][0];
+            if (isAnime && (providerName === 'animekai' || providerName === 'hianime')) {
+              const audioPref = userProviderSettings.animeAudioPreference || 'sub';
+              const match = pool[providerName].find((s: any) =>
+                s.title && sourceMatchesAudioPreference(s.title, audioPref)
+              );
+              if (match) picked = match;
+            }
+            resolveFirstSource?.({ source: picked, provider: providerName });
+            return;
+          }
+        }
+      };
+
+      // ---- FIRE ALL PROVIDERS IN PARALLEL ----
+
+      const providerPromises: Promise<void>[] = [];
+
+      for (const providerName of priorityOrder) {
+        if (providerName === 'flixer') {
+          for (const server of FLIXER_SERVERS) {
+            providerPromises.push((async () => {
+              try {
+                const cfWorkerUrl = getFlixerExtractUrl(tmdbId, mediaType, server, season, episode);
+                const res = await fetch(cfWorkerUrl, { priority: 'high' as RequestPriority, cache: 'no-store' });
+                const data = await res.json();
+                if (data.success && data.sources?.length && data.sources[0]?.url) {
+                  const src = data.sources[0];
+                  onSourceArrived({
+                    quality: src.quality || 'auto',
+                    title: `Flixer ${SERVER_DISPLAY[server] || server}`,
+                    url: getAnimeKaiProxyUrl(src.url),
+                    directUrl: src.url,
+                    type: src.type || 'hls',
+                    referer: src.referer || '',
+                    requiresSegmentProxy: true,
+                    status: 'working',
+                    server,
+                  }, 'flixer');
+                }
+              } catch {}
+            })());
+          }
+        } else if (isAnime && malId && (providerName === 'animekai' || providerName === 'hianime')) {
+          providerPromises.push((async () => {
+            try {
+              const params = new URLSearchParams({ malId: malId.toString(), provider: providerName });
+              if (mediaType === 'tv' && episode) params.append('episode', episode.toString());
+              const res = await fetch(`/api/anime/stream?${params}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
+              const data = await res.json();
+              if (data.success && data.sources?.length) {
+                for (const src of data.sources) {
+                  if (src.url) onSourceArrived({ ...src, requiresSegmentProxy: src.requiresSegmentProxy ?? true }, data.provider || providerName);
+                }
+              }
+            } catch {}
+          })());
+        } else {
+          providerPromises.push((async () => {
+            try {
+              const params = new URLSearchParams({ tmdbId, type: mediaType, provider: providerName });
+              if (mediaType === 'tv' && season && episode) {
+                params.append('season', season.toString());
+                params.append('episode', episode.toString());
+              }
+              if (malId) params.append('malId', malId.toString());
+              if (malTitle) params.append('malTitle', malTitle);
+              const res = await fetch(`/api/stream/extract?${params}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
+              const data = await res.json();
+              if (data.sources?.length) {
+                const actualProvider = data.provider || providerName;
+                for (const src of data.sources) {
+                  if (src.url) onSourceArrived(src, actualProvider);
+                }
+              }
+            } catch {}
+          })());
+        }
+      }
+
+      // Fallback: if all providers settle and nothing was picked, resolve null
+      Promise.allSettled(providerPromises).then(() => {
+        if (!playbackStarted) {
+          resolveFirstSource?.(null);
+        }
+      });
+
+      // ---- WAIT FOR SELECTION ----
+      const picked = await firstSourcePromise;
+
+      if (!picked) {
+        console.error('[VideoPlayer] All providers failed — pool empty');
         setError('No streams available from any provider');
         setIsLoading(false);
         setHighlightServerButton(true);
         return;
       }
 
-      const { sources, provider: successfulProvider } = result;
-      console.log(`[VideoPlayer] Success! Got ${sources.length} sources from ${successfulProvider}`);
+      const { source, provider: pickedProvider } = picked;
+      console.log(`[VideoPlayer] ✓ Playing: ${source.title} from ${pickedProvider}`);
 
-      // Record successful provider for this content (helps with future playback)
-      recordSuccessfulProvider(contentKey, successfulProvider);
-      
-      // Resolve background anime check (non-blocking — player already loaded)
-      if (animeCheckPromise) {
-        animeCheckPromise.then(detectedAnime => {
-          if (detectedAnime) {
-            console.log(`[VideoPlayer] Background anime check: this IS anime content`);
-            setIsAnimeContent(true);
-          }
-        });
+      setProvider(pickedProvider);
+      setMenuProvider(pickedProvider);
+      recordSuccessfulProvider(contentKey, pickedProvider);
+      setCurrentSourceIndex(0);
+
+      if (source.skipIntro) setSkipIntro(source.skipIntro);
+      if (source.skipOutro) setSkipOutro(source.skipOutro);
+
+      if (isAnime && source.title && (pickedProvider === 'animekai' || pickedProvider === 'hianime')) {
+        const actualPref = sourceMatchesAudioPreference(source.title, 'dub') ? 'dub' : 'sub';
+        const savedPref = userProviderSettings.animeAudioPreference || 'sub';
+        if (actualPref !== savedPref) setAnimeAudioPref(actualPref as AnimeAudioPreference);
       }
 
-      // Update state with successful provider
-      setProvider(successfulProvider);
-      setMenuProvider(successfulProvider);
-      setSourcesCache(prev => ({ ...prev, [successfulProvider]: sources }));
-      setAvailableSources(sources);
-      
-      // Extract skip intro/outro data from the first source (all sources from same anime have same skip times)
-      const firstSource = sources[0];
-      console.log('[VideoPlayer] First source skip data check:', {
-        hasSkipIntro: !!firstSource?.skipIntro,
-        hasSkipOutro: !!firstSource?.skipOutro,
-        skipIntro: firstSource?.skipIntro,
-        skipOutro: firstSource?.skipOutro,
-      });
-      if (firstSource?.skipIntro) {
-        console.log('[VideoPlayer] Skip intro available:', firstSource.skipIntro);
-        setSkipIntro(firstSource.skipIntro);
-      } else {
-        console.log('[VideoPlayer] No skip intro data in first source');
-        setSkipIntro(null);
-      }
-      if (firstSource?.skipOutro) {
-        console.log('[VideoPlayer] Skip outro available:', firstSource.skipOutro);
-        setSkipOutro(firstSource.skipOutro);
-      } else {
-        console.log('[VideoPlayer] No skip outro data in first source');
-        setSkipOutro(null);
-      }
-      
-      // For AnimeKai/HiAnime, try to find preferred server and match dub/sub preference
-      let selectedSourceIndex = 0;
-      if (successfulProvider === 'animekai' || successfulProvider === 'hianime') {
-        const audioPref = getProviderSettings().animeAudioPreference;
-        const preferredServer = getPreferredAnimeKaiServer();
-        
-        // First, filter sources by dub/sub preference
-        const matchingAudioSources = sources.filter((s: any) => 
-          s.title && sourceMatchesAudioPreference(s.title, audioPref)
-        );
-        
-        if (matchingAudioSources.length > 0) {
-          // Try to find the preferred server within matching audio sources
-          if (preferredServer) {
-            const preferredIndex = sources.findIndex((s: any) => 
-              s.title && 
-              s.title.toLowerCase().includes(preferredServer.toLowerCase()) &&
-              sourceMatchesAudioPreference(s.title, audioPref)
-            );
-            if (preferredIndex !== -1) {
-              selectedSourceIndex = preferredIndex;
-              console.log(`[VideoPlayer] Using preferred AnimeKai server: ${preferredServer} (${audioPref})`);
-            } else {
-              // Use first source matching audio preference
-              selectedSourceIndex = sources.findIndex((s: any) => 
-                s.title && sourceMatchesAudioPreference(s.title, audioPref)
-              );
-              console.log(`[VideoPlayer] Preferred server not found, using first ${audioPref} source`);
-            }
-          } else {
-            // No preferred server, use first source matching audio preference
-            selectedSourceIndex = sources.findIndex((s: any) => 
-              s.title && sourceMatchesAudioPreference(s.title, audioPref)
-            );
-            console.log(`[VideoPlayer] Using first ${audioPref} source`);
-          }
-        } else {
-          console.log(`[VideoPlayer] No ${audioPref} sources found, using first available`);
-        }
-      }
-      
-      setCurrentSourceIndex(selectedSourceIndex);
-      // Include malId in key for MAL-direct anime
-      lastFetchedKey.current = malId 
-        ? `mal-${malId}-${mediaType}-${episode}-${successfulProvider}`
-        : `${tmdbId}-${mediaType}-${season}-${episode}-${successfulProvider}`;
-
-      // Setup initial stream URL
-      const initialSource = sources[selectedSourceIndex] || sources[0];
-      console.log('[VideoPlayer] Initial source:', {
-        title: initialSource.title,
-        url: initialSource.url?.substring(0, 100),
-        status: initialSource.status,
-        requiresSegmentProxy: initialSource.requiresSegmentProxy,
-      });
-      
-      // Sync the sub/dub toggle to match what's actually playing
-      // NOTE: Only update the UI toggle, NOT persistent storage.
-      // If the user's saved preference is "dub" but no dub source is available,
-      // we show sub but keep their saved preference as "dub" for next time.
-      if (isAnime && initialSource.title) {
-        const actuallyDub = sourceMatchesAudioPreference(initialSource.title, 'dub');
-        const actualPref = actuallyDub ? 'dub' : 'sub';
-        const savedPref = getProviderSettings().animeAudioPreference;
-        if (actualPref !== savedPref) {
-          console.log(`[VideoPlayer] Toggle sync: saved="${savedPref}" but playing="${actualPref}" (${initialSource.title}) — updating toggle only (not saving)`);
-          setAnimeAudioPref(actualPref as AnimeAudioPreference);
-        }
-      }
-      
-      // Check if the source has a valid URL
-      if (!initialSource.url) {
-        console.error('[VideoPlayer] Initial source has no URL!');
-        setError('No stream URL available');
-        setIsLoading(false);
-        return;
-      }
-      
-      let finalUrl = initialSource.url;
-
-      if (initialSource.requiresSegmentProxy) {
-        // Check if URL is already proxied (via /stream/, /animekai, or local API)
-        const isAlreadyProxied = finalUrl.includes('/api/stream-proxy') || 
-                                  finalUrl.includes('/stream/?url=') || 
-                                  finalUrl.includes('/stream?url=') ||
+      // Build stream URL
+      let finalUrl = source.url;
+      if (source.requiresSegmentProxy) {
+        const isAlreadyProxied = finalUrl.includes('/stream?url=') ||
+                                  finalUrl.includes('/stream/?url=') ||
                                   finalUrl.includes('/animekai?url=') ||
-                                  finalUrl.includes('/animekai/?url=');
-        console.log('[VideoPlayer] Proxy check:', { requiresSegmentProxy: true, isAlreadyProxied, url: finalUrl.substring(0, 80) });
+                                  finalUrl.includes('/animekai/?url=') ||
+                                  finalUrl.includes('/api/stream-proxy');
         if (!isAlreadyProxied) {
-          const targetUrl = initialSource.directUrl || initialSource.url;
-          finalUrl = getAnimeKaiProxyUrl(targetUrl);
-          console.log('[VideoPlayer] Applied proxy to URL');
+          finalUrl = getAnimeKaiProxyUrl(source.directUrl || source.url);
         }
       }
-      
-      console.log('[VideoPlayer] Setting stream URL:', finalUrl.substring(0, 100) + '...');
+
       setStreamUrl(finalUrl);
       setIsLoading(false);
+
+      // Let remaining providers finish pooling in background
+      console.log(`[VideoPlayer] Pool: playback started, remaining sources still arriving...`);
     };
 
     initializePlayer();
@@ -1284,6 +1251,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         });
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Signal to initializePlayer that this source is playable
+          if (sourceReadyResolverRef.current) {
+            sourceReadyResolverRef.current();
+            sourceReadyResolverRef.current = null;
+          }
+          
           // Extract available quality levels
           if (hls.levels && hls.levels.length > 0) {
             const levels = hls.levels.map((level, index) => ({
@@ -1803,6 +1776,11 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       if (savedTime > 0 && savedTime < video.duration - 30) {
         setSavedProgress(savedTime);
         setShowResumePrompt(true);
+        // Signal to initializePlayer that this source is playable (resume prompt = working)
+        if (sourceReadyResolverRef.current) {
+          sourceReadyResolverRef.current();
+          sourceReadyResolverRef.current = null;
+        }
         video.pause();
         hasShownResumePromptRef.current = true;
       } else if (video.duration > 0) {
