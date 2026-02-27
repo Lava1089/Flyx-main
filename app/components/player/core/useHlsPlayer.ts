@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
-import type { HlsQualityLevel, PlayerSource } from './types';
+import type { HlsQualityLevel } from './types';
 
 export interface UseHlsPlayerOptions {
   videoRef: React.RefObject<HTMLVideoElement | null>;
