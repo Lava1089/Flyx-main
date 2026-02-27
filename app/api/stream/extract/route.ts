@@ -12,14 +12,52 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { registry } from '@/app/lib/providers';
 import type { ExtractionRequest } from '@/app/lib/providers/types';
 import { isAnimeContent } from '@/app/lib/services/animekai-extractor';
 import { performanceMonitor } from '@/app/lib/utils/performance-monitor';
 import { getStreamProxyUrl, getAnimeKaiProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
 
-// Log registry status at module load time
-console.log(`[EXTRACT] Registry loaded: ${registry.getAllEnabled().length} enabled providers: ${registry.getAllEnabled().map(p => p.name).join(', ')}`);
+// Lazy-load registry to prevent module-load crashes on CF Pages runtime.
+// If any provider import fails (e.g., Node.js APIs), the whole module would crash
+// without this lazy loading pattern.
+let _registry: any = null;
+let _registryLoadAttempted = false;
+
+function getRegistryInstance() {
+  if (_registry) return _registry;
+  if (_registryLoadAttempted) return _registry; // already tried, return null
+  _registryLoadAttempted = true;
+  try {
+    // Dynamic require to catch import-time errors
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@/app/lib/providers');
+    _registry = mod.registry;
+    console.log(`[EXTRACT] Registry loaded: ${_registry.getAllEnabled().length} enabled providers: ${_registry.getAllEnabled().map((p: any) => p.name).join(', ')}`);
+  } catch (err) {
+    console.error(`[EXTRACT] Registry failed to load:`, err instanceof Error ? err.message : err);
+    _registry = null;
+  }
+  return _registry;
+}
+
+// Wrapper that provides a safe registry interface — falls back to direct extractor calls
+const registry = {
+  get(name: string) {
+    const reg = getRegistryInstance();
+    return reg?.get(name) ?? null;
+  },
+  getAllEnabled() {
+    const reg = getRegistryInstance();
+    if (reg) return reg.getAllEnabled();
+    // Fallback: return empty array — extractWithFallback will use directExtract
+    return [];
+  },
+  getForContent(mediaType: string, metadata?: any) {
+    const reg = getRegistryInstance();
+    if (reg) return reg.getForContent(mediaType, metadata);
+    return [];
+  },
+};
 
 // ============================================================================
 // RATE LIMITING & ANTI-ABUSE
@@ -190,7 +228,7 @@ function resolveProviderName(name: string): string {
 function getValidProviderNames(): string[] {
   const registeredNames = Array.from(
     new Set([
-      ...registry.getAllEnabled().map(p => p.name),
+      ...registry.getAllEnabled().map((p: any) => p.name),
       // Include disabled providers too — they can be explicitly requested
       'flixer', 'vidlink', 'animekai', 'hianime', 'vidsrc', 'multi-embed',
       'dlhd', 'viprow', 'ppv', 'cdn-live', 'iptv',
@@ -494,6 +532,7 @@ export class AllProvidersFailedError extends Error {
 
 /**
  * Extract from a specific provider by name via the registry.
+ * Falls back to direct extractor calls if registry is unavailable.
  * Requirement 5.2: delegate directly to that provider's extract method.
  */
 async function extractFromSpecificProvider(
@@ -502,7 +541,9 @@ async function extractFromSpecificProvider(
 ): Promise<{ sources: any[]; provider: string }> {
   const provider = registry.get(providerName);
   if (!provider) {
-    throw new Error(`Provider "${providerName}" not found in registry. Available: ${registry.getAllEnabled().map(p => p.name).join(', ')}`);
+    // Fallback: try direct extractor call
+    console.log(`[EXTRACT] Provider "${providerName}" not in registry, trying direct extractor...`);
+    return await directExtract(providerName, request);
   }
   if (!provider.enabled) {
     throw new Error(`Provider "${providerName}" is disabled`);
@@ -541,7 +582,7 @@ async function extractWithFallback(
   const metadata = { isAnime };
   const providers = registry.getForContent(mediaType, metadata);
 
-  console.log(`[EXTRACT] getForContent('${mediaType}', isAnime=${isAnime}): ${providers.map(p => `${p.name}(${p.priority})`).join(', ') || 'NONE'}`);
+  console.log(`[EXTRACT] getForContent('${mediaType}', isAnime=${isAnime}): ${providers.map((p: any) => `${p.name}(${p.priority})`).join(', ') || 'NONE'}`);
 
   // For anime, also include general movie/tv providers as fallback
   let allProviders = [...providers];
@@ -556,8 +597,9 @@ async function extractWithFallback(
   }
 
   if (allProviders.length === 0) {
-    console.error(`[EXTRACT] No providers available for ${mediaType} (isAnime=${isAnime})`);
-    throw new AllProvidersFailedError([]);
+    // Registry empty or failed to load — fall back to direct extractor calls
+    console.log(`[EXTRACT] No registry providers, falling back to direct extractors...`);
+    return await directExtractWithFallback(request, mediaType, isAnime);
   }
 
   const attempts: { provider: string; error: string }[] = [];
@@ -591,6 +633,110 @@ async function extractWithFallback(
   }
 
   console.log('[EXTRACT] All providers failed:', JSON.stringify(attempts));
+  throw new AllProvidersFailedError(attempts);
+}
+
+/**
+ * Direct extractor fallback — bypasses registry entirely.
+ * Used when the registry fails to load on CF Pages runtime.
+ */
+async function directExtract(
+  providerName: string,
+  request: ExtractionRequest,
+): Promise<{ sources: any[]; provider: string }> {
+  console.log(`[EXTRACT] Direct extract: ${providerName}`);
+  try {
+    switch (providerName) {
+      case 'flixer': {
+        const { extractFlixerStreams } = await import('@/app/lib/services/flixer-extractor');
+        const result = await extractFlixerStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'flixer' };
+        }
+        throw new Error(result.error || 'Flixer returned no sources');
+      }
+      case 'vidlink': {
+        const { extractVidLinkStreams } = await import('@/app/lib/services/vidlink-extractor');
+        const result = await extractVidLinkStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'vidlink' };
+        }
+        throw new Error(result.error || 'VidLink returned no sources');
+      }
+      case 'vidsrc': {
+        const { extractVidSrcStreams } = await import('@/app/lib/services/vidsrc-extractor');
+        const result = await extractVidSrcStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'vidsrc' };
+        }
+        throw new Error(result.error || 'VidSrc returned no sources');
+      }
+      case 'animekai': {
+        const { extractAnimeKaiStreams } = await import('@/app/lib/services/animekai-extractor');
+        const result = await extractAnimeKaiStreams(request.tmdbId, request.mediaType, request.season, request.episode, request.malId, request.malTitle);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'animekai' };
+        }
+        throw new Error(result.error || 'AnimeKai returned no sources');
+      }
+      case 'hianime': {
+        const { extractHiAnimeStreams } = await import('@/app/lib/services/hianime-extractor');
+        if (!request.malId || !request.title) throw new Error('HiAnime requires malId and title');
+        const result = await extractHiAnimeStreams(request.malId, request.title, request.episode);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'hianime' };
+        }
+        throw new Error(result.error || 'HiAnime returned no sources');
+      }
+      case 'multi-embed': {
+        const { extractMultiEmbedStreams } = await import('@/app/lib/services/multi-embed-extractor');
+        const result = await extractMultiEmbedStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+        if (result.success && result.sources.length > 0) {
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'multi-embed' };
+        }
+        throw new Error(result.error || 'MultiEmbed returned no sources');
+      }
+      default:
+        throw new Error(`Unknown provider: ${providerName}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[EXTRACT] Direct ${providerName} failed: ${msg}`);
+    throw err;
+  }
+}
+
+/**
+ * Direct extractor fallback with priority-ordered iteration.
+ * Used when registry is empty/broken.
+ */
+async function directExtractWithFallback(
+  request: ExtractionRequest,
+  _mediaType: 'movie' | 'tv',
+  isAnime: boolean,
+): Promise<{ sources: any[]; provider: string }> {
+  // Priority order for anime vs movie/tv
+  const providerOrder = isAnime
+    ? ['animekai', 'hianime', 'flixer', 'vidsrc', 'multi-embed']
+    : ['flixer', 'vidsrc', 'multi-embed'];
+
+  console.log(`[EXTRACT] Direct fallback order: ${providerOrder.join(', ')}`);
+
+  const attempts: { provider: string; error: string }[] = [];
+
+  for (const name of providerOrder) {
+    try {
+      const result = await directExtract(name, request);
+      if (result.sources.length > 0) {
+        console.log(`[EXTRACT] ✓ Direct ${name}: ${result.sources.length} sources`);
+        return result;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      attempts.push({ provider: name, error: msg });
+    }
+  }
+
   throw new AllProvidersFailedError(attempts);
 }
 

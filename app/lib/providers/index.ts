@@ -2,36 +2,40 @@
  * Provider Registry Index
  *
  * Instantiates all provider modules and registers them in a default ProviderRegistry.
+ * Each provider import is wrapped in try/catch to prevent a single broken provider
+ * from crashing the entire registry on CF Pages runtime.
  * Requirements: 2.4, 2.5
  */
 
 import { ProviderRegistry } from './registry';
-import { FlixerProvider } from './flixer';
-import { VidLinkProvider } from './vidlink';
-import { AnimeKaiProvider } from './animekai';
-import { HiAnimeProvider } from './hianime';
-import { VidSrcProvider } from './vidsrc';
-import { MultiEmbedProvider } from './multi-embed';
-import { DLHDProvider } from './dlhd';
-import { VIPRowProvider } from './viprow';
-import { PPVProvider } from './ppv';
-import { CDNLiveProvider } from './cdn-live';
-import { IPTVProvider } from './iptv';
 
-// Create and populate the default registry
+// Create the default registry
 const registry = new ProviderRegistry();
 
-registry.register(new FlixerProvider());
-registry.register(new VidLinkProvider());
-registry.register(new AnimeKaiProvider());
-registry.register(new HiAnimeProvider());
-registry.register(new VidSrcProvider());
-registry.register(new MultiEmbedProvider());
-registry.register(new DLHDProvider());
-registry.register(new VIPRowProvider());
-registry.register(new PPVProvider());
-registry.register(new CDNLiveProvider());
-registry.register(new IPTVProvider());
+// Helper to safely register a provider — logs errors instead of crashing
+function safeRegister(name: string, factory: () => any) {
+  try {
+    const provider = factory();
+    registry.register(provider);
+  } catch (err) {
+    console.error(`[ProviderRegistry] Failed to load ${name}:`, err instanceof Error ? err.message : err);
+  }
+}
+
+// Register each provider with error isolation
+try { const { FlixerProvider } = require('./flixer'); safeRegister('flixer', () => new FlixerProvider()); } catch (e: any) { console.error('[ProviderRegistry] flixer import failed:', e.message); }
+try { const { VidLinkProvider } = require('./vidlink'); safeRegister('vidlink', () => new VidLinkProvider()); } catch (e: any) { console.error('[ProviderRegistry] vidlink import failed:', e.message); }
+try { const { AnimeKaiProvider } = require('./animekai'); safeRegister('animekai', () => new AnimeKaiProvider()); } catch (e: any) { console.error('[ProviderRegistry] animekai import failed:', e.message); }
+try { const { HiAnimeProvider } = require('./hianime'); safeRegister('hianime', () => new HiAnimeProvider()); } catch (e: any) { console.error('[ProviderRegistry] hianime import failed:', e.message); }
+try { const { VidSrcProvider } = require('./vidsrc'); safeRegister('vidsrc', () => new VidSrcProvider()); } catch (e: any) { console.error('[ProviderRegistry] vidsrc import failed:', e.message); }
+try { const { MultiEmbedProvider } = require('./multi-embed'); safeRegister('multi-embed', () => new MultiEmbedProvider()); } catch (e: any) { console.error('[ProviderRegistry] multi-embed import failed:', e.message); }
+try { const { DLHDProvider } = require('./dlhd'); safeRegister('dlhd', () => new DLHDProvider()); } catch (e: any) { console.error('[ProviderRegistry] dlhd import failed:', e.message); }
+try { const { VIPRowProvider } = require('./viprow'); safeRegister('viprow', () => new VIPRowProvider()); } catch (e: any) { console.error('[ProviderRegistry] viprow import failed:', e.message); }
+try { const { PPVProvider } = require('./ppv'); safeRegister('ppv', () => new PPVProvider()); } catch (e: any) { console.error('[ProviderRegistry] ppv import failed:', e.message); }
+try { const { CDNLiveProvider } = require('./cdn-live'); safeRegister('cdn-live', () => new CDNLiveProvider()); } catch (e: any) { console.error('[ProviderRegistry] cdn-live import failed:', e.message); }
+try { const { IPTVProvider } = require('./iptv'); safeRegister('iptv', () => new IPTVProvider()); } catch (e: any) { console.error('[ProviderRegistry] iptv import failed:', e.message); }
+
+console.log(`[ProviderRegistry] Loaded ${registry.getAllEnabled().length} providers: ${registry.getAllEnabled().map(p => p.name).join(', ')}`);
 
 export { registry };
 export { ProviderRegistry } from './registry';

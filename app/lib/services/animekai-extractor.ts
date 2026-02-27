@@ -162,7 +162,6 @@ export async function isAnimeContent(tmdbId: string, type: 'movie' | 'tv'): Prom
 
     const response = await fetch(url, {
       signal: AbortSignal.timeout(4000),
-      next: { revalidate: 86400 },
     });
 
     if (!response.ok) return false;
@@ -426,7 +425,6 @@ async function getTmdbAnimeInfo(tmdbId: string, type: 'movie' | 'tv'): Promise<{
 
     const response = await fetch(url, {
       signal: AbortSignal.timeout(4000),
-      next: { revalidate: 86400 },
     });
 
     if (!response.ok) return null;
