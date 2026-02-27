@@ -28,7 +28,7 @@ import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useCast, CastMedia } from '@/hooks/useCast';
 import { CastOverlay } from './CastButton';
 import TranscriptButton from './TranscriptButton';
-import { getAnimeKaiProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl, getFlixerExtractUrl } from '@/app/lib/proxy-config';
 // Player Core hooks — shared logic extracted for reuse by both desktop and mobile players
 // These hooks encapsulate HLS management, subtitle handling, progress tracking, and source switching.
 // The desktop player integrates these hooks for shared functionality while retaining
@@ -554,27 +554,34 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     }
 
     try {
-      // FLIXER: Use per-server parallel fetching for progressive loading
+      // FLIXER: Call CF Worker directly from browser (no RPI for extraction)
       if (providerName === 'flixer') {
         const FLIXER_SERVERS = ['alpha', 'bravo', 'delta', 'echo'];
-        const baseParams = new URLSearchParams({ tmdbId, type: mediaType });
-        if (mediaType === 'tv' && season && episode) {
-          baseParams.append('season', season.toString());
-          baseParams.append('episode', episode.toString());
-        }
+        const SERVER_DISPLAY: Record<string, string> = { alpha: 'Ares', bravo: 'Balder', delta: 'Dionysus', echo: 'Eros' };
 
         const serverFetches = FLIXER_SERVERS.map(async (server) => {
-          const p = new URLSearchParams(baseParams);
-          p.set('server', server);
           try {
-            const res = await fetch(`/api/stream/flixer-server?${p}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
+            const cfWorkerUrl = getFlixerExtractUrl(tmdbId, mediaType, server, season, episode);
+            const res = await fetch(cfWorkerUrl, { priority: 'high' as RequestPriority, cache: 'no-store' });
             const data = await res.json();
-            if (data.success && data.source?.url) return data.source;
+            if (data.success && data.sources?.length && data.sources[0]?.url) {
+              const src = data.sources[0];
+              return {
+                quality: src.quality || 'auto',
+                title: `Flixer ${SERVER_DISPLAY[server] || server}`,
+                url: getAnimeKaiProxyUrl(src.url),
+                directUrl: src.url,
+                type: src.type || 'hls',
+                referer: src.referer || '',
+                requiresSegmentProxy: true,
+                status: 'working' as const,
+                server,
+              };
+            }
           } catch {}
           return null;
         });
 
-        // Collect all results
         const results = await Promise.allSettled(serverFetches);
         const sources = results
           .map(r => r.status === 'fulfilled' ? r.value : null)
@@ -739,32 +746,41 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       }
     }
     
-    // FLIXER: Progressive per-server loading
+    // FLIXER: Call CF Worker DIRECTLY from browser (no RPI needed for extraction).
+    // RPI is only used later for proxying the m3u8 segments during playback.
     // Fire 4 parallel requests to individual servers, return the FIRST one that works.
     // Additional servers trickle in via background promises and get added to availableSources.
     if (providerName === 'flixer') {
       const FLIXER_SERVERS = ['alpha', 'bravo', 'delta', 'echo'];
-      console.log(`[VideoPlayer] Flixer: racing ${FLIXER_SERVERS.length} servers in parallel...`);
+      const SERVER_DISPLAY: Record<string, string> = { alpha: 'Ares', bravo: 'Balder', delta: 'Dionysus', echo: 'Eros' };
+      console.log(`[VideoPlayer] Flixer: racing ${FLIXER_SERVERS.length} servers via CF Worker (direct)...`);
 
-      const baseParams = new URLSearchParams({ tmdbId, type: mediaType });
-      if (mediaType === 'tv' && season && episode) {
-        baseParams.append('season', season.toString());
-        baseParams.append('episode', episode.toString());
-      }
-
-      // Create per-server fetch promises
+      // Create per-server fetch promises — browser → CF Worker (no RPI)
       const serverFetches = FLIXER_SERVERS.map(async (server) => {
-        const params = new URLSearchParams(baseParams);
-        params.set('server', server);
         try {
-          const res = await fetch(`/api/stream/flixer-server?${params}`, {
+          const cfWorkerUrl = getFlixerExtractUrl(tmdbId, mediaType, server, season, episode);
+          const res = await fetch(cfWorkerUrl, {
             priority: 'high' as RequestPriority,
             cache: 'no-store',
           });
           const data = await res.json();
-          if (data.success && data.source?.url) {
-            console.log(`[VideoPlayer] ✓ Flixer ${server} ready (${data.executionTime}ms)`);
-            return data.source;
+          if (data.success && data.sources?.length && data.sources[0]?.url) {
+            const src = data.sources[0];
+            // Proxy the m3u8 URL through /animekai for playback (RPI for segments)
+            const proxiedUrl = getAnimeKaiProxyUrl(src.url);
+            const source = {
+              quality: src.quality || 'auto',
+              title: `Flixer ${SERVER_DISPLAY[server] || server}`,
+              url: proxiedUrl,
+              directUrl: src.url,
+              type: src.type || 'hls',
+              referer: src.referer || '',
+              requiresSegmentProxy: true,
+              status: 'working' as const,
+              server,
+            };
+            console.log(`[VideoPlayer] ✓ Flixer ${server} ready`);
+            return source;
           }
         } catch {}
         return null;
@@ -792,7 +808,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         if (extraSources.length > 0) {
           console.log(`[VideoPlayer] Flixer: +${extraSources.length} additional server(s) ready`);
           setAvailableSources(prev => {
-            // Deduplicate by server name
             const existing = new Set(prev.map((s: any) => s.server));
             const newSources = extraSources.filter(s => !existing.has(s.server));
             if (newSources.length === 0) return prev;
