@@ -78,9 +78,6 @@ const SERVER_NAMES: Record<string, string> = {
   zulu: 'Zeus',
 };
 
-// Fast servers for per-server fallback — hexa returns 6-7 servers typically
-const FAST_SERVERS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
-
 async function fetchSubtitles(
   tmdbId: string,
   type: 'movie' | 'tv',
