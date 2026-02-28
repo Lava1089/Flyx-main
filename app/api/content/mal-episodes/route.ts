@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getMALAnimeEpisodes, type MALEpisode } from '@/lib/services/mal';
+import { type MALEpisode } from '@/lib/services/mal';
+import { cfFetch } from '@/lib/utils/cf-fetch';
 
 export const runtime = 'edge';
 
 // Cache episodes for 1 hour
 export const revalidate = 3600;
+
+const JIKAN_BASE_URL = 'https://api.jikan.moe/v4';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -27,17 +30,28 @@ export async function GET(request: NextRequest) {
   }
   
   try {
-    // Fetch single page from Jikan API (100 episodes per page)
-    const result = await getMALAnimeEpisodes(malIdNum, pageNum);
+    // Use cfFetch to route through RPI proxy on Cloudflare Workers
+    // Jikan API blocks/rate-limits datacenter IPs aggressively
+    const response = await cfFetch(`${JIKAN_BASE_URL}/anime/${malIdNum}/episodes?page=${pageNum}`);
+    
+    if (!response.ok) {
+      console.error(`[MAL Episodes API] Jikan fetch failed: ${response.status}`);
+      return NextResponse.json({ success: false, error: 'Jikan API error' }, { status: 502 });
+    }
+    
+    const data = await response.json();
+    const episodes: MALEpisode[] = data.data || [];
+    const hasNextPage = data.pagination?.has_next_page || false;
+    const lastPage = data.pagination?.last_visible_page || 1;
     
     return NextResponse.json({
       success: true,
       data: {
         malId: malIdNum,
         page: pageNum,
-        totalPages: result.lastPage,
-        hasNextPage: result.hasNextPage,
-        episodes: result.episodes.map((ep: MALEpisode) => ({
+        totalPages: lastPage,
+        hasNextPage,
+        episodes: episodes.map((ep: MALEpisode) => ({
           number: ep.mal_id,
           title: ep.title,
           titleJapanese: ep.title_japanese,

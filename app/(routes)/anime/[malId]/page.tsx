@@ -3,9 +3,8 @@ import { notFound } from 'next/navigation';
 import { malService } from '@/lib/services/mal';
 import AnimeDetailsClient from './AnimeDetailsClient';
 
-// Disable static caching — always fetch fresh on CF Workers
-// ISR with revalidate caused 404s when Jikan API was temporarily unavailable
-export const dynamic = 'force-dynamic';
+// Anime data is mostly static - revalidate daily
+export const revalidate = 86400; // 24 hours
 
 interface Props {
   params: Promise<{ malId: string }>; // Next.js 13+ async params
@@ -59,62 +58,25 @@ export default async function AnimeDetailsPage({ params }: Props) {
     notFound();
   }
 
-  // Try up to 2 times — Jikan API can be flaky, especially through proxy
-  let seriesData = null;
-  let lastError: unknown = null;
-  
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      seriesData = await malService.getSeriesSeasons(malId);
-      if (seriesData) break;
-    } catch (error) {
-      lastError = error;
-      console.warn(`[AnimeDetailsPage] Attempt ${attempt} failed for MAL ID ${malId}:`, error);
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
-  }
+  try {
+    // Only call getSeriesSeasons - it internally fetches the anime data
+    // This avoids duplicate API calls (getById is called inside getSeriesSeasons)
+    const seriesData = await malService.getSeriesSeasons(malId);
 
-  // If all attempts failed, try just fetching the basic anime info
-  if (!seriesData) {
-    try {
-      const anime = await malService.getById(malId);
-      if (anime) {
-        seriesData = {
-          mainEntry: anime,
-          allSeasons: [{
-            malId: anime.mal_id,
-            title: anime.title,
-            titleEnglish: anime.title_english,
-            episodes: anime.episodes,
-            score: anime.score,
-            members: anime.members,
-            type: anime.type,
-            status: anime.status,
-            aired: anime.aired.string,
-            synopsis: anime.synopsis,
-            imageUrl: anime.images.jpg.large_image_url || anime.images.jpg.image_url,
-            seasonOrder: 1,
-          }],
-          totalEpisodes: anime.episodes || 0,
-        };
-      }
-    } catch (error) {
-      console.error(`[AnimeDetailsPage] Fallback also failed for MAL ID ${malId}:`, error);
+    if (!seriesData) {
+      console.warn(`[AnimeDetailsPage] No data found for MAL ID: ${malId}`);
+      notFound();
     }
-  }
 
-  if (!seriesData) {
-    console.error(`[AnimeDetailsPage] All attempts failed for MAL ID: ${malId}`, lastError);
+    return (
+      <AnimeDetailsClient 
+        anime={seriesData.mainEntry} 
+        allSeasons={seriesData.allSeasons} 
+        totalEpisodes={seriesData.totalEpisodes}
+      />
+    );
+  } catch (error) {
+    console.error(`[AnimeDetailsPage] Error fetching MAL data for ${malId}:`, error);
     notFound();
   }
-
-  return (
-    <AnimeDetailsClient 
-      anime={seriesData.mainEntry} 
-      allSeasons={seriesData.allSeasons} 
-      totalEpisodes={seriesData.totalEpisodes}
-    />
-  );
 }

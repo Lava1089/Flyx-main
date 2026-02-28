@@ -4,8 +4,6 @@
  * Used to get accurate season/episode information for anime
  */
 
-import { cfFetch } from '@/lib/utils/cf-fetch';
-
 const JIKAN_BASE_URL = 'https://api.jikan.moe/v4';
 
 // Rate limiting: Jikan has a 3 requests/second limit
@@ -21,9 +19,7 @@ async function rateLimitedFetch(url: string): Promise<Response> {
   }
   
   lastRequestTime = Date.now();
-  // Use cfFetch to route through RPI proxy on Cloudflare Workers
-  // Jikan API blocks/rate-limits datacenter IPs aggressively
-  return cfFetch(url);
+  return fetch(url);
 }
 
 export interface MALAnime {
