@@ -1,5 +1,5 @@
 /**
- * Flixer.sh Extractor - Cloudflare Worker Implementation
+ * Hexa.su Extractor - Cloudflare Worker Implementation
  * 
  * This extractor routes all requests through the Cloudflare Worker at /flixer/extract.
  * The WASM-based encryption/decryption runs in the CF Worker (bundled at build time).
@@ -46,7 +46,7 @@ interface FlixerApiResponse {
 const FLIXER_BASE_URL = 'https://hexa.su';
 const SUBTITLE_API = 'https://sub.wyzie.ru';
 
-// Flixer is back online (February 2026) — PRIMARY provider for movies and TV
+// Hexa is back online (February 2026) — PRIMARY provider for movies and TV
 export const FLIXER_ENABLED = true;
 
 const SERVER_NAMES: Record<string, string> = {
@@ -120,10 +120,10 @@ export async function extractFlixerStreams(
   season?: number,
   episode?: number
 ): Promise<ExtractionResult> {
-  console.log(`[Flixer] Extracting for ${type} ${tmdbId}${type === 'tv' ? ` S${season}E${episode}` : ''}`);
+  console.log(`[Hexa] Extracting for ${type} ${tmdbId}${type === 'tv' ? ` S${season}E${episode}` : ''}`);
 
   if (!FLIXER_ENABLED) {
-    return { success: false, sources: [], error: 'Flixer provider is disabled' };
+    return { success: false, sources: [], error: 'Hexa provider is disabled' };
   }
 
   if (type === 'tv' && (!season || !episode)) {
@@ -139,21 +139,21 @@ export async function extractFlixerStreams(
     const response = await fetch(extractAllUrl, { signal: AbortSignal.timeout(12000) });
 
     if (!response.ok) {
-      console.log(`[Flixer] extract-all returned ${response.status}`);
-      return { success: false, sources: [], error: `Flixer API returned ${response.status}` };
+      console.log(`[Hexa] extract-all returned ${response.status}`);
+      return { success: false, sources: [], error: `Hexa API returned ${response.status}` };
     }
 
     const data = await response.json() as { success: boolean; sources?: StreamSource[]; error?: string };
 
     if (!data.success || !data.sources?.length) {
-      console.log(`[Flixer] extract-all: no sources`);
-      return { success: false, sources: [], error: data.error || 'No working sources from Flixer' };
+      console.log(`[Hexa] extract-all: no sources`);
+      return { success: false, sources: [], error: data.error || 'No working sources from Hexa' };
     }
 
     // Sources already have correct format from the CF Worker
     const sources: StreamSource[] = data.sources.map((s: any) => ({
       quality: s.quality || 'auto',
-      title: s.title || 'Flixer',
+      title: s.title || 'Hexa',
       url: s.url,
       type: (s.type || 'hls') as 'hls' | 'mp4',
       referer: s.referer || 'https://hexa.su/',
@@ -163,18 +163,18 @@ export async function extractFlixerStreams(
       server: s.server,
     }));
 
-    console.log(`[Flixer] ${sources.length} source(s) via extract-all`);
+    console.log(`[Hexa] ${sources.length} source(s) via extract-all`);
 
     const subtitles = await subtitlePromise;
     return { success: true, sources, subtitles: subtitles.length > 0 ? subtitles : undefined };
   } catch (err) {
-    console.error(`[Flixer] extract-all error:`, err instanceof Error ? err.message : err);
-    return { success: false, sources: [], error: err instanceof Error ? err.message : 'Flixer extraction failed' };
+    console.error(`[Hexa] extract-all error:`, err instanceof Error ? err.message : err);
+    return { success: false, sources: [], error: err instanceof Error ? err.message : 'Hexa extraction failed' };
   }
 }
 
 /**
- * Fetch a specific Flixer source by display name
+ * Fetch a specific Hexa source by display name
  */
 export async function fetchFlixerSourceByName(
   sourceName: string,
@@ -197,7 +197,7 @@ export async function fetchFlixerSourceByName(
     });
     
     if (!response.ok) {
-      console.error(`[Flixer] fetchFlixerSourceByName: HTTP ${response.status}`);
+      console.error(`[Hexa] fetchFlixerSourceByName: HTTP ${response.status}`);
       return null;
     }
     
@@ -207,7 +207,7 @@ export async function fetchFlixerSourceByName(
       return data.sources[0];
     }
   } catch (e) {
-    console.error('[Flixer] fetchFlixerSourceByName error:', e);
+    console.error('[Hexa] fetchFlixerSourceByName error:', e);
   }
 
   return null;

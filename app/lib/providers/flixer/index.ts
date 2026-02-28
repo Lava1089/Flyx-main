@@ -60,7 +60,7 @@ export class FlixerProvider implements Provider {
         sources: [],
         subtitles: [],
         provider: this.name,
-        error: err.message || 'Flixer extraction failed',
+        error: err.message || 'Hexa extraction failed',
         timing: Date.now() - start,
       };
     }

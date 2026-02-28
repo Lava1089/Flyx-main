@@ -230,7 +230,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     return () => window.removeEventListener(SYNC_DATA_CHANGED_EVENT, handleSyncDataChanged);
   }, []);
   
-  const [provider, setProvider] = useState('flixer'); // Default to Flixer (primary provider)
+  const [provider, setProvider] = useState('flixer'); // Default to Hexa (primary provider)
   const [menuProvider, setMenuProvider] = useState('flixer');
   const [showServerMenu, setShowServerMenu] = useState(false);
   const [sourcesCache, setSourcesCache] = useState<Record<string, any[]>>({});
@@ -240,7 +240,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   const [showCastTips, setShowCastTips] = useState(false); // Cast Tips modal
   const castErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [providerAvailability, setProviderAvailability] = useState<Record<string, boolean>>({
-    flixer: true, // Flixer is the primary provider (WASM-based, fastest)
+    flixer: true, // Hexa (hexa.su) is the primary provider (WASM-based, fastest)
     vidlink: true, // VidLink as secondary provider with multi-language support
     hexa: false, // Hexa disabled — most servers require JS execution, rarely works
     vidsrc: true, // VidSrc as tertiary fallback
@@ -562,7 +562,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     }
 
     try {
-      // FLIXER: Use server-side extraction via API route (same path as mobile player).
+      // HEXA: Use server-side extraction via API route (same path as mobile player).
       // Direct browser-to-CF-Worker calls can fail due to CORS/network issues.
       if (providerName === 'flixer') {
         const params = new URLSearchParams({ tmdbId, type: mediaType, provider: 'flixer' });
@@ -570,7 +570,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           params.append('season', season.toString());
           params.append('episode', episode.toString());
         }
-        console.log(`[VideoPlayer] Flixer: fetching via API route`);
+        console.log(`[VideoPlayer] Hexa: fetching via API route`);
         const res = await fetch(`/api/stream/extract?${params}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
         const data = await res.json();
         if (data.sources?.length) {
@@ -583,7 +583,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
             return sources;
           }
         }
-        throw new Error('No Flixer sources available');
+        throw new Error('No Hexa sources available');
       }
 
       // ANIME PROVIDERS: Use dedicated /api/anime/stream when malId is available
@@ -771,10 +771,10 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       }
     }
     
-    // FLIXER: Use server-side extraction via API route (same path as mobile player).
+    // HEXA: Use server-side extraction via API route (same path as mobile player).
     // Direct browser-to-CF-Worker calls can fail due to CORS/network issues.
     if (providerName === 'flixer') {
-      console.log(`[VideoPlayer] Flixer: fetching via API route (fallback path)`);
+      console.log(`[VideoPlayer] Hexa: fetching via API route (fallback path)`);
       const params = new URLSearchParams({ tmdbId, type: mediaType, provider: 'flixer' });
       if (mediaType === 'tv' && season && episode) {
         params.append('season', season.toString());
@@ -786,14 +786,14 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         if (data.sources?.length) {
           const sources = data.sources.filter((s: any) => s.url);
           if (sources.length > 0) {
-            console.log(`[VideoPlayer] ✓ Flixer returned ${sources.length} source(s) via API`);
+            console.log(`[VideoPlayer] ✓ Hexa returned ${sources.length} source(s) via API`);
             return { sources, provider: 'flixer' };
           }
         }
-        console.warn('[VideoPlayer] ✗ Flixer returned no sources via API');
+        console.warn('[VideoPlayer] ✗ Hexa returned no sources via API');
         return null;
       } catch (err) {
-        console.error('[VideoPlayer] ✗ Flixer API error:', err);
+        console.error('[VideoPlayer] ✗ Hexa API error:', err);
         return null;
       }
     }
@@ -1118,14 +1118,14 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
 
     if (streamUrl.includes('.m3u8') || streamUrl.includes('stream-proxy') || streamUrl.includes('/stream/') || streamUrl.includes('/animekai') || streamUrl.includes('/flixer/stream') || streamUrl.includes('/hianime') || streamUrl.includes('/vidsrc') || streamUrl.includes('workers.dev')) {
       if (Hls.isSupported()) {
-        // Check if this is a Flixer source (needs more aggressive buffering)
+        // Check if this is a Hexa source (needs more aggressive buffering)
         const isFlixerSource = streamUrl.includes('flixer') || streamUrl.includes('p.10015.workers.dev') || streamUrl.includes('afc7d47f');
         
         const hls = new Hls({
           enableWorker: true,
           lowLatencyMode: false, // Disable low latency for VOD - improves buffering
           backBufferLength: 90,
-          // Increase buffer sizes for Flixer sources to handle variable speeds
+          // Increase buffer sizes for Hexa sources to handle variable speeds
           maxBufferLength: isFlixerSource ? 60 : 30,
           maxMaxBufferLength: isFlixerSource ? 120 : 60,
           maxBufferSize: isFlixerSource ? 120 * 1000 * 1000 : 60 * 1000 * 1000,
@@ -4574,7 +4574,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     .filter(p => tmdbId !== '0' || ['hianime', 'animekai'].includes(p))
                     .map(p => {
                       const displayNames: Record<string, string> = {
-                        flixer: 'Flixer',
+                        flixer: 'Hexa',
                         vidlink: 'VidLink',
                         hexa: 'Hexa',
                         vidsrc: 'VidSrc',
