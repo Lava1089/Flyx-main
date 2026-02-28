@@ -7,7 +7,7 @@
 .backNavigation {
   position: absolute;
   top: 2rem;
-  left: 2rem;
+  left: calc(2rem + 75px);
   z-index: 10;
 }
 
@@ -333,7 +333,7 @@
 @media (max-width: 768px) {
   .backNavigation {
     top: 1rem;
-    left: 1rem;
+    left: calc(1rem + 75px);
     right: 1rem;
   }
 
@@ -431,7 +431,7 @@
 @media (max-width: 480px) {
   .backNavigation {
     top: 0.75rem;
-    left: 0.75rem;
+    left: calc(0.75rem + 75px);
   }
 
   .backButton {
@@ -508,7 +508,7 @@
 @supports (padding: max(0px)) {
   .backNavigation {
     top: max(1rem, env(safe-area-inset-top));
-    left: max(1rem, env(safe-area-inset-left));
+    left: max(calc(1rem + 75px), calc(env(safe-area-inset-left) + 75px));
   }
 
   .heroContent {
