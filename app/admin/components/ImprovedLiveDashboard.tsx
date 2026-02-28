@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRealtimeSlice, useUserSlice } from '../context/slices';
+import { useRealtimeSlice } from '../context/slices';
 import { getAdminAnalyticsUrl } from '../hooks/useAnalyticsApi';
 import { colors, getPercentage } from './ui';
 
@@ -38,7 +38,6 @@ interface HistoryPoint { time: number; total: number; watching: number; livetv: 
 
 export default function ImprovedLiveDashboard() {
   const realtime = useRealtimeSlice();
-  const users = useUserSlice();
   const loading = realtime.loading;
   const lastUpdate = realtime.lastUpdate;
   const [history, setHistory] = useState<HistoryPoint[]>([]);
