@@ -12,10 +12,11 @@
  */
 
 import { getFlixerExtractUrl, getFlixerExtractAllUrl } from '../proxy-config';
+import { cfFetch } from '../utils/cf-fetch';
 
-// Use regular fetch for CF Worker endpoints — cfFetch would double-proxy
-// through RPI since it detects .workers.dev URLs. The CF Worker handles
-// the hexa.su API call directly (no RPI needed).
+// The CF Worker at media-proxy.vynx.workers.dev/flixer handles the actual
+// hexa.su API calls + WASM encryption. When running on CF Pages (same account),
+// we can't directly fetch another CF Worker — cfFetch routes through RPI proxy.
 
 interface StreamSource {
   quality: string;
@@ -135,8 +136,9 @@ export async function extractFlixerStreams(
 
   try {
     // Single batch request — CF Worker fans out to all servers internally
+    // Use cfFetch: on CF Pages, direct fetch to same-account CF Workers returns 404
     const extractAllUrl = getFlixerExtractAllUrl(tmdbId, type, season, episode);
-    const response = await fetch(extractAllUrl, { signal: AbortSignal.timeout(12000) });
+    const response = await cfFetch(extractAllUrl, { signal: AbortSignal.timeout(12000) });
 
     if (!response.ok) {
       console.log(`[Hexa] extract-all returned ${response.status}`);
@@ -192,7 +194,7 @@ export async function fetchFlixerSourceByName(
   try {
     const extractUrl = getFlixerExtractUrl(tmdbId, type, server, season, episode);
     
-    const response = await fetch(extractUrl, {
+    const response = await cfFetch(extractUrl, {
       signal: AbortSignal.timeout(20000),
     });
     

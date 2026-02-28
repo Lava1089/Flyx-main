@@ -98,17 +98,41 @@ let getAdvFn: ((tmdbId: string) => string | null) | null = null;
 const WASM_SCRIPT_PATH = 'scripts/vidlink-script.js';
 
 /**
+ * Detect if we're running on Cloudflare Workers (no Node.js fs/path/libsodium).
+ * VidLink WASM init requires Node.js APIs that don't exist on CF Workers.
+ */
+function isCloudflareRuntime(): boolean {
+  try {
+    // Production is always CF Workers for this app (deployed via @opennextjs/cloudflare)
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') {
+      return true;
+    }
+    // @ts-ignore - caches.default only exists in Cloudflare Workers
+    if (typeof caches !== 'undefined' && typeof caches.default !== 'undefined') {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Initialize the Go WASM token generator.
  * This is called once and cached - subsequent calls return immediately.
  * 
- * Steps:
- * 1. Fetch /api/mercury to get ad-library data (sets a global variable the WASM reads)
- * 2. Load libsodium-wrappers (the WASM uses sodium internally)
- * 3. Load and run the Go WASM binary (fu.wasm)
- * 4. The WASM registers window.getAdv() which generates tokens
+ * NOTE: This ONLY works in Node.js (local dev). On CF Workers, it returns false
+ * immediately because fs/path/libsodium are not available.
  */
 async function initWasm(): Promise<boolean> {
   if (wasmInitialized && getAdvFn) return true;
+  
+  // VidLink WASM requires Node.js APIs (fs, path, libsodium-wrappers)
+  // that are NOT available on Cloudflare Workers. Bail out early.
+  if (isCloudflareRuntime()) {
+    console.log('[VidLink] Skipping WASM init — not supported on Cloudflare Workers (requires fs/path/libsodium)');
+    return false;
+  }
   
   // Deduplicate concurrent init calls
   if (wasmInitializing && wasmInitPromise) return wasmInitPromise;
