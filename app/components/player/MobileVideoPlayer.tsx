@@ -367,6 +367,10 @@ export default function MobileVideoPlayer({
   const networkRetryCountRef = useRef(0);
   const onSourceChangeRef = useRef(onSourceChange);
   useEffect(() => { onSourceChangeRef.current = onSourceChange; }, [onSourceChange]);
+  
+  // Auto-advance timer: if a source doesn't begin playing within 1s, skip to next source
+  const playbackStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const playbackStartedRef = useRef<boolean>(false);
 
   // Debug: Log anime props
   useEffect(() => {
@@ -600,6 +604,41 @@ export default function MobileVideoPlayer({
     const video = videoRef.current;
     setIsLoading(true);
     setError(null);
+    
+    // Reset auto-advance state for new source
+    playbackStartedRef.current = false;
+    if (playbackStartTimeoutRef.current) {
+      clearTimeout(playbackStartTimeoutRef.current);
+      playbackStartTimeoutRef.current = null;
+    }
+    
+    // Auto-advance: if playback doesn't start within 1s, try next source
+    const startPlaybackTimeout = () => {
+      playbackStartTimeoutRef.current = setTimeout(() => {
+        if (playbackStartedRef.current) return;
+        
+        console.log(`[MobilePlayer] Source ${currentSourceIndex} didn't start within 1s, auto-advancing...`);
+        const nextIdx = currentSourceIndex + 1;
+        if (nextIdx < availableSources.length && availableSources[nextIdx]?.url) {
+          console.log(`[MobilePlayer] Auto-advancing to source ${nextIdx}: ${availableSources[nextIdx].title}`);
+          onSourceChangeRef.current?.(nextIdx, video.currentTime || 0);
+        } else {
+          console.log('[MobilePlayer] No more sources in current provider, exhausted');
+        }
+      }, 1000);
+    };
+    
+    // Cancel timeout when playback actually starts
+    const onPlaying = () => {
+      if (!playbackStartedRef.current) {
+        playbackStartedRef.current = true;
+        if (playbackStartTimeoutRef.current) {
+          clearTimeout(playbackStartTimeoutRef.current);
+          playbackStartTimeoutRef.current = null;
+        }
+      }
+    };
+    video.addEventListener('playing', onPlaying);
 
     const attemptAutoplay = () => {
       // Seek to pending time if set (resuming after source change)
@@ -648,6 +687,10 @@ export default function MobileVideoPlayer({
 
     if (isIOS && supportsHLS) {
       video.src = streamUrl;
+      // Start auto-advance timeout for iOS native HLS
+      if (!showResumePrompt) {
+        startPlaybackTimeout();
+      }
       const handleLoadedMetadata = () => {
         setDuration(video.duration);
         setIsLoading(false);
@@ -671,6 +714,11 @@ export default function MobileVideoPlayer({
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('canplay', handleCanPlay);
         video.removeEventListener('error', handleError);
+        video.removeEventListener('playing', onPlaying);
+        if (playbackStartTimeoutRef.current) {
+          clearTimeout(playbackStartTimeoutRef.current);
+          playbackStartTimeoutRef.current = null;
+        }
       };
     }
 
@@ -679,6 +727,10 @@ export default function MobileVideoPlayer({
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
+      // Start auto-advance timeout for HLS.js
+      if (!showResumePrompt) {
+        startPlaybackTimeout();
+      }
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsLoading(false);
         // Restore playback speed if not default
@@ -731,10 +783,19 @@ export default function MobileVideoPlayer({
       return () => {
         hls.destroy();
         hlsRef.current = null;
+        video.removeEventListener('playing', onPlaying);
+        if (playbackStartTimeoutRef.current) {
+          clearTimeout(playbackStartTimeoutRef.current);
+          playbackStartTimeoutRef.current = null;
+        }
       };
     }
 
     video.src = streamUrl;
+    // Start auto-advance timeout for native video
+    if (!showResumePrompt) {
+      startPlaybackTimeout();
+    }
     video.addEventListener('loadedmetadata', () => {
       setIsLoading(false);
       // Restore playback speed if not default
@@ -743,6 +804,13 @@ export default function MobileVideoPlayer({
       }
       attemptAutoplay();
     });
+    return () => {
+      video.removeEventListener('playing', onPlaying);
+      if (playbackStartTimeoutRef.current) {
+        clearTimeout(playbackStartTimeoutRef.current);
+        playbackStartTimeoutRef.current = null;
+      }
+    };
   // Note: isIOS and supportsHLS are locked refs, so they won't cause re-runs
   // onError is intentionally excluded - it's only used for error callbacks, not initialization
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -534,8 +534,27 @@ let serverTimeOffset = 0;
 // WASM init lock — prevents 4 parallel requests from all initializing WASM
 let wasmInitPromise: Promise<void> | null = null;
 
+// Track consecutive failures to auto-reset stale WASM state
+let consecutiveFailures = 0;
+const MAX_CONSECUTIVE_FAILURES = 5;
+let lastSuccessTime = 0;
+const WASM_MAX_AGE = 30 * 60 * 1000; // 30 minutes — force re-init to avoid stale state
+let wasmInitTime = 0;
+
 async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): Promise<void> {
-  if (cachedWasmLoader && cachedApiKey) return;
+  // Auto-reset if too many consecutive failures or WASM is too old
+  if (cachedWasmLoader && cachedApiKey) {
+    const age = Date.now() - wasmInitTime;
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || age > WASM_MAX_AGE) {
+      logger.warn(`Resetting WASM: ${consecutiveFailures} consecutive failures, age ${Math.round(age/1000)}s`);
+      cachedWasmLoader = null;
+      cachedApiKey = null;
+      wasmInitPromise = null;
+      consecutiveFailures = 0;
+    } else {
+      return;
+    }
+  }
   if (wasmInitPromise) return wasmInitPromise;
   wasmInitPromise = (async () => {
     if (cachedWasmLoader && cachedApiKey) return; // double-check after await
@@ -549,6 +568,8 @@ async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): P
     cachedWasmLoader = new FlixerWasmLoader();
     await cachedWasmLoader.initialize(FLIXER_WASM);
     cachedApiKey = cachedWasmLoader.getImgKey();
+    wasmInitTime = Date.now();
+    consecutiveFailures = 0;
     logger.info('Flixer WASM initialized', { keyPrefix: cachedApiKey.slice(0, 16), keyLen: cachedApiKey.length });
   })();
   wasmInitPromise.catch(() => { 
@@ -803,7 +824,10 @@ async function getSourceFromServer(
       return { url, raw: data };
     }
     
-    console.log(`[Flixer] ${server}: decrypted OK but no URL found in response`);
+    // Log the actual decrypted structure so we can diagnose format changes
+    const keys = Object.keys(data || {});
+    const sourcesType = data.sources ? (Array.isArray(data.sources) ? `array[${data.sources.length}]` : typeof data.sources) : 'missing';
+    console.log(`[Flixer] ${server}: decrypted OK but no URL found. Keys: [${keys.join(',')}], sources: ${sourcesType}, raw: ${JSON.stringify(data).substring(0, 300)}`);
   } catch (e) {
     console.log(`[Flixer] ${server}: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -888,6 +912,13 @@ async function extractAllServers(
     const elapsed = Date.now() - startTime;
     logger.info(`extract-all: ${sources.length}/${allServers.length} sources in ${elapsed}ms`);
 
+    if (sources.length > 0) {
+      consecutiveFailures = 0;
+      lastSuccessTime = Date.now();
+    } else {
+      consecutiveFailures++;
+    }
+
     return jsonResponse({
       success: sources.length > 0,
       sources,
@@ -933,8 +964,73 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       wasmLoaded: !!cachedWasmLoader,
       hasApiKey: !!cachedApiKey,
       serverTimeOffset,
+      wasmAge: wasmInitTime ? Math.round((Date.now() - wasmInitTime) / 1000) : null,
+      consecutiveFailures,
+      lastSuccessAge: lastSuccessTime ? Math.round((Date.now() - lastSuccessTime) / 1000) : null,
       timestamp: new Date().toISOString(),
     }, 200);
+  }
+
+  // Debug endpoint — shows raw decrypted data for diagnosis
+  if (path === '/flixer/debug') {
+    const tmdbId = url.searchParams.get('tmdbId') || '550';
+    const type = url.searchParams.get('type') || 'movie';
+    const season = url.searchParams.get('season') || undefined;
+    const episode = url.searchParams.get('episode') || undefined;
+    const server = url.searchParams.get('server') || 'alpha';
+
+    try {
+      await ensureWasmInitialized(logger);
+      const apiKey = cachedApiKey!;
+      const loader = cachedWasmLoader!;
+
+      const apiPath = type === 'movie'
+        ? `/api/tmdb/movie/${tmdbId}/images`
+        : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+
+      // Warm-up
+      await getOrCreateWarmup(apiKey, apiPath);
+
+      // Fetch encrypted
+      const encrypted = await makeFlixerRequest(apiKey, apiPath, {
+        'X-Only-Sources': '1',
+        'X-Server': server,
+      });
+
+      // Decrypt
+      const decrypted = await loader.processImgData(encrypted, apiKey);
+      let parsed: any = null;
+      try { parsed = JSON.parse(decrypted); } catch {}
+
+      // Extract URL using same logic as getSourceFromServer
+      let extractedUrl: string | null = null;
+      if (parsed) {
+        if (Array.isArray(parsed.sources)) {
+          const source = parsed.sources.find((s: any) => s.server === server) || parsed.sources[0];
+          extractedUrl = source?.url || source?.file || source?.stream || null;
+        }
+        if (!extractedUrl) {
+          extractedUrl = parsed.sources?.file || parsed.sources?.url || parsed.file || parsed.url || parsed.stream || null;
+        }
+      }
+
+      return jsonResponse({
+        success: !!extractedUrl,
+        server,
+        encryptedLength: encrypted.length,
+        decryptedLength: typeof decrypted === 'string' ? decrypted.length : 0,
+        parsedKeys: parsed ? Object.keys(parsed) : [],
+        sourcesType: parsed?.sources ? (Array.isArray(parsed.sources) ? `array[${parsed.sources.length}]` : typeof parsed.sources) : 'missing',
+        extractedUrl: extractedUrl ? extractedUrl.substring(0, 120) + '...' : null,
+        timestamp: new Date().toISOString(),
+      }, 200);
+    } catch (e) {
+      // Reset WASM on error
+      cachedWasmLoader = null;
+      cachedApiKey = null;
+      wasmInitPromise = null;
+      return jsonResponse({ success: false, error: e instanceof Error ? e.message : String(e) }, 500);
+    }
   }
 
   // Batch extract ALL servers in one request
@@ -992,6 +1088,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       );
 
       if (!result.url) {
+        consecutiveFailures++;
         return jsonResponse({
           success: false,
           error: 'No stream URL found',
@@ -1000,6 +1097,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       }
 
       const displayName = SERVER_NAMES[server] || server;
+      consecutiveFailures = 0;
+      lastSuccessTime = Date.now();
       
       return jsonResponse({
         success: true,

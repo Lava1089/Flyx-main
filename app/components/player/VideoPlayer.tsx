@@ -302,6 +302,10 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   // HLS MANIFEST_PARSED or resume prompt resolves it to signal "this source works"
   const sourceReadyResolverRef = useRef<(() => void) | null>(null);
   
+  // Auto-advance timer: if a source doesn't begin playing within 1s, skip to next source
+  const playbackStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const playbackStartedRef = useRef<boolean>(false);
+  
   // Skip intro/outro refs (to avoid stale closures in event handlers)
   const skipIntroRef = useRef<[number, number] | null>(null);
   const skipOutroRef = useRef<[number, number] | null>(null);
@@ -1115,6 +1119,60 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     
     // Reset source confirmation flag for new stream
     sourceConfirmedWorkingRef.current = false;
+    playbackStartedRef.current = false;
+    
+    // Clear any previous playback start timeout
+    if (playbackStartTimeoutRef.current) {
+      clearTimeout(playbackStartTimeoutRef.current);
+      playbackStartTimeoutRef.current = null;
+    }
+    
+    // Auto-advance: if playback doesn't start within 1s, try next source in the list
+    const startPlaybackTimeout = () => {
+      playbackStartTimeoutRef.current = setTimeout(() => {
+        if (playbackStartedRef.current) return; // Already playing, ignore
+        
+        console.log(`[VideoPlayer] Source ${currentSourceIndex} didn't start within 1s, auto-advancing...`);
+        
+        // Save position before switching
+        if (video.currentTime > 0 && pendingSeekTimeRef.current === null) {
+          pendingSeekTimeRef.current = video.currentTime;
+        }
+        
+        // Mark current source as down (never started playing)
+        setAvailableSources(prev => {
+          const updated = [...prev];
+          if (updated[currentSourceIndex]) {
+            updated[currentSourceIndex] = { ...updated[currentSourceIndex], status: 'down' };
+            setSourcesCache(prevCache => ({ ...prevCache, [provider]: updated }));
+          }
+          return updated;
+        });
+        
+        // Try next source in the same provider's list
+        const nextIdx = currentSourceIndex + 1;
+        if (nextIdx < availableSources.length && availableSources[nextIdx]?.url) {
+          console.log(`[VideoPlayer] Auto-advancing to source ${nextIdx}: ${availableSources[nextIdx].title}`);
+          setCurrentSourceIndex(nextIdx);
+          setStreamUrl(availableSources[nextIdx].url);
+        } else {
+          console.log('[VideoPlayer] No more sources in current provider, exhausted');
+          // Let the existing error handling / provider fallback take over
+        }
+      }, 1000);
+    };
+    
+    // Listen for the 'playing' event to cancel the timeout
+    const onPlaying = () => {
+      if (!playbackStartedRef.current) {
+        playbackStartedRef.current = true;
+        if (playbackStartTimeoutRef.current) {
+          clearTimeout(playbackStartTimeoutRef.current);
+          playbackStartTimeoutRef.current = null;
+        }
+      }
+    };
+    video.addEventListener('playing', onPlaying);
 
     if (streamUrl.includes('.m3u8') || streamUrl.includes('stream-proxy') || streamUrl.includes('/stream/') || streamUrl.includes('/animekai') || streamUrl.includes('/flixer/stream') || streamUrl.includes('/hianime') || streamUrl.includes('/vidsrc') || streamUrl.includes('workers.dev')) {
       if (Hls.isSupported()) {
@@ -1157,6 +1215,11 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
         console.log('[HLS] Source loaded and media attached');
+        
+        // Start the 1s auto-advance timeout (skip dead sources fast)
+        if (!shouldShowResumePromptRef.current) {
+          startPlaybackTimeout();
+        }
 
         // HLS events - minimal logging to avoid performance issues
         hls.on(Hls.Events.MANIFEST_LOADED, (_event, data) => {
@@ -1480,9 +1543,18 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
 
         return () => {
           hls.destroy();
+          video.removeEventListener('playing', onPlaying);
+          if (playbackStartTimeoutRef.current) {
+            clearTimeout(playbackStartTimeoutRef.current);
+            playbackStartTimeoutRef.current = null;
+          }
         };
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
+        // Start auto-advance timeout for Safari native HLS
+        if (!shouldShowResumePromptRef.current) {
+          startPlaybackTimeout();
+        }
         video.addEventListener('loadedmetadata', () => {
           // Restore playback position if switching sources
           if (pendingSeekTimeRef.current !== null && pendingSeekTimeRef.current > 0) {
@@ -1515,9 +1587,20 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
             console.log('[VideoPlayer] Skipping autoplay (Safari) - resume prompt will be shown');
           }
         });
+        return () => {
+          video.removeEventListener('playing', onPlaying);
+          if (playbackStartTimeoutRef.current) {
+            clearTimeout(playbackStartTimeoutRef.current);
+            playbackStartTimeoutRef.current = null;
+          }
+        };
       }
     } else {
       video.src = streamUrl;
+      // Start auto-advance timeout for native video
+      if (!shouldShowResumePromptRef.current) {
+        startPlaybackTimeout();
+      }
       video.addEventListener('loadedmetadata', () => {
         // Restore playback position if switching sources
         if (pendingSeekTimeRef.current !== null && pendingSeekTimeRef.current > 0) {
@@ -1550,6 +1633,13 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           console.log('[VideoPlayer] Skipping autoplay (native) - resume prompt will be shown');
         }
       });
+      return () => {
+        video.removeEventListener('playing', onPlaying);
+        if (playbackStartTimeoutRef.current) {
+          clearTimeout(playbackStartTimeoutRef.current);
+          playbackStartTimeoutRef.current = null;
+        }
+      };
     }
   }, [streamUrl]);
 
