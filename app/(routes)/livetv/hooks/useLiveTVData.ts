@@ -171,53 +171,66 @@ export function useLiveTVData() {
     setDlhdError(null);
     
     try {
-      const [eventsRes, channelsRes] = await Promise.all([
-        fetch('/api/livetv/schedule'),
-        fetch('/api/livetv/dlhd-channels'),
+      // Fetch events and channels independently so one failure doesn't kill the other
+      const [eventsResult, channelsResult] = await Promise.allSettled([
+        fetch('/api/livetv/schedule').then(r => r.json()),
+        fetch('/api/livetv/dlhd-channels').then(r => r.json()),
       ]);
-
-      const eventsJson = await eventsRes.json();
-      const channelsJson = await channelsRes.json();
 
       // Parse events
       const events: LiveEvent[] = [];
-      if (eventsJson.success && eventsJson.schedule?.categories) {
-        for (const category of eventsJson.schedule.categories) {
-          for (const event of category.events || []) {
-            events.push({
-              id: `dlhd-${event.id}`,
-              title: event.title,
-              sport: event.sport,
-              league: event.league,
-              teams: event.teams,
-              time: formatLocalTime(event.isoTime, event.time),
-              isoTime: event.isoTime,
-              isLive: event.isLive,
-              source: 'dlhd',
-              channels: event.channels || [],
-            });
+      if (eventsResult.status === 'fulfilled') {
+        const eventsJson = eventsResult.value;
+        if (eventsJson.success && eventsJson.schedule?.categories) {
+          for (const category of eventsJson.schedule.categories) {
+            for (const event of category.events || []) {
+              events.push({
+                id: `dlhd-${event.id}`,
+                title: event.title,
+                sport: event.sport,
+                league: event.league,
+                teams: event.teams,
+                time: formatLocalTime(event.isoTime, event.time),
+                isoTime: event.isoTime,
+                isLive: event.isLive,
+                source: 'dlhd',
+                channels: event.channels || [],
+              });
+            }
           }
         }
+      } else {
+        console.error('[LiveTV] Schedule fetch failed:', eventsResult.reason);
       }
 
       // Parse channels
       const channels: TVChannel[] = [];
-      if (channelsJson.success && channelsJson.channels) {
-        for (const ch of channelsJson.channels) {
-          channels.push({
-            id: ch.id,
-            name: ch.name,
-            category: ch.category || 'general',
-            country: ch.country || '',
-            countryName: ch.countryInfo?.name,
-            source: 'dlhd',
-            channelId: ch.id,
-          });
+      if (channelsResult.status === 'fulfilled') {
+        const channelsJson = channelsResult.value;
+        if (channelsJson.success && channelsJson.channels) {
+          for (const ch of channelsJson.channels) {
+            channels.push({
+              id: ch.id,
+              name: ch.name,
+              category: ch.category || 'general',
+              country: ch.country || '',
+              countryName: ch.countryInfo?.name,
+              source: 'dlhd',
+              channelId: ch.id,
+            });
+          }
         }
+      } else {
+        console.error('[LiveTV] Channels fetch failed:', channelsResult.reason);
       }
       
       setDlhdEvents(events);
       setDlhdChannels(channels);
+      
+      // Only set error if both failed
+      if (eventsResult.status === 'rejected' && channelsResult.status === 'rejected') {
+        setDlhdError('Failed to load DLHD data');
+      }
     } catch (error) {
       setDlhdError(error instanceof Error ? error.message : 'Failed to load DLHD');
     } finally {
@@ -232,9 +245,18 @@ export function useLiveTVData() {
     
     try {
       const response = await fetch('/api/livetv/cdn-live-channels');
+      if (!response.ok) {
+        console.warn('[LiveTV] CDN Live returned', response.status);
+        setCdnChannels([]);
+        return;
+      }
       const data = await response.json();
 
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        console.warn('[LiveTV] CDN Live error:', data.error);
+        setCdnChannels([]);
+        return;
+      }
 
       const rawChannels = data.channels || [];
       const onlineChannels = rawChannels.filter((c: any) => c.status === 'online');
@@ -254,6 +276,8 @@ export function useLiveTVData() {
 
       setCdnChannels(channels);
     } catch (error) {
+      console.error('[LiveTV] CDN Live fetch error:', error);
+      setCdnChannels([]);
       setCdnError(error instanceof Error ? error.message : 'Failed to load CDN Live');
     } finally {
       setCdnLoading(false);
@@ -267,9 +291,18 @@ export function useLiveTVData() {
     
     try {
       const response = await fetch('/api/livetv/viprow-schedule');
+      if (!response.ok) {
+        console.warn('[LiveTV] VIPRow returned', response.status);
+        setViprowEvents([]);
+        return;
+      }
       const data = await response.json();
 
-      if (!data.success) throw new Error(data.error || 'Failed to fetch VIPRow');
+      if (!data.success) {
+        console.warn('[LiveTV] VIPRow not successful:', data.error || data.warning);
+        setViprowEvents([]);
+        return;
+      }
 
       const events: LiveEvent[] = (data.events || []).map((event: any) => ({
         id: event.id,
@@ -286,6 +319,8 @@ export function useLiveTVData() {
 
       setViprowEvents(events);
     } catch (error) {
+      console.error('[LiveTV] VIPRow fetch error:', error);
+      setViprowEvents([]);
       setViprowError(error instanceof Error ? error.message : 'Failed to load VIPRow');
     } finally {
       setViprowLoading(false);
