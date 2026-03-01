@@ -23,7 +23,6 @@ export function NavigationOverlay() {
   const isWatchMode = pathname.startsWith('/watch/') || pathname === '/watch';
   const isAdminRoute = pathname.startsWith('/admin');
   const isMobile = viewport === 'mobile';
-  const isTablet = viewport === 'tablet';
 
   // Compute body offset based on shared state
   let marginLeft = '0px';

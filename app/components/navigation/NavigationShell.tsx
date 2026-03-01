@@ -35,7 +35,6 @@ export function NavigationShell({ children }: NavigationShellProps) {
   }
 
   const isMobile = viewport === 'mobile';
-  const isTablet = viewport === 'tablet';
 
   // Shell class — margin-left pushes content away from fixed sidebar
   let shellClass = styles.shell;
