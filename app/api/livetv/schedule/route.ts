@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface SportEvent {
@@ -303,13 +303,17 @@ async function fetchScheduleHTML(source?: string): Promise<string> {
       : `https://${SCHEDULE_DOMAIN}/`;
     console.log('[Schedule] Fetching from', SCHEDULE_DOMAIN);
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    
     const res = await fetch(url, {
       headers: {
         'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/json',
       },
-      signal: AbortSignal.timeout(15000),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (res.ok) {
       const text = await res.text();
@@ -377,7 +381,25 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search');
     const liveOnly = searchParams.get('live') === 'true';
     
-    const html = await fetchScheduleHTML(source || undefined);
+    let html = '';
+    try {
+      html = await fetchScheduleHTML(source || undefined);
+    } catch (fetchErr) {
+      console.error('[Schedule API] Fetch error:', fetchErr);
+    }
+    
+    if (!html) {
+      // Return empty but valid response instead of 500
+      return NextResponse.json({
+        success: true,
+        schedule: { date: new Date().toISOString().split('T')[0], timezone: 'UK GMT', categories: [] },
+        stats: { totalCategories: 0, totalEvents: 0, liveEvents: 0 },
+        filters: { sports: [] },
+        warning: 'Schedule temporarily unavailable',
+      }, {
+        headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
+      });
+    }
     
     let categories = parseCategories(html);
     
@@ -432,6 +454,13 @@ export async function GET(request: NextRequest) {
     
   } catch (error) {
     console.error('[Schedule API] Error:', error);
-    return NextResponse.json({ success: false, error: 'Failed to fetch schedule' }, { status: 500 });
+    // Return empty but valid response instead of 500 so frontend doesn't break
+    return NextResponse.json({
+      success: true,
+      schedule: { date: new Date().toISOString().split('T')[0], timezone: 'UK GMT', categories: [] },
+      stats: { totalCategories: 0, totalEvents: 0, liveEvents: 0 },
+      filters: { sports: [] },
+      warning: error instanceof Error ? error.message : 'Schedule error',
+    });
   }
 }
