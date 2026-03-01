@@ -3,9 +3,15 @@
  * 
  * Fetches and returns sports events schedule from DLHD.
  * Uses regex-based parsing (no external dependencies).
+ * 
+ * UPDATED March 2026:
+ * - daddyhd.com SSL cert now serves daddylive.su cert (altname mismatch)
+ * - Use Node.js https module with custom SNI to bypass cert issue
+ * - Primary domain: daddylive.su (cert matches), fallback: daddyhd.com via IP
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import https from 'https';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -281,70 +287,115 @@ function parseCategories(html: string): ScheduleCategory[] {
 }
 
 /**
- * Fetch schedule HTML via Cloudflare Worker → RPI Proxy → DLHD
- * This ensures requests come from residential IP, not a datacenter
+ * Fetch HTML from DLHD schedule using Node.js https module.
+ * 
+ * daddyhd.com's SSL cert is issued for daddylive.su, causing ERR_TLS_CERT_ALTNAME_INVALID
+ * with standard fetch(). We use the https module with explicit servername (SNI) set to
+ * daddylive.su while connecting to daddyhd.com's IP, so TLS handshake succeeds.
  */
-async function fetchScheduleHTML(source?: string): Promise<string> {
-  const cfProxyUrl = process.env.NEXT_PUBLIC_CF_TV_PROXY_URL;
-  
-  if (!cfProxyUrl) {
-    console.error('[Schedule] CF_TV_PROXY_URL not configured, falling back to direct fetch');
-    // Fallback to direct fetch (may be blocked)
-    return fetchScheduleHTMLDirect(source);
-  }
-  
-  // Strip trailing path if present
-  const baseUrl = cfProxyUrl.replace(/\/(tv|dlhd)\/?$/, '');
-  
-  try {
-    const params = source ? `?source=${source}` : '';
-    const response = await fetch(`${baseUrl}/dlhd/schedule${params}`, {
+function fetchViaTLS(path: string): Promise<string> {
+  return new Promise((resolve) => {
+    // daddyhd.com resolves to 195.20.18.238, cert is valid for daddylive.su
+    const req = https.get({
+      hostname: '195.20.18.238',
+      path,
+      port: 443,
       headers: {
-        'Accept': 'text/html',
+        'Host': 'daddylive.su',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/json',
       },
-      next: { revalidate: 60 }
+      servername: 'daddylive.su', // SNI must match the cert
+      timeout: 15000,
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        console.error('[Schedule] TLS fetch failed:', res.statusCode);
+        resolve('');
+        return;
+      }
+      let data = '';
+      res.on('data', (chunk: Buffer) => data += chunk);
+      res.on('end', () => resolve(data));
+      res.on('error', () => resolve(''));
     });
-    
-    if (!response.ok) {
-      console.error('[Schedule] CF proxy failed:', response.status);
-      return fetchScheduleHTMLDirect(source);
-    }
-    
-    return await response.text();
-  } catch (err) {
-    console.error('[Schedule] CF proxy error:', err);
-    return fetchScheduleHTMLDirect(source);
-  }
+    req.on('error', (e: Error) => {
+      console.error('[Schedule] TLS request error:', e.message);
+      resolve('');
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve('');
+    });
+  });
 }
 
 /**
- * Direct fetch fallback (may be blocked by DLHD)
+ * Fetch schedule HTML from DLHD.
+ * 
+ * Strategy:
+ *   1. Direct TLS fetch to daddyhd.com IP with daddylive.su SNI (fast, no proxy needed)
+ *   2. Fallback: RPI proxy fetch (residential IP, handles TLS natively)
  */
-async function fetchScheduleHTMLDirect(source?: string): Promise<string> {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json, text/html',
-    'Referer': 'https://daddyhd.com/'
-  };
-  
+async function fetchScheduleHTML(source?: string): Promise<string> {
+  // Method 1: Direct TLS fetch (handles cert mismatch via SNI)
   try {
-    if (source) {
-      const response = await fetch(`https://daddyhd.com/schedule-api.php?source=${source}`, { 
-        headers, 
-        next: { revalidate: 60 } 
-      });
-      const json = await response.json();
-      return json.success && json.html ? json.html : '';
-    } else {
-      const response = await fetch('https://daddyhd.com/', { 
-        headers,
-        next: { revalidate: 60 }
-      });
-      return await response.text();
+    const path = source ? `/schedule-api.php?source=${encodeURIComponent(source)}` : '/';
+    console.log('[Schedule] Fetching via direct TLS (daddylive.su SNI)...');
+    const html = await fetchViaTLS(path);
+    
+    if (source && html) {
+      // schedule-api.php returns JSON
+      try {
+        const json = JSON.parse(html);
+        if (json.success && json.html) {
+          console.log('[Schedule] Got schedule HTML from API:', json.html.length, 'chars');
+          return json.html;
+        }
+      } catch {
+        // Not JSON, might be raw HTML
+      }
     }
-  } catch {
-    return '';
+    
+    if (html && html.length > 1000) {
+      console.log('[Schedule] Got schedule HTML:', html.length, 'chars');
+      return html;
+    }
+    console.warn('[Schedule] Direct TLS fetch returned empty/short response');
+  } catch (err) {
+    console.error('[Schedule] Direct TLS fetch error:', err);
   }
+  
+  // Method 2: Via RPI proxy (residential IP)
+  const rpiUrl = process.env.RPI_PROXY_URL;
+  const rpiKey = process.env.RPI_PROXY_KEY;
+  if (rpiUrl && rpiKey) {
+    try {
+      const targetUrl = source
+        ? `https://daddyhd.com/schedule-api.php?source=${encodeURIComponent(source)}`
+        : 'https://daddyhd.com/';
+      const proxyUrl = `${rpiUrl}/dlhd/stream?url=${encodeURIComponent(targetUrl)}&key=${rpiKey}`;
+      console.log('[Schedule] Trying RPI proxy fallback...');
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+      if (res.ok) {
+        const text = await res.text();
+        if (source) {
+          try {
+            const json = JSON.parse(text);
+            if (json.success && json.html) return json.html;
+          } catch {}
+        }
+        if (text.length > 1000) {
+          console.log('[Schedule] Got schedule via RPI:', text.length, 'chars');
+          return text;
+        }
+      }
+    } catch (err) {
+      console.error('[Schedule] RPI proxy error:', err);
+    }
+  }
+  
+  console.error('[Schedule] All fetch methods failed');
+  return '';
 }
 
 export async function GET(request: NextRequest) {

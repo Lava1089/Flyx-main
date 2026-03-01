@@ -324,6 +324,7 @@ const PROXY_ALLOWED_DOMAINS = [
   // DLHD key servers
   'soyspace.cyou',
   'adsfadfds.cfd',
+  'vovlacosa.sbs',
   'dvalna.ru',
   'topembed.pw',
   'dlhd.link',
@@ -1202,7 +1203,7 @@ function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOr
   const isVidLinkCdn = url.hostname.includes('vodvidl.site') || url.hostname.includes('videostr.net');
   
   // Check if this is DLHD CDN
-  const isDlhdCdn = url.hostname.includes('dvalna.ru') || url.hostname.includes('soyspace.cyou') || url.hostname.includes('adsfadfds.cfd') || url.hostname.includes('ksohls.ru');
+  const isDlhdCdn = url.hostname.includes('dvalna.ru') || url.hostname.includes('soyspace.cyou') || url.hostname.includes('adsfadfds.cfd') || url.hostname.includes('ksohls.ru') || url.hostname.includes('vovlacosa.sbs');
   
   // IMPORTANT: User-Agent MUST match the keystream used for decryption
   // Use the SHORT UA that matches MEGAUP_USER_AGENT constant

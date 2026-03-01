@@ -686,31 +686,41 @@ const FALLBACK_SERVER_KEYS = ['wiki', 'hzt', 'x4', 'zeko', 'wind', 'nfs', 'ddy6'
  * Uses RPI proxy as fallback since DLHD CDN may block CF IPs
  */
 async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promise<string | null> {
-  const url = `https://chevy.soyspace.cyou/server_lookup?channel_id=${channelKey}`;
+  // Try multiple lookup domains (vovlacosa.sbs is the primary as of Feb 28, 2026)
+  const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou', 'adsfadfds.cfd'];
   
-  // Try direct fetch first
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Origin': `https://${PLAYER_DOMAIN}`,
-        'Referer': `https://${PLAYER_DOMAIN}/`,
-      },
-    });
+  for (const domain of lookupDomains) {
+    const url = `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`;
+    
+    // Try direct fetch
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Origin': `https://${PLAYER_DOMAIN}`,
+          'Referer': `https://${PLAYER_DOMAIN}/`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    if (response.ok) {
-      const text = await response.text();
-      if (text.startsWith('{')) {
-        const data = JSON.parse(text) as { server_key?: string };
-        if (data.server_key) {
-          logger.info('Server lookup success (direct)', { channelKey, serverKey: data.server_key });
-          return data.server_key;
+      if (response.ok) {
+        const text = await response.text();
+        if (text.startsWith('{')) {
+          const data = JSON.parse(text) as { server_key?: string };
+          if (data.server_key) {
+            logger.info('Server lookup success (direct)', { channelKey, serverKey: data.server_key, domain });
+            return data.server_key;
+          }
         }
       }
+      logger.warn('Direct server lookup failed', { status: response.status, domain });
+    } catch (error) {
+      logger.warn('Direct server lookup error', { error: (error as Error).message, domain });
     }
-    logger.warn('Direct server lookup failed', { status: response.status });
-  } catch (error) {
-    logger.warn('Direct server lookup error', { error: (error as Error).message });
   }
   
   // Try RPI proxy as fallback
