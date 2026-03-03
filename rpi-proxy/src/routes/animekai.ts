@@ -121,7 +121,7 @@ function proxyAnimeKaiStream(
     headers['Origin'] = customOrigin ?? 'https://www.ksohls.ru';
     if (customAuth) headers['Authorization'] = customAuth;
   } else if (isFlixerCdn) {
-    headers['Referer'] = customReferer ?? 'https://flixer.cc/';
+    headers['Referer'] = customReferer ?? 'https://flixer.su/';
   } else if (isVidLinkCdn) {
     headers['Referer'] = customReferer ?? 'https://videostr.net/';
     headers['Origin'] = customOrigin ?? 'https://videostr.net';

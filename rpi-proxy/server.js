@@ -366,8 +366,8 @@ const PROXY_ALLOWED_DOMAINS = [
   'poocloud.in',
   'modistreams.org',
   // Flixer
+  'flixer.su',
   'flixer.sh',
-  'flixer.cc',
   'hexa.su',
   'workers.dev', // Flixer CDN uses p.XXXXX.workers.dev
   // VidLink CDN (storm.vodvidl.site, videostr.net — behind Cloudflare, blocks datacenter IPs)
@@ -1112,7 +1112,7 @@ function proxyIPTVStream(targetUrl, mac, token, res, redirectCount = 0) {
  * 
  * Flixer CDN (p.XXXXX.workers.dev) blocks:
  *   1. Datacenter IPs (Cloudflare, AWS, etc.)
- *   2. Requests WITHOUT Referer header (requires https://flixer.sh/)
+ *   2. Requests WITHOUT Referer header (requires https://flixer.su/)
  * 
  * dvalna.ru/soyspace.cyou/adsfadfds.cfd (DLHD) blocks:
  *   1. Datacenter IPs (Cloudflare, AWS, etc.)

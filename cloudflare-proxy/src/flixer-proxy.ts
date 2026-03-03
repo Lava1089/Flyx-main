@@ -32,8 +32,8 @@ export interface Env {
 }
 
 // Flixer/Hexa API base — they rotate domains periodically.
-// flixer.sh went NXDOMAIN ~Feb 2026, migrated to flixer.cc with same API.
-// flixer.cc added a Joken JWT JS challenge that blocks all non-browser requests.
+// flixer.sh went NXDOMAIN ~Feb 2026, flixer.su is the current domain.
+// flixer.su has a Joken JWT JS challenge that blocks all non-browser requests.
 // hexa.su (same backend, different domain) serves the API at themoviedb.hexa.su
 // with NO JS challenge — direct API access works from datacenter IPs.
 const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
@@ -92,7 +92,7 @@ const SERVER_NAMES: Record<string, string> = {
   foxtrot: 'Freya',
   golf: 'Gaia',
   hotel: 'Hades',
-  india: 'Iris',
+  india: 'Isis',
   juliet: 'Juno',
   kilo: 'Kronos',
   lima: 'Loki',

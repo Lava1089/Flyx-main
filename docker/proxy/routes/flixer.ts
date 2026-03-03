@@ -15,8 +15,8 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { createHmac, randomBytes, randomUUID } from "crypto";
 
-// flixer.sh went NXDOMAIN ~Feb 2026, migrated to flixer.cc with same API.
-// flixer.cc added a Joken JWT JS challenge — switched to hexa.su backend (same API, no challenge).
+// flixer.sh went NXDOMAIN ~Feb 2026, flixer.su is the current domain.
+// flixer.su has a Joken JWT JS challenge — switched to hexa.su backend (same API, no challenge).
 const FLIXER_API_BASE = "https://themoviedb.hexa.su";
 const SERVER_NAMES: Record<string, string> = {
   alpha: "Ares",
@@ -27,7 +27,7 @@ const SERVER_NAMES: Record<string, string> = {
   foxtrot: "Freya",
   golf: "Gaia",
   hotel: "Hades",
-  india: "Iris",
+  india: "Isis",
   juliet: "Juno",
   kilo: "Kronos",
   lima: "Loki",
@@ -675,10 +675,6 @@ async function makeFlixerRequest(
     "X-Client-Fingerprint": generateClientFingerprint(),
     Accept: "text/plain",
     "Accept-Language": "en-US,en;q=0.9",
-    Referer: "https://flixer.cc/",
-    "sec-ch-ua": '"Chromium";v="143", "Not A(Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
     ...extraHeaders,
   };
 
@@ -889,7 +885,7 @@ export async function handleFlixerExtract(
           title: `Flixer ${SERVER_NAMES[server] || server}`,
           url: streamUrl,
           type: "hls",
-          referer: "https://flixer.cc/",
+          referer: "https://flixer.su/",
           requiresSegmentProxy: true,
           status: "working",
           language: "en",

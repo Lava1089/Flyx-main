@@ -59,7 +59,7 @@ const SERVER_NAMES: Record<string, string> = {
   foxtrot: 'Freya',
   golf: 'Gaia',
   hotel: 'Hades',
-  india: 'Iris',
+  india: 'Isis',
   juliet: 'Juno',
   kilo: 'Kronos',
   lima: 'Loki',

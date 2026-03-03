@@ -19,7 +19,7 @@ const PROXY_ALLOWED_DOMAINS = [
   // PPV
   'poocloud.in', 'modistreams.org',
   // Flixer
-  'flixer.sh', 'flixer.cc', 'workers.dev',
+  'flixer.su', 'flixer.sh', 'workers.dev',
   // VidLink CDN
   'vodvidl.site', 'videostr.net', 'vidlink.pro',
   // VidSrc / 2embed

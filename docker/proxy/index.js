@@ -602,8 +602,8 @@ async function handleHiAnimeStream(query, proxyOrigin) {
 // Uses the flixer.wasm bundled in the Docker image
 // ============================================================================
 
-const FLIXER_API_BASE = 'https://plsdontscrapemelove.flixer.sh';
-const SERVER_NAMES = { alpha:'Ares', bravo:'Balder', charlie:'Circe', delta:'Dionysus', echo:'Eros', foxtrot:'Freya', golf:'Gaia', hotel:'Hera', india:'Iris', juliet:'Juno', kilo:'Kali', lima:'Loki' };
+const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
+const SERVER_NAMES = { alpha:'Ares', bravo:'Balder', charlie:'Circe', delta:'Dionysus', echo:'Eros', foxtrot:'Freya', golf:'Gaia', hotel:'Hades', india:'Isis', juliet:'Juno', kilo:'Kronos', lima:'Loki' };
 
 let flixerWasmInstance = null;
 let flixerApiKey = null;
@@ -778,8 +778,7 @@ async function makeFlixerRequest(apiKey, apiPath, extraHeaders = {}) {
   const headers = {
     'X-Api-Key': apiKey, 'X-Request-Timestamp': timestamp.toString(), 'X-Request-Nonce': nonce,
     'X-Request-Signature': signature, 'X-Client-Fingerprint': generateClientFingerprint(),
-    Accept: 'text/plain', 'Accept-Language': 'en-US,en;q=0.9', Referer: 'https://flixer.sh/',
-    'sec-ch-ua': '"Chromium";v="143", "Not A(Brand";v="24"', 'sec-ch-ua-mobile': '?0', 'sec-ch-ua-platform': '"Windows"',
+    Accept: 'text/plain', 'Accept-Language': 'en-US,en;q=0.9',
     ...extraHeaders,
   };
   const { text, status } = await fetchText(`${FLIXER_API_BASE}${apiPath}`, headers);
@@ -833,7 +832,7 @@ async function handleFlixerExtract(query) {
       flixerWasmInstance = null; flixerApiKey = null; // Reset on failure
       return jsonRes({ success: false, error: 'No stream URL found', server }, 404);
     }
-    return jsonRes({ success: true, sources: [{ quality: 'auto', title: `Flixer ${SERVER_NAMES[server] || server}`, url, type: 'hls', referer: 'https://flixer.sh/', requiresSegmentProxy: true, status: 'working', language: 'en', server }], server });
+    return jsonRes({ success: true, sources: [{ quality: 'auto', title: `Flixer ${SERVER_NAMES[server] || server}`, url, type: 'hls', referer: 'https://flixer.su/', requiresSegmentProxy: true, status: 'working', language: 'en', server }], server });
   } catch (err) {
     console.error('[Flixer] Error:', err.message);
     flixerWasmInstance = null; flixerApiKey = null;

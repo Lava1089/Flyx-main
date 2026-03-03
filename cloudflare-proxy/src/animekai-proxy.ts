@@ -537,7 +537,7 @@ async function fetchViaRpiProxy(
       }
     } else if (decodedUrl.includes('hexa.su') || decodedUrl.includes('plsdontscrapemelove')) {
       // Flixer CDN
-      rpiParams.set('referer', 'https://flixer.cc/');
+      rpiParams.set('referer', 'https://flixer.su/');
     } else if (decodedUrl.match(/p\.\d+\.workers\.dev/)) {
       // Could be Flixer or 1movies — default to 1movies since Flixer has its own /flixer/stream route
       rpiParams.set('referer', 'https://111movies.com/');
