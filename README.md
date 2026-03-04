@@ -1,386 +1,314 @@
 # Flyx
 
-A modern streaming platform built with Next.js 16, featuring movies, TV shows, live TV, and cross-device sync. Deployed on Cloudflare's edge network for maximum performance.
+A privacy-first streaming platform built with Next.js 16, featuring movies, TV shows, anime, live TV, live sports, and cross-device sync.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?style=flat-square)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8?style=flat-square)
+![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square)
 ![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages-F38020?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 ## Features
 
-- **Movies & TV Shows** - Browse trending content, search, and watch with multiple video providers
-- **Live TV** - IPTV support with DLHD integration
-- **Cross-Device Sync** - Sync watchlist, continue watching, and preferences across devices
-- **Continue Watching** - Resume playback from where you left off
-- **Admin Dashboard** - Real-time analytics, user metrics, and live activity monitoring
-- **Privacy-First** - Anonymous tracking, no PII collected, GDPR-compliant
+- **Movies & TV Shows** — Browse trending content, search, and watch with multiple video providers
+- **Anime** — Hybrid TMDB + MAL system with dual providers (AnimeKai + HiAnime), sub/dub toggle, automatic episode mapping
+- **Live TV** — 850+ channels via DLHD with PoW authentication and server-side decryption
+- **Live Sports** — VIPRow integration with Casthill token auth and manifest rewriting
+- **PPV Events** — Pay-per-view streaming through residential proxy
+- **Cross-Device Sync** — Sync watchlist, continue watching, and preferences across devices
+- **Casting** — Chromecast and AirPlay for all content types including live TV
+- **Subtitles** — 29 languages via OpenSubtitles with sync adjustment and non-UTF8 encoding support
+- **TV Navigation** — Full spatial navigation for Fire TV, Android TV, and D-pad devices
+- **Copy Stream URL** — One-click copy for VLC, IINA, mpv, or any external player
+- **Admin Dashboard** — Real-time analytics, user metrics, and live activity monitoring
+- **Privacy-First** — No ads, no tracking, no PII collected
 
----
+## Provider Registry
 
-## Deployment
+All streaming sources are managed through a unified Provider Registry with priority ordering and error isolation. A single broken provider never crashes the app.
 
-Flyx runs entirely on Cloudflare's edge network using:
-- **Cloudflare Pages** - Next.js app via `@opennextjs/cloudflare`
-- **Cloudflare Workers** - Sync and stream proxy
-- **Cloudflare D1** - SQLite database at the edge
+| # | Provider | Content | Method | Priority | Status |
+|---|----------|---------|--------|----------|--------|
+| 1 | Flixer | Movies, TV | WASM decryption via Hexa API | 10 | ✅ Enabled |
+| 2 | VidLink | Movies, TV | Sodium decryption + token auth | 20 | ✅ Enabled |
+| 3 | AnimeKai | Anime | 183-table substitution cipher | 30 | ✅ Enabled |
+| 4 | HiAnime | Anime | MegaCloud TLS fingerprint bypass | 35 | ✅ Enabled |
+| 5 | VidSrc | Movies, TV | Multi-embed scraping | 40 | ✅ Enabled |
+| 6 | MultiEmbed | Movies, TV | Direct HTML scraping | 50 | ❌ Disabled |
+| 7 | DLHD | Live TV | PoW auth + AES segment decryption | 100 | ✅ Enabled |
+| 8 | CDN-Live | Live TV | CDN stream extraction | 105 | ✅ Enabled |
+| 9 | VIPRow | Live Sports | Casthill token + manifest rewrite | 110 | ✅ Enabled |
+| 10 | PPV | PPV Events | Residential proxy extraction | 120 | ✅ Enabled |
+| 11 | IPTV | IPTV | Stalker portal + MAC auth | 130 | ✅ Enabled |
+
+Lower priority number = tried first. Providers are selected automatically based on content type.
+
+## Quick Start (Docker)
+
+Docker is the recommended way to run Flyx. The container runs two processes — Next.js (Node.js) on port 3000 and a Bun proxy server on port 8787. The only requirement is a free TMDB API key.
 
 ### Prerequisites
 
-1. [Cloudflare account](https://dash.cloudflare.com/sign-up) (free tier works)
-2. [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
-3. [TMDB API key](https://www.themoviedb.org/settings/api)
+- [Docker](https://docs.docker.com/get-docker/) installed
+- A free TMDB API key from [themoviedb.org](https://www.themoviedb.org/settings/api)
+
+### Setup
+
+**Linux / Mac:**
+```bash
+chmod +x flyx.sh
+./flyx.sh
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+.\flyx.ps1
+```
+
+That's it. The script will:
+1. Create `docker/.env` from the template and prompt for your TMDB key
+2. Auto-generate random security secrets (JWT, signing, watermark, admin)
+3. Build the Docker image and start the container
+4. Add `flyx.local` to your hosts file (requires sudo/admin)
+5. Wait for startup and print access URLs
+
+Once running, open `http://localhost` or `http://flyx.local`.
+
+### Architecture
+
+```
+ Devices on LAN
+      │
+      ▼
+┌──────────┐
+│  Browser  │──── http://localhost ──────┐
+└──────────┘                            │
+                                        ▼
+              ┌──────────┐        ┌──────────┐
+              │  Flyx    │        │  Proxy   │
+              │  :3000   │        │  :8787   │
+              │ (Node.js)│        │  (Bun)   │
+              └────┬─────┘        └────┬─────┘
+                   │                   │
+              ┌────▼─────┐        Direct fetch
+              │  SQLite  │        to upstream
+              └──────────┘        CDNs & APIs
+```
+
+### Ports
+
+| Port | Service | Description |
+|------|---------|-------------|
+| 80 | Next.js | Main entry — `http://localhost` (mapped to 3000 internally) |
+| 8787 | Proxy | Stream proxy, TMDB proxy, extractors |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `./flyx.sh` | First-time setup + start |
+| `./flyx.sh start` | Start all services |
+| `./flyx.sh stop` | Stop all services |
+| `./flyx.sh restart` | Restart everything |
+| `./flyx.sh status` | Show service status |
+| `./flyx.sh logs` | Tail all logs |
+| `./flyx.sh clean` | Stop + remove volumes |
+
+On Windows, replace `./flyx.sh` with `.\flyx.ps1`.
+
+### Environment Variables
+
+See [`docker/.env.example`](docker/.env.example) for the full list.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_TMDB_API_KEY` | ✅ | TMDB API key (free at themoviedb.org) |
+| `TMDB_API_KEY` | ✅ | Same key, used server-side |
+| `JWT_SECRET` | Auto | Auth token signing (auto-generated) |
+| `SIGNING_SECRET` | Auto | Request signing (auto-generated) |
+| `WATERMARK_SECRET` | Auto | Watermark generation (auto-generated) |
+| `ADMIN_SECRET` | Auto | Admin panel access (auto-generated) |
+| `ENABLE_VIDSRC_PROVIDER` | No | Set `"false"` to disable VidSrc (default: enabled) |
+
+### Linux Host Networking
+
+On Linux, `flyx.sh` automatically uses `docker-compose.linux.yml` as an override, which enables host networking (`network_mode: host`) instead of port mapping. This avoids Docker's NAT overhead and lets the container bind directly to the host's network interfaces.
+
+### Troubleshooting
 
 ```bash
-# Install Wrangler globally
-npm install -g wrangler
+# Check service status
+docker compose ps
 
-# Login to Cloudflare
-wrangler login
+# View logs
+docker compose logs flyx
+
+# Proxy health check
+curl http://localhost:8787/health
+
+# Full rebuild from scratch
+./flyx.sh clean
+./flyx.sh start
 ```
 
----
+## Cloudflare Deployment (Advanced)
 
-## Quick Start
+For production deployment, Flyx runs on Cloudflare's edge network using Pages, Workers, and D1.
 
-### 1. Clone and Install
+### Components
+
+| Service | Platform | Purpose |
+|---------|----------|---------|
+| Frontend | Cloudflare Pages | Next.js app via OpenNext |
+| Stream Proxy | Cloudflare Worker | HLS proxying, CORS, provider routing |
+| DLHD Extractor | Cloudflare Worker | Live TV extraction + PoW auth |
+| CDN-Live Extractor | Cloudflare Worker | CDN live stream extraction |
+| Sync Worker | Cloudflare Worker + D1 | Cross-device sync, analytics |
+| RPI Proxy | Raspberry Pi | Residential IP for CDN bypass |
+
+### Prerequisites
+
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
+- Cloudflare account with Workers and Pages enabled
+- Node.js 20+
+
+### 1. Environment Variables
+
+Create a `.env` file in the project root (see `.env.example`):
 
 ```bash
-git clone https://github.com/Vynx-Velvet/flyx-main.git
-cd flyx-main
-npm install
+NEXT_PUBLIC_TMDB_API_KEY=your_tmdb_key
+NEXT_PUBLIC_CF_STREAM_PROXY_URL=https://your-proxy.workers.dev/stream
+NEXT_PUBLIC_CF_TV_PROXY_URL=https://your-proxy.workers.dev
+NEXT_PUBLIC_CF_ANALYTICS_WORKER_URL=https://your-sync.workers.dev/analytics
+NEXT_PUBLIC_CF_SYNC_URL=https://your-sync.workers.dev/sync
+NEXT_PUBLIC_DLHD_WORKER_URL=https://your-dlhd.workers.dev
+NEXT_PUBLIC_PROXY_URL=https://your-proxy.workers.dev
+NEXT_PUBLIC_CDN_LIVE_WORKER_URL=https://your-proxy.workers.dev/cdn-live
 ```
 
-### 2. Configure Environment
+### 2. D1 Database Setup
 
 ```bash
-cp .env.example .env.local
+# Create the D1 database
+wrangler d1 create flyx-sync
+
+# Apply migrations
+wrangler d1 execute flyx-sync --file=cf-sync-worker/schema.sql
 ```
 
-Edit `.env.local` with your configuration:
+Update `cf-sync-worker/wrangler.toml` with your D1 database ID.
 
-```env
-# Required - TMDB API
-TMDB_API_KEY=your_tmdb_bearer_token
-NEXT_PUBLIC_TMDB_API_KEY=your_tmdb_api_key
-
-# Cloudflare Worker URLs (update after deploying workers)
-NEXT_PUBLIC_CF_SYNC_URL=https://flyx-sync.YOUR-SUBDOMAIN.workers.dev
-NEXT_PUBLIC_CF_PROXY_URL=https://media-proxy.YOUR-SUBDOMAIN.workers.dev
-```
-
-### 3. Set Up D1 Databases
-
-Create the required D1 databases:
+### 3. Deploy Workers
 
 ```bash
-# Admin database (for main app)
-wrangler d1 create flyx-admin-db
+# Stream proxy worker
+cd cloudflare-proxy && wrangler deploy
 
-# Sync database (for sync worker)
-cd cf-sync-worker
-wrangler d1 create flyx-sync-db
-cd ..
+# DLHD extractor worker
+cd dlhd-extractor-worker && wrangler deploy
+
+# CDN-Live extractor worker
+cd cdn-live-extractor && wrangler deploy
+
+# Sync worker (with D1 binding)
+cd cf-sync-worker && wrangler deploy
 ```
 
-**Important:** Copy the `database_id` from each command output and update the respective `wrangler.toml` files.
-
-### 4. Initialize Database Schemas
+### 4. Deploy Frontend
 
 ```bash
-# Initialize admin database schema
-npm run d1:init
+# Build with OpenNext for Cloudflare Pages
+npm run build
 
-# Initialize sync worker schema
-cd cf-sync-worker
-wrangler d1 execute flyx-sync-db --file=schema.sql
-cd ..
+# Deploy to Pages
+wrangler pages deploy .open-next/assets --project-name=flyx
 ```
 
-### 5. Configure Secrets
+### Cloudflare Environment Variables
+
+Set these as secrets on your Workers:
 
 ```bash
-# Set secrets for main app
-wrangler secret put TMDB_API_KEY
-wrangler secret put JWT_SECRET
+# Stream proxy worker
+wrangler secret put RPI_PROXY_URL      # Residential proxy URL
+wrangler secret put RPI_PROXY_KEY      # Residential proxy API key
+wrangler secret put SIGNING_SECRET     # Request signing secret
 
-# Set secrets for media proxy (if using RPI proxy)
-cd cloudflare-proxy
-wrangler secret put RPI_PROXY_URL
-wrangler secret put RPI_PROXY_KEY
-cd ..
+# DLHD extractor worker
+wrangler secret put DLHD_API_KEY       # DLHD API authentication key
+
+# Sync worker
+wrangler secret put JWT_SECRET         # JWT signing secret
+wrangler secret put ADMIN_SECRET       # Admin panel secret
 ```
-
-### 6. Deploy Everything
-
-```bash
-# Deploy all workers and the main app
-npm run deploy:all
-```
-
-Or deploy individually:
-
-```bash
-# Deploy workers first
-npm run deploy:sync-worker
-npm run deploy:media-proxy
-
-# Then deploy the main app
-npm run deploy:cloudflare
-```
-
----
-
-## Deployment Scripts
-
-| Script | Description |
-|--------|-------------|
-| `npm run build:cloudflare` | Build Next.js app for Cloudflare Pages |
-| `npm run deploy:cloudflare` | Build and deploy main app to Cloudflare Pages |
-| `npm run deploy:sync-worker` | Deploy sync worker |
-| `npm run deploy:media-proxy` | Deploy media proxy worker |
-| `npm run deploy:workers` | Deploy both workers |
-| `npm run deploy:all` | Deploy workers + main app (full deployment) |
-| `npm run preview:cloudflare` | Preview Cloudflare build locally |
-
----
-
-## D1 Database Setup
-
-### Database Structure
-
-Flyx uses two D1 databases:
-
-| Database | Purpose | Used By |
-|----------|---------|---------|
-| `flyx-admin-db` | Admin users, feedback, bot detection, daily metrics | Main App |
-| `flyx-sync-db` | Watch progress, watchlist, user preferences, admin heartbeats, daily stats | Sync Worker |
-
-### Updating wrangler.toml
-
-After creating databases, update the `database_id` in each `wrangler.toml`:
-
-**Root `wrangler.toml`:**
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "flyx-admin-db"
-database_id = "YOUR-ADMIN-DB-ID"
-```
-
-**`cf-sync-worker/wrangler.toml`:**
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "flyx-sync-db"
-database_id = "YOUR-SYNC-DB-ID"
-```
-
-### Database Commands
-
-```bash
-# Initialize admin database
-npm run d1:init
-
-# Initialize locally (for development)
-npm run d1:init:local
-
-# Query database directly
-wrangler d1 execute flyx-admin-db --command="SELECT * FROM admin_users"
-```
-
----
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `TMDB_API_KEY` | TMDB Bearer token (Read Access Token) |
-| `NEXT_PUBLIC_TMDB_API_KEY` | TMDB API key (v3 auth) |
-
-### Cloudflare Worker URLs
-
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_CF_SYNC_URL` | Sync Worker URL for cross-device sync |
-| `NEXT_PUBLIC_CF_PROXY_URL` | Media proxy worker URL |
-
-### Optional
-
-| Variable | Description |
-|----------|-------------|
-| `JWT_SECRET` | Secret for admin JWT tokens |
-| `RPI_PROXY_URL` | RPI proxy URL for DLHD streams |
-| `RPI_PROXY_KEY` | RPI proxy authentication key |
-
----
-
-## Local Development
-
-```bash
-# Start Next.js dev server
-npm run dev
-
-# Preview Cloudflare build locally
-npm run preview:cloudflare
-
-# Run workers locally
-cd cf-sync-worker && npm run dev
-cd cloudflare-proxy && npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000)
-
----
-
-## Admin Panel
-
-Access at `/admin` after deployment.
-
-**Default credentials:** `vynx` / `defaultPassword`
-
-⚠️ **Change password immediately after first login!**
-
-### Admin Commands
-
-```bash
-# Create new admin
-npm run admin:create <username> <password>
-
-# Reset password  
-npm run admin:reset-password <username> <new-password>
-
-# List all admins
-npm run admin:list
-
-# Delete admin
-npm run admin:delete <username>
-```
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    Cloudflare Edge Network                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │              Cloudflare Pages (Next.js)                │ │
-│  │              via @opennextjs/cloudflare                │ │
-│  │                        │                               │ │
-│  │                   D1: flyx-admin-db                    │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                           │                                  │
-│  ┌─────────────────────────────┐  ┌───────────────────┐    │
-│  │        Sync Worker          │  │   Media Proxy     │    │
-│  │  (sync + admin analytics)   │  │     Worker        │    │
-│  │       D1: sync-db           │  │                   │    │
-│  └─────────────────────────────┘  └───────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Why Cloudflare?
-
-- **Free tier**: 100k requests/day, 5GB D1 storage, unlimited Pages bandwidth
-- **Global edge**: <50ms latency worldwide with 300+ edge locations
-- **No cold starts**: Always warm, instant responses
-- **SQLite at edge**: D1 is SQLite, simple and fast
-- **Automatic SSL**: Free SSL certificates
-- **Preview deployments**: Automatic previews for PRs
-
----
 
 ## Project Structure
 
 ```
-flyx-main/
-├── app/                    # Next.js App Router
-│   ├── (routes)/          # Page routes
-│   ├── admin/             # Admin panel
-│   ├── api/               # API routes
-│   ├── components/        # React components
-│   ├── lib/               # Utilities & services
-│   │   ├── db/           # D1 database utilities
-│   │   ├── analytics/    # Local-first analytics
-│   │   └── sync/         # Sync client
-│   └── types/             # TypeScript types
-├── cf-sync-worker/        # Sync Worker + D1 (sync + admin analytics)
-├── cloudflare-proxy/      # Stream proxy worker
-├── scripts/               # CLI scripts
-│   ├── init-d1-admin.sql # D1 schema initialization
-│   └── create-admin.js   # Admin user creation
-├── wrangler.toml          # Main app Cloudflare config
-└── open-next.config.ts    # OpenNext configuration
+flyx/
+├── app/                          # Next.js 16 app directory
+│   ├── (routes)/                 # Page routes (movies, TV, anime, live, etc.)
+│   ├── api/                      # API routes
+│   ├── components/               # React components
+│   ├── hooks/                    # Custom React hooks
+│   ├── lib/
+│   │   ├── providers/            # Provider Registry (11 providers)
+│   │   ├── services/             # Extraction logic per provider
+│   │   └── proxy-config.ts       # Proxy routing configuration
+│   ├── styles/                   # CSS modules
+│   └── utils/                    # Shared utilities
+├── cloudflare-proxy/             # Cloudflare Worker — stream proxy
+├── dlhd-extractor-worker/        # Cloudflare Worker — DLHD live TV
+├── cdn-live-extractor/           # Cloudflare Worker — CDN-Live streams
+├── cf-sync-worker/               # Cloudflare Worker + D1 — sync & analytics
+├── rpi-proxy/                    # Raspberry Pi residential proxy server
+├── docker/                       # Docker setup (Dockerfile, proxy, entrypoint)
+├── scripts/                      # Dev/debug scripts
+├── flyx.sh                       # Linux/Mac launcher
+├── flyx.ps1                      # Windows launcher
+├── docker-compose.yml            # Docker Compose config
+└── docker-compose.linux.yml      # Linux host networking override
 ```
 
----
+## Admin Dashboard
 
-## Troubleshooting
+Flyx includes a built-in admin panel at `/admin` with:
 
-### Build Fails
+- Real-time user activity and stream monitoring
+- Provider health status and extraction success rates
+- User management and analytics
+- Feedback system with response tracking
 
-```bash
-# Clear build cache and rebuild
-rm -rf .open-next .next
-npm run build:cloudflare
-```
-
-### D1 Database Issues
-
-```bash
-# Check database exists
-wrangler d1 list
-
-# Check tables
-wrangler d1 execute flyx-admin-db --command="SELECT name FROM sqlite_master WHERE type='table'"
-
-# Re-initialize schema
-npm run d1:init
-```
-
-### Worker Deployment Issues
-
-```bash
-# Check worker status
-wrangler deployments list
-
-# View worker logs
-cd cf-sync-worker && wrangler tail
-```
-
-### Environment Variables Not Working
-
-1. Verify secrets are set: `wrangler secret list`
-2. Check `wrangler.toml` has correct `[vars]` section
-3. Redeploy after adding secrets
-
----
+Access requires the `ADMIN_SECRET` configured in your environment.
 
 ## Testing
 
 ```bash
-# Run all tests
+# Run unit tests
 npm test
 
-# Run specific test suites
-npm run test:livetv
-npm run test:livetv:api
+# Test a specific provider extraction
+node scripts/quick-test.js
 
-# Type checking
-npm run type-check
+# Test deployed DLHD worker
+node scripts/dlhd-deployed-e2e.js
+
+# Test anime extraction chain
+node scripts/test-anime-full-chain.js
 ```
 
----
+## Tech Stack
 
-## Credits
-
-- **Movie & TV Data** - [TMDB](https://www.themoviedb.org/)
-- **IPTV Help** - [MoldyTaint/Cinephage](https://github.com/MoldyTaint/Cinephage)
-- **Cloudflare Adapter** - [@opennextjs/cloudflare](https://opennext.js.org/cloudflare)
+- **Frontend**: Next.js 16, React 19, TypeScript 5.9
+- **Styling**: Tailwind CSS + CSS Modules
+- **Video**: hls.js with custom loader, Chromecast/AirPlay integration
+- **Database**: SQLite (Docker) / Cloudflare D1 (production)
+- **Proxy**: Bun (Docker) / Cloudflare Workers (production)
+- **Build**: OpenNext for Cloudflare Pages deployment
+- **Residential Proxy**: Raspberry Pi with curl-impersonate for TLS fingerprinting
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+MIT

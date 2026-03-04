@@ -15,6 +15,8 @@ const sections = [
   { id: 'vidlink', title: 'VidLink', icon: '🌍' },
   { id: 'animekai', title: 'AnimeKai', icon: '🎌' },
   { id: 'megaup', title: 'MegaUp', icon: '🔓' },
+  { id: 'hianime', title: 'HiAnime', icon: '🔬' },
+  { id: 'viprow', title: 'VIPRow', icon: '🏟️' },
   { id: 'proxy-architecture', title: 'Proxy Architecture', icon: '🔄' },
   { id: 'techniques', title: 'Techniques', icon: '🛠️' },
   { id: 'tools', title: 'Tools', icon: '🧰' },
@@ -29,6 +31,10 @@ const providerStats = [
   { name: 'VidLink', status: 'working', type: 'Multi-Lang', method: 'AES-256-CBC' },
   { name: 'AnimeKai', status: 'working', type: 'Anime', method: 'Native Crypto (183 Tables)' },
   { name: 'MegaUp', status: 'working', type: 'CDN', method: 'UA-Based Stream Cipher' },
+  { name: 'HiAnime', status: 'working', type: 'Anime', method: 'TLS Fingerprint Bypass' },
+  { name: 'VIPRow', status: 'working', type: 'Live Sports', method: 'Casthill Token Auth' },
+  { name: 'PPV', status: 'working', type: 'Pay-Per-View', method: 'Residential Proxy' },
+  { name: 'IPTV', status: 'working', type: 'IPTV Portal', method: 'MAC Authentication' },
 ];
 
 function CodeBlock({ title, code, id, copiedCode, onCopy }: { 
@@ -146,10 +152,8 @@ export default function ReverseEngineeringPage() {
 
   return (
     <div className={styles.page}>
-      {/* Progress Bar */}
       <div className={styles.progressBar} style={{ width: `${progress}%` }} />
       
-      {/* Animated Background */}
       <div className={styles.bgEffects}>
         <div className={styles.bgOrb1} />
         <div className={styles.bgOrb2} />
@@ -176,7 +180,7 @@ export default function ReverseEngineeringPage() {
             transition={{ delay: 0.2 }}
           >
             <span className={styles.badgeDot} />
-            Technical Documentation • January 2026
+            Technical Documentation • March 2026
           </motion.div>
           
           <h1 className={styles.heroTitle}>
@@ -187,8 +191,8 @@ export default function ReverseEngineeringPage() {
           
           <p className={styles.heroSubtitle}>
             A comprehensive guide to bypassing embed protections and extracting clean m3u8 streams 
-            without ads, popups, or malware. Updated January 2026 with PoW authentication, WASM 
-            cracking, and 183-table cipher analysis.
+            without ads, popups, or malware. Updated March 2026 with 11 providers, TLS fingerprint 
+            bypass, live sports extraction, IPTV portal auth, and the unified Provider Registry.
           </p>
 
           <motion.div 
@@ -207,7 +211,6 @@ export default function ReverseEngineeringPage() {
             </div>
           </motion.div>
 
-          {/* Quick Stats */}
           <motion.div 
             className={styles.quickStats}
             initial={{ opacity: 0, y: 20 }}
@@ -215,12 +218,12 @@ export default function ReverseEngineeringPage() {
             transition={{ delay: 0.5 }}
           >
             <div className={styles.stat}>
-              <span className={styles.statNum}>7/8</span>
-              <span className={styles.statLabel}>Providers</span>
+              <span className={styles.statNum}>10/11</span>
+              <span className={styles.statLabel}>Providers Working</span>
             </div>
             <div className={styles.stat}>
-              <span className={styles.statNum}>87%</span>
-              <span className={styles.statLabel}>Working</span>
+              <span className={styles.statNum}>91%</span>
+              <span className={styles.statLabel}>Success Rate</span>
             </div>
             <div className={styles.stat}>
               <span className={styles.statNum}>0</span>
@@ -240,7 +243,6 @@ export default function ReverseEngineeringPage() {
         <span className={styles.navProgress}>{Math.round(progress)}%</span>
       </button>
 
-      {/* Mobile Nav Overlay */}
       <AnimatePresence>
         {mobileNavOpen && (
           <motion.div 
@@ -278,7 +280,6 @@ export default function ReverseEngineeringPage() {
 
       {/* Main Layout */}
       <div className={styles.layout}>
-        {/* Desktop Sidebar */}
         <nav className={styles.sidebar}>
           <div className={styles.sidebarInner}>
             <div className={styles.sidebarHeader}>
@@ -299,16 +300,11 @@ export default function ReverseEngineeringPage() {
           </div>
         </nav>
 
-        {/* Content */}
         <main className={styles.content} ref={contentRef}>
 
-          {/* Overview Section */}
+          {/* Overview */}
           <section id="overview" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🎯</span>
                 Overview
@@ -323,25 +319,22 @@ export default function ReverseEngineeringPage() {
               <p>
                 By reverse engineering these protections, we can extract the clean stream URLs and 
                 play them in our own player—no ads, no popups, no cryptocurrency miners. As of 
-                January 2026, we&apos;ve cracked 8 providers including PoW authentication, WASM 
-                binaries, and 183-table substitution ciphers.
+                March 2026, we&apos;ve cracked 11 providers through a unified Provider Registry 
+                including PoW authentication, WASM binaries, 183-table substitution ciphers, TLS 
+                fingerprint bypass, live sports token auth, and IPTV portal MAC authentication.
               </p>
 
               <div className={styles.providerGrid}>
                 {providerStats.map((provider, i) => (
-                  <ProviderCard key={provider.name} {...provider} delay={i * 0.1} />
+                  <ProviderCard key={provider.name} {...provider} delay={i * 0.08} />
                 ))}
               </div>
             </motion.div>
           </section>
 
-          {/* Philosophy Section */}
+          {/* Philosophy */}
           <section id="philosophy" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>💭</span>
                 Philosophy: On the Ethics of Robbing Pirates
@@ -355,18 +348,17 @@ export default function ReverseEngineeringPage() {
               </p>
               
               <p>
-                The streaming sites we reverse engineer occupy a fascinating moral gray area. They 
-                are not legitimate businesses—they do not license content, pay creators, or contribute 
-                to the creative economy in any meaningful way. Instead, they aggregate stolen content 
-                and monetize it through the most exploitative means available: malicious advertising, 
-                browser hijacking, and computational theft via cryptocurrency mining.
+                The streaming sites we reverse engineer are not legitimate businesses—they do not 
+                license content, pay creators, or contribute to the creative economy. Instead, they 
+                aggregate stolen content and monetize it through malicious advertising, browser 
+                hijacking, and computational theft via cryptocurrency mining.
               </p>
 
               <p>
                 In essence, they are pirates. And we are pirates who rob pirates. It&apos;s like being 
                 Robin Hood, except instead of stealing from the rich to give to the poor, we&apos;re 
-                stealing from people who are already stealing, and giving to... well, ourselves and 
-                anyone else who wants a stream without seventeen pop-ups.
+                stealing from people who are already stealing, and giving to anyone who wants a stream 
+                without seventeen pop-ups.
               </p>
               
               <blockquote className={styles.quote}>
@@ -378,48 +370,6 @@ export default function ReverseEngineeringPage() {
                 <cite>- The Pirate&apos;s Code, Article 3, Subsection B</cite>
               </blockquote>
 
-              <h3>The Economic Argument: A Thought Experiment</h3>
-              <p>
-                Consider the typical pirate streaming site business model:
-              </p>
-              <ol>
-                <li>Aggregate content you don&apos;t own</li>
-                <li>Wrap it in aggressive advertising</li>
-                <li>Profit from users seeking free content</li>
-                <li>Claim this exploitation is &quot;necessary&quot; to cover costs</li>
-              </ol>
-
-              <p>
-                Now consider our model:
-              </p>
-              <ol>
-                <li>Reverse engineer their aggregation methods</li>
-                <li>Remove all advertising and tracking</li>
-                <li>Operate on free tiers of cloud services</li>
-                <li>Generate exactly $0.00 in revenue</li>
-              </ol>
-
-              <p>
-                The fascinating thing about this comparison is that <strong>both models work</strong>. 
-                The difference is that one chooses to exploit users for profit, while the other chooses 
-                not to. The exploitation is not a technical requirement—it&apos;s a business decision.
-              </p>
-
-              <h3>On the Feasibility of Ethical Piracy</h3>
-              <p>
-                This project serves as an existence proof: it is technically and economically feasible 
-                to provide streaming services without exploiting users. The pirate sites could choose 
-                to operate ethically. They simply choose not to, because malware and crypto miners are 
-                more profitable than ethics.
-              </p>
-
-              <p>
-                By demonstrating that their entire business model can be replicated without the 
-                exploitation, we remove their ability to hide behind claims of necessity. They can no 
-                longer say &quot;we have to serve malware to pay for servers&quot; when we&apos;re 
-                running the same service on free tiers.
-              </p>
-              
               <h3>The Rules of Engagement</h3>
               <div className={styles.rulesList}>
                 <div className={styles.rule}>
@@ -427,7 +377,7 @@ export default function ReverseEngineeringPage() {
                   <div>
                     <strong>No Puppeteer/Browser Automation</strong>
                     <p>If we need a headless browser, we haven&apos;t properly reverse engineered it. 
-                    Pure HTTP requests only. We&apos;re not barbarians.</p>
+                    Pure HTTP requests only.</p>
                   </div>
                 </div>
                 <div className={styles.rule}>
@@ -435,7 +385,7 @@ export default function ReverseEngineeringPage() {
                   <div>
                     <strong>No Embedding Their Players</strong>
                     <p>Their players contain ads, tracking, and probably a cryptocurrency miner or two. 
-                    We extract the stream URL and use our own player. It&apos;s cleaner that way.</p>
+                    We extract the stream URL and use our own player.</p>
                   </div>
                 </div>
                 <div className={styles.rule}>
@@ -443,56 +393,24 @@ export default function ReverseEngineeringPage() {
                   <div>
                     <strong>Document Everything</strong>
                     <p>Knowledge should be shared. If we crack an obfuscation method, we document it 
-                    so others can learn. Information wants to be free, and so do streaming URLs.</p>
+                    so others can learn.</p>
                   </div>
                 </div>
                 <div className={styles.rule}>
                   <span className={styles.ruleIcon}>💰</span>
                   <div>
                     <strong>Zero Profit Motive</strong>
-                    <p>We generate no revenue. No ads, no subscriptions, no donations. This removes 
-                    any financial incentive and keeps the project purely educational and ethical.</p>
+                    <p>We generate no revenue. No ads, no subscriptions, no donations. Purely 
+                    educational and ethical.</p>
                   </div>
                 </div>
               </div>
-
-              <h3>A Note on Legality</h3>
-              <p>
-                Is this legal? That&apos;s a fascinating question that depends heavily on jurisdiction, 
-                interpretation of computer fraud laws, and whether you consider reverse engineering 
-                for interoperability to be protected activity.
-              </p>
-
-              <p>
-                What we can say with certainty is this: The sites we reverse engineer are themselves 
-                operating in legal gray areas (or outright illegally, depending on jurisdiction). 
-                They profit from content they don&apos;t own. They serve malware to users. They mine 
-                cryptocurrency without consent.
-              </p>
-
-              <p>
-                If there&apos;s a moral hierarchy here, we&apos;re comfortable with our position on it.
-              </p>
-
-              <blockquote className={styles.quote}>
-                <p>
-                  &quot;The question is not whether what we&apos;re doing is legal. The question is 
-                  whether what they&apos;re doing should be. And if the answer is no, then perhaps 
-                  someone should demonstrate that their entire business model can be replicated without 
-                  the exploitation. Consider this our demonstration.&quot;
-                </p>
-                <cite>- Closing Arguments, The People vs. Common Sense</cite>
-              </blockquote>
             </motion.div>
           </section>
 
-          {/* DLHD Section */}
+          {/* DLHD */}
           <section id="dlhd" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>📺</span>
                 DLHD Live TV
@@ -500,21 +418,23 @@ export default function ReverseEngineeringPage() {
               
               <div className={styles.statusBadge}>
                 <span className={styles.statusDot} />
-                Fully Reverse Engineered - January 2026 (PoW + Timestamp Validation)
+                Fully Reverse Engineered - PoW + Timestamp + Server-Side Decryption
               </div>
               
               <h3>Overview</h3>
               <p>
-                DLHD (daddyhd.com) provides 850+ live TV streams using HLS with AES-128 encryption. 
-                As of January 2026, they use Proof-of-Work authentication with HMAC-SHA256 + MD5 
-                nonce computation. The twist: timestamps must be 5-10 seconds in the past.
+                DLHD provides 850+ live TV streams using HLS with AES-128 encryption. They use 
+                Proof-of-Work authentication with HMAC-SHA256 + MD5 nonce computation. The twist: 
+                timestamps must be 5-10 seconds in the past. A dedicated Cloudflare Worker handles 
+                the entire pipeline including server-side segment decryption.
               </p>
 
-              <h3>January 2026 Security Updates</h3>
+              <h3>The Security Timeline</h3>
               <div className={styles.flowContainer}>
                 <FlowStep num={1} title="January 16: PoW Authentication" description="Added HMAC-SHA256 + MD5 nonce computation. Domain changed to dvalna.ru." />
                 <FlowStep num={2} title="January 21: Timestamp Validation" description="Timestamps must be 5-10 seconds in the past. Current time fails with E11 error." />
-                <FlowStep num={3} title="January 22: Server Discovery" description="Found missing servers (dokko1, ddy6). Channels 565, 770 now working." />
+                <FlowStep num={3} title="January 22: Server Discovery" description="Found missing servers (dokko1, ddy6). Multiple backends per channel." />
+                <FlowStep num={4} title="February: Backend Switching" description="Obfuscated backend IDs. Client never sees actual server names. Resolution happens server-side." />
               </div>
 
               <h3>The PoW Algorithm</h3>
@@ -537,13 +457,13 @@ function computePoWNonce(resource, keyNumber, timestamp) {
     
     if (prefix < POW_THRESHOLD) return nonce;
   }
-  return null; // Failed to find valid nonce
+  return null;
 }`}
               />
 
-              <h3>Critical Discovery: Timestamp Validation</h3>
+              <h3>Critical: Timestamp Must Be in the Past</h3>
               <CodeBlock 
-                title="Timestamp Must Be 5-10 Seconds in the Past"
+                title="Timestamp Validation (5-10 seconds in the past)"
                 id="dlhd-timestamp"
                 copiedCode={copiedCode}
                 onCopy={copyCode}
@@ -554,44 +474,16 @@ function computePoWNonce(resource, keyNumber, timestamp) {
 const timestamp = Math.floor(Date.now() / 1000);
 
 // ✅ WORKS: 7 seconds in the past (middle of acceptable range)
-const timestamp = Math.floor(Date.now() / 1000) - 7;
-
-// Why 7 seconds?
-// - 5 seconds: Minimum acceptable (works but close to edge)
-// - 7 seconds: Optimal middle ground (recommended)
-// - 10 seconds: Maximum tested (works but close to upper limit)
-// - 15+ seconds: Likely to fail (too old)`}
+const timestamp = Math.floor(Date.now() / 1000) - 7;`}
               />
 
-              <h3>Key Request with PoW Headers</h3>
-              <CodeBlock 
-                title="Complete Key Fetch Implementation"
-                id="dlhd-key"
-                copiedCode={copiedCode}
-                onCopy={copyCode}
-                code={`// 1. Compute timestamp (7 seconds in the past)
-const timestamp = Math.floor(Date.now() / 1000) - 7;
-
-// 2. Compute PoW nonce
-const nonce = computePoWNonce(channelKey, keyNumber, timestamp);
-
-// 3. Generate JWT (from player page)
-const jwt = generateJWT({ resource: channelKey, keyNumber, timestamp, nonce });
-
-// 4. Fetch key with PoW headers
-const keyUrl = \`https://chevy.dvalna.ru/key/\${channelKey}/\${keyNumber}\`;
-const response = await fetch(keyUrl, {
-  headers: {
-    'Authorization': \`Bearer \${jwt}\`,
-    'X-Key-Timestamp': timestamp.toString(),
-    'X-Key-Nonce': nonce.toString(),
-    'Origin': 'https://epicplayplay.cfd',
-    'Referer': 'https://epicplayplay.cfd/',
-  }
-});
-
-// Response: 16-byte AES-128 key`}
-              />
+              <h3>Dedicated Worker Architecture</h3>
+              <p>
+                The DLHD extractor runs as a dedicated Cloudflare Worker at <code>dlhd.vynx.workers.dev</code>. 
+                The <code>/play/:channelId</code> endpoint handles everything: JWT generation, M3U8 fetch, 
+                URL rewriting, and AES-128 segment decryption server-side. The client just plays the 
+                proxied m3u8.
+              </p>
 
               <h3>Error Codes</h3>
               <div className={styles.errorCodes}>
@@ -613,40 +505,37 @@ const response = await fetch(keyUrl, {
 
               <blockquote className={styles.quote}>
                 <p>
-                  &quot;DLHD updated their security twice in January 2026. First PoW authentication, 
-                  then timestamp validation. Each time we cracked it within hours. The cat-and-mouse 
-                  game continues.&quot;
+                  &quot;DLHD updated their security three times in January 2026. Each time we cracked 
+                  it within hours. The cat-and-mouse game continues, but our architecture absorbs 
+                  the changes—only the DLHD adapter needs updating.&quot;
                 </p>
-                <cite>- Field Notes, January 21, 2026</cite>
+                <cite>- Field Notes, January 2026</cite>
               </blockquote>
             </motion.div>
           </section>
 
-          {/* 111movies Section */}
+          {/* 111movies */}
           <section id="111movies" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🎬</span>
                 111movies (1movies)
               </h2>
               
-              <div className={styles.statusBadge}>
-                <span className={styles.statusDot} />
-                Fully Reverse Engineered - December 2025
+              <div className={`${styles.statusBadge}`} style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>
+                <span className={styles.statusDot} style={{ background: '#ef4444', boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }} />
+                Disabled - Hash Obfuscation Changed
               </div>
               
               <h3>Overview</h3>
               <p>
                 111movies uses a Next.js frontend with a sophisticated encoding scheme: AES-256-CBC 
                 encryption, XOR obfuscation, and custom alphabet substitution. Five layers of 
-                obfuscation in total.
+                obfuscation in total. Currently disabled as they changed their hash obfuscation, 
+                but the extraction method is documented for reference.
               </p>
 
-              <h3>The Algorithm</h3>
+              <h3>The Algorithm (5 Layers)</h3>
               <div className={styles.flowContainer}>
                 <FlowStep num={1} title="Extract Page Data" description="Fetch __NEXT_DATA__.props.pageProps.data from page" />
                 <FlowStep num={2} title="AES-256-CBC Encrypt" description="Encrypt with static key and IV, output as hex" />
@@ -673,16 +562,18 @@ const XOR_KEY = Buffer.from([170, 162, 126, 126, 60, 255, 136, 130, 133]);
 const STANDARD = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 const SHUFFLED = "TuzHOxl7b0RW9o_1FPV3eGfmL4Z5pD8cahBQr2U-6yvEYwngXCdJjANtqKIMiSks";`}
               />
+
+              <p>
+                <strong>Note:</strong> Their CDN uses Cloudflare Workers (<code>p.XXXXX.workers.dev</code>) 
+                that block other Cloudflare Workers. Requires residential proxy via the <code>/animekai</code> 
+                CF Worker route.
+              </p>
             </motion.div>
           </section>
 
-          {/* Flixer Section */}
+          {/* Flixer */}
           <section id="flixer" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🔐</span>
                 Flixer / Hexa - WASM Cracking
@@ -690,14 +581,15 @@ const SHUFFLED = "TuzHOxl7b0RW9o_1FPV3eGfmL4Z5pD8cahBQr2U-6yvEYwngXCdJjANtqKIMiS
               
               <div className={styles.statusBadge}>
                 <span className={styles.statusDot} />
-                Fully Reverse Engineered - December 21, 2025 (2 AM)
+                Fully Reverse Engineered - WASM Bundled in CF Worker
               </div>
               
               <h3>Overview</h3>
               <p>
                 Flixer.sh uses a Rust-compiled WebAssembly module for key generation and AES-256-CTR 
                 encryption with HMAC authentication. After a 12-hour reverse engineering session 
-                involving Ghidra, memory forensics, and ~150 test scripts, we cracked it.
+                involving Ghidra, memory forensics, and ~150 test scripts, we cracked it at 2 AM on 
+                December 21, 2025.
               </p>
 
               <h3>The Challenge</h3>
@@ -751,6 +643,14 @@ const SHUFFLED = "TuzHOxl7b0RW9o_1FPV3eGfmL4Z5pD8cahBQr2U-6yvEYwngXCdJjANtqKIMiS
 };`}
               />
 
+              <h3>Batch Extraction</h3>
+              <p>
+                The CF Worker supports <code>/flixer/extract-all</code> which fans out to all 12 
+                Flixer servers in parallel internally, avoiding 12 separate round-trips through the 
+                RPI proxy. Flixer CDN (<code>p.XXXXX.workers.dev</code>) blocks CF Worker IPs, so 
+                streams route through the dedicated <code>/flixer/stream</code> endpoint.
+              </p>
+
               <blockquote className={styles.quote}>
                 <p>
                   &quot;Sometimes the best way to crack encryption is to not crack it at all. Just run 
@@ -762,13 +662,9 @@ const SHUFFLED = "TuzHOxl7b0RW9o_1FPV3eGfmL4Z5pD8cahBQr2U-6yvEYwngXCdJjANtqKIMiS
             </motion.div>
           </section>
 
-          {/* VidSrc Section */}
+          {/* VidSrc */}
           <section id="vidsrc" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>📡</span>
                 VidSrc - Static Decoders
@@ -800,16 +696,17 @@ function decodeHexFormat(encoded) {
   return decoded;
 }`}
               />
+              <p>
+                VidSrc CDN domains require residential proxy. Streams route through the 
+                <code>/animekai</code> CF Worker route which detects VidSrc domains and forwards 
+                to the RPI&apos;s dedicated <code>/vidsrc/stream</code> endpoint.
+              </p>
             </motion.div>
           </section>
 
-          {/* VidLink Section */}
+          {/* VidLink */}
           <section id="vidlink" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🌍</span>
                 VidLink - Multi-Language
@@ -837,16 +734,17 @@ function decodeHexFormat(encoded) {
                   </div>
                 </div>
               </div>
+              <p>
+                VidLink uses AES-256-CBC encryption. CDN domain <code>vodvidl.site</code> requires 
+                residential proxy. Routes through CF Worker → RPI&apos;s <code>/vidlink/stream</code> 
+                endpoint with correct headers.
+              </p>
             </motion.div>
           </section>
 
-          {/* AnimeKai Section */}
+          {/* AnimeKai */}
           <section id="animekai" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🎌</span>
                 AnimeKai - Native Crypto Breakthrough
@@ -861,7 +759,8 @@ function decodeHexFormat(encoded) {
               <p>
                 AnimeKai uses a position-dependent substitution cipher with 183 unique tables—one 
                 for each character position. We reverse engineered all tables and now have 100% 
-                native encryption/decryption with zero external dependencies.
+                native encryption/decryption with zero external dependencies. Priority 30 in the 
+                Provider Registry (primary anime provider).
               </p>
 
               <h3>Cipher Structure</h3>
@@ -880,7 +779,6 @@ function decodeHexFormat(encoded) {
                 copiedCode={copiedCode}
                 onCopy={copyCode}
                 code={`export function encryptKai(plaintext: string): string {
-  // Start with fixed header
   const result = Buffer.alloc(HEADER_LEN + 20 + plaintext.length);
   HEADER.copy(result, 0);
   
@@ -915,20 +813,16 @@ function decodeHexFormat(encoded) {
                 <p>
                   &quot;The cipher looked complex at first—183 different substitution tables! But once 
                   we realized it was position-dependent with no key derivation, building the tables 
-                  was just tedious, not hard.&quot;
+                  was just tedious, not hard. Weeks of work, but conceptually simple.&quot;
                 </p>
                 <cite>- Field Notes, December 2025</cite>
               </blockquote>
             </motion.div>
           </section>
 
-          {/* MegaUp Section */}
+          {/* MegaUp */}
           <section id="megaup" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🔓</span>
                 MegaUp - Stream Cipher Cracked
@@ -946,28 +840,9 @@ function decodeHexFormat(encoded) {
                 We pre-computed a 521-byte keystream for our fixed UA.
               </p>
 
-              <h3>Pre-Computed Keystream</h3>
-              <CodeBlock 
-                title="Fixed UA + Keystream"
-                id="megaup-keystream"
-                copiedCode={copiedCode}
-                onCopy={copyCode}
-                code={`// Fixed User-Agent for all MegaUp requests
-export const MEGAUP_USER_AGENT = 
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-
-// Pre-computed 521-byte keystream for this UA
-const MEGAUP_KEYSTREAM_HEX = 
-  'dece4f239861eb1c7d83f86c2fb5d27e557a3fd2696781674b986f9ed5d55cb0' +
-  '28abc5e482a02a7c03d7ee811eb7bd6ad1dba549a20e53f564208b9d5d2e28b0' +
-  '797f6c6e547b5ce423bbc44be596b6ad536b9edea25a6bf97ed7fe1f36298ff1' +
-  // ... 521 bytes total
-  ;`}
-              />
-
               <h3>Native Decryption</h3>
               <CodeBlock 
-                title="decryptMegaUp() Implementation"
+                title="decryptMegaUp() - XOR with Pre-computed Keystream"
                 id="megaup-decrypt"
                 copiedCode={copiedCode}
                 onCopy={copyCode}
@@ -988,6 +863,13 @@ const MEGAUP_KEYSTREAM_HEX =
 }`}
               />
 
+              <p>
+                MegaUp CDN domains (<code>hub26link.site</code>, <code>dev23app.site</code>, 
+                <code>net22lab.site</code>, <code>app28base.site</code>, etc.) all block datacenter 
+                IPs. All requests route through the <code>/animekai</code> CF Worker route → RPI 
+                residential proxy.
+              </p>
+
               <blockquote className={styles.quote}>
                 <p>
                   &quot;We spent days trying to reverse engineer the full keystream generation algorithm. 
@@ -999,13 +881,143 @@ const MEGAUP_KEYSTREAM_HEX =
             </motion.div>
           </section>
 
-          {/* Proxy Architecture Section */}
+          {/* HiAnime - NEW */}
+          <section id="hianime" className={styles.section}>
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.sectionIcon}>🔬</span>
+                HiAnime / MegaCloud - TLS Fingerprint Bypass
+              </h2>
+              
+              <div className={styles.statusBadge}>
+                <span className={styles.statusDot} />
+                Working - Fallback Anime Provider (Priority 35)
+              </div>
+              
+              <h3>Overview</h3>
+              <p>
+                HiAnime is the secondary anime provider (priority 35, after AnimeKai at 30). It uses 
+                MegaCloud CDN which employs TLS fingerprinting to detect non-browser clients. Standard 
+                Node.js/fetch requests get blocked even with correct headers—the CDN checks the TLS 
+                handshake itself.
+              </p>
+
+              <h3>The TLS Fingerprint Problem</h3>
+              <p>
+                MegaCloud CDN domains (<code>rabbitstream</code>, <code>vidcloud</code>, 
+                <code>dokicloud</code>, <code>megacloud.blog</code>) use JA3/JA4 TLS fingerprinting. 
+                This means they can distinguish between a real Chrome browser and a Node.js HTTP client 
+                at the TLS layer, before any HTTP headers are even sent.
+              </p>
+
+              <h3>The Solution: curl-impersonate</h3>
+              <CodeBlock 
+                title="RPI Proxy with TLS Fingerprint Impersonation"
+                id="hianime-tls"
+                copiedCode={copiedCode}
+                onCopy={copyCode}
+                code={`// The /hianime route on CF Worker forwards to RPI proxy
+// RPI uses curl-impersonate to mimic Chrome's TLS handshake
+
+// CF Worker route:
+export function getHiAnimeStreamProxyUrl(url: string): string {
+  const baseUrl = getCfWorkerBaseUrl();
+  return \`\${baseUrl}/hianime?url=\${encodeURIComponent(url)}\`;
+}
+
+// RPI proxy uses curl-impersonate-chrome:
+// curl_chrome116 --ciphers TLS_AES_128_GCM_SHA256 ...
+// This produces a TLS fingerprint identical to Chrome 116`}
+              />
+
+              <h3>Extraction Flow</h3>
+              <div className={styles.flowContainer}>
+                <FlowStep num={1} title="MAL ID Lookup" description="TMDB ID → MAL ID via ARM API (same as AnimeKai)" />
+                <FlowStep num={2} title="Search HiAnime" description="Search by MAL title on hianime.to" />
+                <FlowStep num={3} title="Episode Resolution" description="Map episode number to HiAnime episode ID" />
+                <FlowStep num={4} title="Server Selection" description="Choose MegaCloud server (sub/dub)" />
+                <FlowStep num={5} title="CF Worker Extraction" description="Worker handles full extraction pipeline" />
+                <FlowStep num={6} title="TLS Bypass" description="CDN requests routed through RPI with curl-impersonate" />
+              </div>
+
+              <p>
+                HiAnime provides skip intro/outro markers in its metadata, which we pass through to 
+                the player for automatic skip functionality.
+              </p>
+
+              <blockquote className={styles.quote}>
+                <p>
+                  &quot;TLS fingerprinting is the most sophisticated anti-bot measure we&apos;ve 
+                  encountered. You can fake every HTTP header perfectly, but if your TLS handshake 
+                  says &apos;Node.js&apos; instead of &apos;Chrome&apos;, you&apos;re blocked before 
+                  the first byte of HTTP is sent. curl-impersonate was the answer.&quot;
+                </p>
+                <cite>- Field Notes, February 2026</cite>
+              </blockquote>
+            </motion.div>
+          </section>
+
+          {/* VIPRow - NEW */}
+          <section id="viprow" className={styles.section}>
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.sectionIcon}>🏟️</span>
+                VIPRow - Live Sports Extraction
+              </h2>
+              
+              <div className={styles.statusBadge}>
+                <span className={styles.statusDot} />
+                Working - Casthill Token Auth + Manifest Rewriting
+              </div>
+              
+              <h3>Overview</h3>
+              <p>
+                VIPRow provides live sports streams (NBA, NFL, UFC, soccer, etc.) through a complex 
+                chain: VIPRow event page → Casthill.net stream extraction → boanki.net token 
+                authentication → HLS manifest with encrypted segments.
+              </p>
+
+              <h3>Extraction Chain</h3>
+              <div className={styles.flowContainer}>
+                <FlowStep num={1} title="Event Page" description="Parse VIPRow event page for stream embed URLs" />
+                <FlowStep num={2} title="Casthill Extraction" description="Extract stream URL from casthill.net embed" />
+                <FlowStep num={3} title="Token Auth" description="Authenticate with boanki.net for stream token" />
+                <FlowStep num={4} title="Manifest Rewrite" description="Rewrite m3u8 URLs to route through CF Worker proxy" />
+                <FlowStep num={5} title="Key Proxy" description="AES-128 keys proxied through /viprow/key endpoint" />
+                <FlowStep num={6} title="Segment Proxy" description="Segments proxied through /viprow/segment endpoint" />
+              </div>
+
+              <h3>Required Headers</h3>
+              <CodeBlock 
+                title="VIPRow/Casthill Required Headers"
+                id="viprow-headers"
+                copiedCode={copiedCode}
+                onCopy={copyCode}
+                code={`// Casthill streams require specific Origin/Referer
+const headers = {
+  'Origin': 'https://casthill.net',
+  'Referer': 'https://casthill.net/',
+};
+
+// CF Worker endpoints:
+// /viprow/stream   - Extract and proxy the m3u8 manifest
+// /viprow/manifest - Refresh manifest during playback
+// /viprow/key      - Proxy AES-128 decryption keys
+// /viprow/segment  - Proxy video segments`}
+              />
+
+              <p>
+                VIPRow is registered as a live-sports provider (priority 110) in the Provider Registry. 
+                It only activates when <code>metadata.isLive === true</code>. The boanki.net 
+                authentication endpoint blocks Cloudflare Worker IPs, so extraction routes through 
+                the RPI residential proxy.
+              </p>
+            </motion.div>
+          </section>
+
+          {/* Proxy Architecture */}
           <section id="proxy-architecture" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🔄</span>
                 Proxy Architecture
@@ -1013,13 +1025,14 @@ const MEGAUP_KEYSTREAM_HEX =
               
               <div className={styles.statusBadge}>
                 <span className={styles.statusDot} />
-                Production Ready - Multi-Layer
+                Production Ready - 3 Layers, Provider-Specific Routing
               </div>
               
               <h3>The Problem</h3>
               <p>
-                Multiple CDNs block datacenter IPs and reject requests with Origin headers 
-                (which browsers add automatically to XHR).
+                Multiple CDNs block datacenter IPs, reject requests with Origin headers (which 
+                browsers add automatically to XHR), and some even use TLS fingerprinting to detect 
+                non-browser clients. Each provider has different CDN requirements.
               </p>
 
               <h3>Multi-Layer Proxy Solution</h3>
@@ -1036,7 +1049,7 @@ const MEGAUP_KEYSTREAM_HEX =
                 <div className={styles.archArrow}>↓</div>
                 <div className={styles.archLayer}>
                   <span className={styles.archIcon}>☁️</span>
-                  <span>Cloudflare Worker</span>
+                  <span>Cloudflare Worker (provider routing)</span>
                 </div>
                 <div className={styles.archArrow}>↓</div>
                 <div className={styles.archLayer + ' ' + styles.archHighlight}>
@@ -1050,40 +1063,49 @@ const MEGAUP_KEYSTREAM_HEX =
                 </div>
               </div>
 
+              <h3>Provider-Specific Routes</h3>
               <CodeBlock 
-                title="CDN Detection & Routing"
+                title="CDN Detection & Routing Logic"
                 id="proxy-cdn"
                 copiedCode={copiedCode}
                 onCopy={copyCode}
-                code={`// MegaUp CDN (AnimeKai) - requires residential IP
+                code={`// Each provider has a dedicated CF Worker route:
+// /animekai   → RPI /animekai/stream  (MegaUp, VidSrc, VidLink, 1movies CDN)
+// /flixer/*   → RPI /flixer/stream    (Flixer CDN: p.XXXXX.workers.dev)
+// /hianime    → RPI /hianime/stream   (MegaCloud: TLS fingerprint bypass)
+// /viprow/*   → RPI /viprow/stream    (Casthill: boanki.net auth)
+// /cdn-live/* → Direct with Referer   (CDN-Live streams)
+// /ppv/*      → RPI /ppv/stream       (PPV events)
+// /dlhd/*     → Dedicated DLHD Worker (PoW + server-side decryption)
+
+// CDN domain detection:
 function isMegaUpCdnUrl(url) {
-  return url.includes('megaup') || 
-         url.includes('hub26link') || 
-         url.includes('app28base');
+  const domains = [
+    'hub26link.site', 'dev23app.site', 'net22lab.site',
+    'pro25zone.site', 'app28base.site', 'megaup.live',
+    'rabbitstream', 'vidcloud', 'dokicloud'
+  ];
+  return domains.some(d => url.includes(d));
 }
 
-// 1movies CDN - requires residential IP
 function is1moviesCdnUrl(url) {
   return url.match(/p\\.\\d+\\.workers\\.dev/);
-}
-
-// Route decision
-if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
-  return getAnimeKaiProxyUrl(url); // → RPI residential proxy
-} else {
-  return getStreamProxyUrl(url);   // → direct Cloudflare Worker
 }`}
               />
+
+              <h3>Why a Raspberry Pi?</h3>
+              <p>
+                CDNs that block datacenter IPs (Cloudflare, AWS, GCP) cannot block residential IPs 
+                without blocking real users. A $35 Raspberry Pi on home internet provides a residential 
+                IP that passes all CDN checks. It runs a Node.js proxy with provider-specific endpoints, 
+                each with the correct headers and Referer for that provider&apos;s CDN.
+              </p>
             </motion.div>
           </section>
 
-          {/* Techniques Section */}
+          {/* Techniques */}
           <section id="techniques" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🛠️</span>
                 Common Techniques
@@ -1120,20 +1142,26 @@ if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
                   <p>Crypto logic compiled to WebAssembly. Harder to reverse.</p>
                   <code>Rust → WASM → AES-256-CTR</code>
                 </div>
+                <div className={styles.techniqueCard}>
+                  <h4>TLS Fingerprinting</h4>
+                  <p>CDN checks TLS handshake to detect non-browser clients.</p>
+                  <code>JA3/JA4 → curl-impersonate</code>
+                </div>
+                <div className={styles.techniqueCard}>
+                  <h4>MAC Authentication</h4>
+                  <p>IPTV portals use MAC address for device authentication.</p>
+                  <code>MAC → Token → Stream URL</code>
+                </div>
               </div>
             </motion.div>
           </section>
 
-          {/* Tools Section */}
+          {/* Tools */}
           <section id="tools" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🧰</span>
-                Tools & Methods
+                Tools &amp; Methods
               </h2>
               
               <h3>Essential Tools</h3>
@@ -1158,6 +1186,16 @@ if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
                   <h4>CyberChef</h4>
                   <p>Swiss army knife for encoding/decoding. Base64, XOR, AES, hex, everything.</p>
                 </div>
+                <div className={styles.toolCard}>
+                  <div className={styles.toolIcon}>🌐</div>
+                  <h4>curl-impersonate</h4>
+                  <p>Mimics browser TLS fingerprints. Essential for MegaCloud CDN bypass.</p>
+                </div>
+                <div className={styles.toolCard}>
+                  <div className={styles.toolIcon}>🤖</div>
+                  <h4>Puppeteer (Research Only)</h4>
+                  <p>For initial recon and table extraction. Never used in production—pure HTTP only.</p>
+                </div>
               </div>
 
               <h3>Common Pitfalls</h3>
@@ -1178,17 +1216,21 @@ if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
                   <span className={styles.pitfallIcon}>🔗</span>
                   <strong>Origin Header</strong> - Browser XHR adds Origin automatically, some CDNs reject it
                 </div>
+                <div className={styles.pitfall}>
+                  <span className={styles.pitfallIcon}>🔒</span>
+                  <strong>TLS Fingerprinting</strong> - Some CDNs check TLS handshake, need curl-impersonate
+                </div>
+                <div className={styles.pitfall}>
+                  <span className={styles.pitfallIcon}>☁️</span>
+                  <strong>CF Worker → CF Worker</strong> - Cloudflare Workers calling other Workers get blocked by some CDNs
+                </div>
               </div>
             </motion.div>
           </section>
 
-          {/* Contributing Section */}
+          {/* Contributing */}
           <section id="contribute" className={styles.section}>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🤝</span>
                 Contributing
@@ -1214,7 +1256,7 @@ if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
                   <span>📝</span> Documentation improvements
                 </div>
                 <div className={styles.contributionItem}>
-                  <span>🔓</span> CDN bypass techniques
+                  <span>🔓</span> CDN bypass techniques (especially TLS fingerprint solutions)
                 </div>
               </div>
 
@@ -1235,6 +1277,10 @@ if (isAnimeKai || isMegaUpCdn || is1moviesCdn) {
                 <div className={styles.guideline}>
                   <span className={styles.guidelineIcon}>🧪</span>
                   Test with multiple content IDs to ensure reliability
+                </div>
+                <div className={styles.guideline}>
+                  <span className={styles.guidelineIcon}>🏗️</span>
+                  Implement the Provider interface for new providers
                 </div>
               </div>
 

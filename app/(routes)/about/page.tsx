@@ -53,27 +53,28 @@ export default function AboutPage() {
       <div className="progress-bar" style={{ width: `${progress}%` }} />
 
       <header className="about-header">
-        <div className="journal-badge">Journal of Questionable Software Engineering • Vol. 1, Issue 3 • January 2026</div>
-        <div className="last-updated">Last updated: January 24, 2026</div>
+        <div className="journal-badge">Journal of Questionable Software Engineering • Vol. 2, Issue 1 • March 2026</div>
+        <div className="last-updated">Last updated: March 4, 2026</div>
         <h1>Flyx: A Case Study in Privacy-Respecting Streaming Architecture and Web Security Research</h1>
         <p className="subtitle">
           An academic exploration of building user-respecting streaming infrastructure, documenting 
           modern web security patterns, obfuscation techniques, and the technical feasibility of 
           privacy-first design in media applications—featuring extensive documentation of reverse 
-          engineering methodologies and the ongoing evolution of extraction pipelines.
+          engineering methodologies and the ongoing evolution of extraction pipelines across 11 
+          providers and 3 proxy layers.
         </p>
         <div className="author">
           <span className="avatar">V</span>
           <div>
             <strong>Vynx</strong>
-            <span>Independent Researcher & Professional Insomniac</span>
+            <span>Independent Researcher &amp; Professional Insomniac</span>
           </div>
         </div>
         <div className="paper-meta">
           <span>Received: June 2025</span>
-          <span>Revised: January 2026</span>
-          <span>Accepted: January 2026</span>
-          <span>Reading Time: ~25 minutes</span>
+          <span>Revised: March 2026</span>
+          <span>Accepted: March 2026</span>
+          <span>Reading Time: ~30 minutes</span>
         </div>
       </header>
 
@@ -109,11 +110,11 @@ export default function AboutPage() {
             <div className="abstract-box">
               <p>
                 This paper presents Flyx, a research project and technology demonstration exploring 
-                privacy-respecting streaming architecture. Developed over eight months, the project 
-                investigates whether modern web applications can deliver media content without 
-                invasive tracking, malicious advertising, or exploitative user interfaces. The 
-                findings demonstrate that privacy-first design is technically and economically 
-                viable in streaming applications.
+                privacy-respecting streaming architecture. Developed over ten months by a single 
+                developer, the project investigates whether modern web applications can deliver media 
+                content without invasive tracking, malicious advertising, or exploitative user 
+                interfaces. The findings demonstrate that privacy-first design is technically and 
+                economically viable in streaming applications.
               </p>
               <p>
                 Through systematic analysis of third-party streaming providers, we document various 
@@ -122,29 +123,33 @@ export default function AboutPage() {
                 that user-respecting alternatives are achievable.
               </p>
               <p>
-                <strong>Update (January 2026):</strong> The platform has undergone significant 
-                evolution. We now support 8 fully reverse-engineered providers: Vidsrc, VidLink, 
-                AnimeKai, MegaUp, Flixer (WASM), 111movies, and DLHD Live TV. Each provider required 
-                unique cryptographic analysis—from AES-256-CBC to Rust-compiled WebAssembly to 
-                Proof-of-Work authentication systems.
+                <strong>March 2026 Status:</strong> The platform now supports 11 registered providers 
+                through a unified Provider Registry: Flixer (WASM), VidLink, AnimeKai, HiAnime, 
+                VidSrc, MultiEmbed, DLHD Live TV, VIPRow (Live Sports), PPV (Pay-Per-View), CDN-Live, 
+                and IPTV Stalker. Each required unique cryptographic analysis—from AES-256-CBC to 
+                Rust-compiled WebAssembly to Proof-of-Work authentication systems to IPTV portal 
+                MAC authentication.
               </p>
               <p>
-                <strong>January 2026 Breakthroughs:</strong> DLHD Live TV now uses Proof-of-Work 
-                authentication with HMAC-SHA256 + MD5 nonce computation. We cracked their timestamp 
-                validation (must be 5-10 seconds in the past) and domain migration to dvalna.ru. 
-                AnimeKai&apos;s 183-table position-dependent substitution cipher is now fully native. 
-                MegaUp&apos;s User-Agent-based stream cipher has been pre-computed.
+                <strong>Key Breakthroughs Since January 2026:</strong> HiAnime/MegaCloud extraction 
+                via Cloudflare Worker with TLS fingerprint bypass. VIPRow live sports with Casthill 
+                token refresh and boanki.net authentication. PPV event streaming through residential 
+                proxy. IPTV Stalker portal integration with MAC-based authentication. Full provider 
+                registry architecture with priority ordering, content-type filtering, and automatic 
+                fallback chains.
               </p>
               <p>
                 <strong>Hybrid Anime System:</strong> TMDB for fast browsing, MAL for accurate episode 
                 data. Automatic conversion handles absolute episode numbering (e.g., JJK episode 48 
-                → MAL Season 3 Episode 1). Copy Stream URL button lets users watch in VLC/IINA.
+                → MAL Season 3 Episode 1). HiAnime as secondary anime provider with MegaCloud CDN 
+                bypass. Copy Stream URL button lets users watch in VLC/IINA.
               </p>
               <p>
                 <strong>Keywords:</strong> Streaming Architecture, Reverse Engineering, Privacy-First Design, 
                 Obfuscation Analysis, Web Security Research, AES-256-CBC, AES-128, AES-256-CTR, WASM, 
                 WebAssembly, Rust, Ghidra, Proof-of-Work, HMAC-SHA256, Bearer Token Authentication, 
-                Chromecast, AirPlay, TV Navigation, OpenSubtitles, Browser Fingerprinting, MAL Integration
+                Chromecast, AirPlay, TV Navigation, OpenSubtitles, Browser Fingerprinting, MAL Integration, 
+                Provider Registry, TLS Fingerprinting, IPTV Stalker, MAC Authentication, Residential Proxy
               </p>
             </div>
           </section>
@@ -177,7 +182,7 @@ export default function AboutPage() {
               in a country you cannot pronounce.
             </p>
 
-            <h3>1.2 The Implicit Assumption (And Why It's Wrong)</h3>
+            <h3>1.2 The Implicit Assumption (And Why It&apos;s Wrong)</h3>
             <p>
               Underlying this entire ecosystem is an assumption so pervasive that most people have 
               stopped questioning it: <strong>free content requires exploitation</strong>. If you are 
@@ -192,7 +197,6 @@ export default function AboutPage() {
               free streaming can exist without exploitation. The exploitation is not a technical 
               requirement—it is a business decision.
             </p>
-
             <p>
               The pirate streaming sites could choose to operate without malware. They could choose 
               not to mine cryptocurrency on users&apos; devices. They could choose not to serve 
@@ -214,24 +218,22 @@ export default function AboutPage() {
               requirements for privacy-first media delivery? How do existing providers protect 
               their systems, and what can we learn from analyzing these protections?
             </p>
-            <blockquote>
-              &quot;The best way to prove something is possible is to do it. The second best way is to 
-              write a really long document about doing it and hope people believe you.&quot;
-              <cite>- Research Philosophy</cite>
-            </blockquote>
 
             <h3>1.4 Scope and Contributions</h3>
             <p>This research makes the following contributions:</p>
             <ul>
               <li><strong>Proof of Concept:</strong> A functional streaming platform demonstrating 
               privacy-respecting architecture without advertisements, tracking, or exploitative patterns.</li>
-              <li><strong>Security Research Documentation:</strong> Comprehensive analysis of 8 providers 
-              including WASM binary analysis, PoW authentication, and position-dependent ciphers. 
+              <li><strong>Security Research Documentation:</strong> Comprehensive analysis of 11 providers 
+              including WASM binary analysis, PoW authentication, position-dependent ciphers, TLS 
+              fingerprint bypass, and IPTV portal authentication. 
               <Link href="/reverse-engineering" className="inline-link">Read the full technical breakdown →</Link></li>
+              <li><strong>Unified Provider Registry:</strong> A production-grade architecture with 
+              priority ordering, content-type filtering, automatic fallback, and error isolation.</li>
               <li><strong>Hybrid Anime System:</strong> TMDB + MAL integration with automatic episode 
-              mapping for absolute-numbered anime series.</li>
+              mapping for absolute-numbered anime series, dual provider support (AnimeKai + HiAnime).</li>
               <li><strong>Multi-Platform Support:</strong> Chromecast, AirPlay, TV remote navigation, 
-              and Copy URL for external players like VLC.</li>
+              Copy URL for external players, and live sports streaming.</li>
             </ul>
           </section>
 
@@ -251,7 +253,7 @@ export default function AboutPage() {
                 <span className="feedback-icon">📺</span>
                 <div>
                   <h4>Casting Support</h4>
-                  <p>Chromecast and AirPlay for TV viewing. Now includes Live TV casting.</p>
+                  <p>Chromecast and AirPlay for TV viewing. Now includes Live TV and Live Sports casting.</p>
                 </div>
               </div>
               <div className="feedback-item">
@@ -273,7 +275,16 @@ export default function AboutPage() {
                 <span className="feedback-icon">🎌</span>
                 <div>
                   <h4>Hybrid Anime System</h4>
-                  <p>TMDB browse + MAL details. Automatic episode mapping for absolute-numbered series.</p>
+                  <p>TMDB browse + MAL details. Dual providers: AnimeKai (primary) + HiAnime (fallback). 
+                  Automatic episode mapping for absolute-numbered series.</p>
+                </div>
+              </div>
+              <div className="feedback-item">
+                <span className="feedback-icon">🏟️</span>
+                <div>
+                  <h4>Live Sports &amp; PPV</h4>
+                  <p>VIPRow integration for live sports events. PPV streaming for pay-per-view events. 
+                  Casthill token refresh for uninterrupted viewing.</p>
                 </div>
               </div>
               <div className="feedback-item">
@@ -296,8 +307,8 @@ export default function AboutPage() {
                 <span className="stat-label">Live TV channels</span>
               </div>
               <div className="stat">
-                <span className="stat-value">8</span>
-                <span className="stat-label">Providers cracked</span>
+                <span className="stat-value">11</span>
+                <span className="stat-label">Providers registered</span>
               </div>
               <div className="stat">
                 <span className="stat-value">0</span>
@@ -336,12 +347,7 @@ export default function AboutPage() {
             <p>
               Defenders of exploitative practices often argue that they are economically necessary. 
               &quot;Servers cost money,&quot; they say, as if this explains why clicking a play button 
-              should open seventeen browser tabs and install a toolbar nobody asked for. &quot;We need 
-              to monetize somehow,&quot; they claim, as if the only options are malware or bankruptcy.
-            </p>
-            <p>
-              This argument deserves scrutiny, primarily because it is demonstrably false. Let us 
-              examine the economics:
+              should open seventeen browser tabs and install a toolbar nobody asked for.
             </p>
 
             <div className="economic-analysis">
@@ -359,6 +365,7 @@ export default function AboutPage() {
                 <li><strong>Content Hosting:</strong> $0 (we also don&apos;t host content)</li>
                 <li><strong>Server Costs:</strong> $0 (Cloudflare Pages + Workers free tier)</li>
                 <li><strong>Database:</strong> $0 (Cloudflare D1 free tier)</li>
+                <li><strong>Residential Proxy:</strong> $0 (Raspberry Pi on home internet)</li>
                 <li><strong>Revenue:</strong> $0 (no ads, no tracking, no monetization)</li>
                 <li><strong>Profit Margin:</strong> Undefined (0/0 is mathematically problematic)</li>
               </ul>
@@ -371,14 +378,6 @@ export default function AboutPage() {
               decision driven by profit maximization.
             </p>
 
-            <p>
-              Modern serverless platforms offer free tiers that can handle substantial traffic. 
-              Cloudflare Workers provides 100,000 requests per day for free. Cloudflare Pages 
-              offers generous bandwidth allowances. Cloudflare D1 has a free tier that is more than sufficient for 
-              user data. The infrastructure costs for a streaming aggregation service are, in 2026, 
-              effectively zero for moderate traffic levels.
-            </p>
-
             <blockquote>
               &quot;The &apos;we need aggressive monetization to survive&apos; argument falls apart 
               when someone builds the same service on free tiers and operates it at zero cost. At 
@@ -386,14 +385,6 @@ export default function AboutPage() {
               one that happens to be profitable.&quot;
               <cite>- Economic Analysis, Section 3.3.2</cite>
             </blockquote>
-
-            <p>
-              To be clear: we are not arguing that all advertising is evil, or that content creators 
-              should not be compensated. We are arguing that the specific monetization practices 
-              employed by pirate streaming sites—malware, cryptocurrency mining, deceptive interfaces—are 
-              not economically necessary. They are choices. And those choices reveal the priorities of 
-              the people making them.
-            </p>
           </section>
 
           {/* Methodology */}
@@ -427,7 +418,7 @@ export default function AboutPage() {
               <div className="phase">
                 <span className="phase-num">03</span>
                 <div>
-                  <h4>Provider Migration & Expansion</h4>
+                  <h4>Provider Migration &amp; Expansion</h4>
                   <p>Deprecating 2Embed and MoviesAPI. Adding Vidsrc, VidLink, AnimeKai, Flixer WASM, 
                   111movies, MegaUp, and DLHD Live TV.</p>
                   <span className="phase-time">Weeks 17-28</span>
@@ -436,10 +427,20 @@ export default function AboutPage() {
               <div className="phase">
                 <span className="phase-num">04</span>
                 <div>
-                  <h4>January 2026 Security Updates</h4>
+                  <h4>January 2026: Security Battles</h4>
                   <p>DLHD PoW authentication, timestamp validation bypass, domain migration handling, 
-                  hybrid anime system with MAL integration.</p>
+                  hybrid anime system with MAL integration. AnimeKai 183-table cipher fully native.</p>
                   <span className="phase-time">Weeks 29-32</span>
+                </div>
+              </div>
+              <div className="phase">
+                <span className="phase-num">05</span>
+                <div>
+                  <h4>February-March 2026: Provider Registry &amp; Live Sports</h4>
+                  <p>Unified Provider Registry with 11 providers. HiAnime/MegaCloud TLS fingerprint 
+                  bypass. VIPRow live sports with Casthill authentication. PPV events. IPTV Stalker 
+                  portal integration. CDN-Live decoder. Full provider architecture rewrite.</p>
+                  <span className="phase-time">Weeks 33-40</span>
                 </div>
               </div>
             </div>
@@ -454,7 +455,7 @@ export default function AboutPage() {
               <div className="constraint">
                 <span className="icon">💸</span>
                 <h4>Zero Budget</h4>
-                <p>Only free tiers of services utilized. Cloudflare Pages, D1, Workers.</p>
+                <p>Only free tiers of services utilized. Cloudflare Pages, D1, Workers, plus a Raspberry Pi.</p>
               </div>
               <div className="constraint">
                 <span className="icon">🌙</span>
@@ -479,42 +480,82 @@ export default function AboutPage() {
             <h3>5.2 Technology Stack</h3>
             <div className="tech-stack">
               <div className="tech-item">
-                <strong>Next.js 16</strong>
+                <strong>Next.js 16 + React 19</strong>
                 <p>App Router, server-side rendering, API routes for the proxy layer, Turbopack builds.</p>
               </div>
               <div className="tech-item">
-                <strong>Cloudflare Workers</strong>
-                <p>Edge proxy for DLHD Live TV, Flixer WASM bundling, stream proxying. Global CDN.</p>
+                <strong>Cloudflare Workers (4 Workers)</strong>
+                <p>Media proxy, DLHD extractor, sync worker, CDN-Live extractor. Global edge network.</p>
               </div>
               <div className="tech-item">
                 <strong>Cloudflare Pages + D1</strong>
-                <p>Hosting and serverless database. Free tiers handle all traffic.</p>
+                <p>Hosting and two SQLite databases at the edge. Free tiers handle all traffic.</p>
               </div>
               <div className="tech-item">
                 <strong>HLS.js + mpegts.js</strong>
                 <p>HLS for VOD, mpegts.js for Live TV. Optimized buffer settings for smooth playback.</p>
               </div>
               <div className="tech-item">
-                <strong>8 Stream Providers</strong>
-                <p>Vidsrc, VidLink, AnimeKai, MegaUp, Flixer, 111movies, DLHD, and fallbacks.</p>
+                <strong>Raspberry Pi Residential Proxy</strong>
+                <p>Home internet IP for CDNs that block datacenter IPs. Handles AnimeKai, Flixer, 
+                VidLink, VidSrc, 1movies, HiAnime, and VIPRow CDN requests.</p>
+              </div>
+              <div className="tech-item">
+                <strong>11 Stream Providers</strong>
+                <p>Unified Provider Registry with priority ordering, content-type filtering, and 
+                automatic fallback chains.</p>
               </div>
             </div>
 
-            <h3>5.3 Multi-Layer Proxy Architecture</h3>
+            <h3>5.3 Provider Registry Architecture</h3>
             <p>
-              Multiple CDNs block datacenter IPs and reject requests with Origin headers. Our solution:
+              The February 2026 rewrite introduced a unified Provider Registry—a central system that 
+              manages all 11 providers through a common interface. Each provider declares its supported 
+              content types, priority level, and extraction logic. The registry handles discovery, 
+              ordering, and error isolation so a single broken provider never crashes the system.
+            </p>
+            <div className="stats-grid">
+              <div className="stat">
+                <span className="stat-value">11</span>
+                <span className="stat-label">Registered providers</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">7</span>
+                <span className="stat-label">Content categories</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">4</span>
+                <span className="stat-label">CF Workers</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">3</span>
+                <span className="stat-label">Proxy layers</span>
+              </div>
+            </div>
+
+            <h3>5.4 Multi-Layer Proxy Architecture</h3>
+            <p>
+              Multiple CDNs block datacenter IPs and reject requests with Origin headers. Our 
+              three-layer proxy solution routes requests through the appropriate path based on 
+              provider-specific CDN requirements:
             </p>
             <div className="proxy-flow">
               <div className="proxy-step">Browser (XHR with Origin)</div>
               <div className="proxy-arrow">↓</div>
-              <div className="proxy-step">Next.js API Route</div>
+              <div className="proxy-step">Next.js API Route (strips Origin)</div>
               <div className="proxy-arrow">↓</div>
-              <div className="proxy-step">Cloudflare Worker</div>
+              <div className="proxy-step">Cloudflare Worker (provider-specific routing)</div>
               <div className="proxy-arrow">↓</div>
               <div className="proxy-step highlight">Raspberry Pi (Residential IP)</div>
               <div className="proxy-arrow">↓</div>
               <div className="proxy-step">CDN → HLS Stream</div>
             </div>
+            <p>
+              Each provider has dedicated proxy routes: <code>/animekai</code>, <code>/flixer/stream</code>, 
+              <code>/hianime</code>, <code>/viprow/stream</code>, <code>/cdn-live/stream</code>, 
+              <code>/ppv/stream</code>. The Cloudflare Worker detects CDN domains and routes to the 
+              appropriate RPI endpoint with provider-specific headers.
+            </p>
           </section>
 
           {/* The Heist */}
@@ -528,61 +569,120 @@ export default function AboutPage() {
               knowledge in the security research community.
             </p>
 
-            <h3>6.2 Providers Analyzed (January 2026)</h3>
+            <h3>6.2 Providers Analyzed (March 2026)</h3>
             <div className="provider-grid">
               <div className="provider-card">
                 <h4>🔐 Flixer (WASM)</h4>
                 <p>Rust-compiled WebAssembly with AES-256-CTR + HMAC. Browser fingerprinting. 
-                Solution: Bundle WASM binary with mocked browser APIs.</p>
+                Solution: Bundle WASM binary with mocked browser APIs in Cloudflare Worker.</p>
               </div>
               <div className="provider-card">
                 <h4>📺 DLHD Live TV</h4>
                 <p>Proof-of-Work authentication. HMAC-SHA256 + MD5 nonce. Timestamp must be 5-10 
-                seconds in the past. Domain: dvalna.ru.</p>
+                seconds in the past. Domain: dvalna.ru. Server-side segment decryption.</p>
               </div>
               <div className="provider-card">
                 <h4>🎌 AnimeKai</h4>
                 <p>183-table position-dependent substitution cipher. Fully native encryption/decryption. 
-                Zero external dependencies.</p>
+                Zero external dependencies. Routes through MegaUp CDN.</p>
               </div>
               <div className="provider-card">
                 <h4>🔓 MegaUp</h4>
                 <p>User-Agent-based stream cipher. Pre-computed 521-byte keystream for fixed UA. 
-                XOR decryption.</p>
+                XOR decryption. CDN blocks datacenter IPs.</p>
               </div>
               <div className="provider-card">
                 <h4>🎬 111movies</h4>
-                <p>AES-256-CBC + XOR + Base64 + alphabet substitution. Five layers of obfuscation.</p>
+                <p>AES-256-CBC + XOR + Base64 + alphabet substitution. Five layers of obfuscation. 
+                CDN uses Cloudflare Workers that block other Workers.</p>
               </div>
               <div className="provider-card">
-                <h4>📡 Vidsrc + VidLink</h4>
-                <p>AES-256-CBC decryption. Multi-language support (17 servers).</p>
+                <h4>📡 VidSrc + VidLink</h4>
+                <p>AES-256-CBC decryption. VidLink: 17 servers across 8 languages. VidSrc: static 
+                hex/base64 decoders with character manipulation.</p>
+              </div>
+              <div className="provider-card">
+                <h4>🔬 HiAnime / MegaCloud</h4>
+                <p>TLS fingerprinting on CDN. Cloudflare Worker extraction with RPI proxy for CDN 
+                bypass. MegaCloud uses rabbitstream/vidcloud domains.</p>
+              </div>
+              <div className="provider-card">
+                <h4>🏟️ VIPRow (Live Sports)</h4>
+                <p>Casthill.net stream extraction. Boanki.net token authentication. Manifest URL 
+                rewriting. Key and segment proxying through CF Worker.</p>
+              </div>
+              <div className="provider-card">
+                <h4>🥊 PPV (Pay-Per-View)</h4>
+                <p>Live event streaming through residential proxy. CF Worker /ppv endpoint handles 
+                extraction and proxying.</p>
+              </div>
+              <div className="provider-card">
+                <h4>📡 CDN-Live</h4>
+                <p>Dedicated CDN-Live decoder with proper Referer handling. URL rewriting for 
+                CDN-Live streams. Separate CF Worker route.</p>
+              </div>
+              <div className="provider-card">
+                <h4>📺 IPTV Stalker</h4>
+                <p>Portal-based IPTV with MAC address authentication. Residential proxy required 
+                for portal access. Token-based stream authentication.</p>
               </div>
             </div>
 
-            <h3>6.3 Case Study: DLHD January 2026 Security Update</h3>
-            <p>
-              On January 16, 2026, DLHD implemented Proof-of-Work authentication. On January 21, 
-              they added timestamp validation requiring timestamps to be 5-10 seconds in the past.
-            </p>
-            <div className="challenge">
-              <h4>🔐 The PoW Algorithm</h4>
+            <h3>6.3 The Battles We Overcame</h3>
+            <div className="war-story">
+              <h4>🔥 The DLHD PoW Wars (January 2026)</h4>
               <p>
-                Key requests require: <code>Authorization: Bearer &lt;jwt&gt;</code>, 
-                <code>X-Key-Timestamp</code>, and <code>X-Key-Nonce</code>. The nonce must satisfy: 
-                <code>MD5(hmac + resource + keyNumber + timestamp + nonce)[0:4] &lt; 0x1000</code>
+                DLHD updated their security three times in January alone. First came Proof-of-Work 
+                authentication with HMAC-SHA256 + MD5 nonce computation. We cracked it in hours. Then 
+                they added timestamp validation—timestamps had to be 5-10 seconds in the past. We 
+                discovered the sweet spot: exactly 7 seconds. Then they migrated domains from 
+                daddyhd.com to dvalna.ru. Each time, we adapted within hours.
               </p>
-              <p className="solution">
-                <strong>Our Solution:</strong> Reverse engineered the obfuscated JavaScript, extracted 
-                the HMAC secret, implemented PoW computation in Cloudflare Workers. Discovered timestamp 
-                must be 7 seconds in the past (middle of acceptable range).
+            </div>
+            <div className="war-story">
+              <h4>🧩 The AnimeKai Cipher (December 2025)</h4>
+              <p>
+                AnimeKai uses a position-dependent substitution cipher with 183 unique tables—one for 
+                each character position. We spent weeks building all 183 tables through systematic 
+                analysis, eventually achieving 100% native encryption/decryption with zero external 
+                dependencies. The cipher looked complex, but once we realized it was position-dependent 
+                with no key derivation, building the tables was just tedious, not hard.
+              </p>
+            </div>
+            <div className="war-story">
+              <h4>🔐 The Flixer WASM Midnight Session (December 21, 2025)</h4>
+              <p>
+                Flixer uses a Rust-compiled WebAssembly module for AES-256-CTR encryption with HMAC 
+                authentication and browser fingerprinting. After a 12-hour reverse engineering session 
+                involving Ghidra, memory forensics, and ~150 test scripts, we had the breakthrough at 
+                2 AM: instead of cracking the algorithm, bundle their WASM binary and mock the browser 
+                APIs server-side. If you can&apos;t beat the algorithm, become the algorithm.
+              </p>
+            </div>
+            <div className="war-story">
+              <h4>🌐 The CDN IP Wars (Ongoing)</h4>
+              <p>
+                MegaUp, Flixer, HiAnime, 1movies, and VIPRow CDNs all block datacenter IPs. 
+                Cloudflare Workers talking to Cloudflare Workers get blocked. The solution: a 
+                Raspberry Pi on home internet acting as a residential proxy. Each provider gets 
+                its own dedicated route with provider-specific headers and Referer handling.
+              </p>
+            </div>
+            <div className="war-story">
+              <h4>🎌 The HiAnime TLS Fingerprint (February 2026)</h4>
+              <p>
+                MegaCloud CDN uses TLS fingerprinting to detect non-browser clients. Standard 
+                Node.js/fetch requests get blocked even with correct headers. Solution: route 
+                through the RPI proxy which uses curl-impersonate to mimic Chrome&apos;s TLS 
+                handshake. The <code>/hianime</code> CF Worker route handles the full extraction 
+                pipeline.
               </p>
             </div>
 
             <h3>6.4 Research Metrics</h3>
             <div className="stats-grid">
               <div className="stat">
-                <span className="stat-value">8</span>
+                <span className="stat-value">11</span>
                 <span className="stat-label">Providers cracked</span>
               </div>
               <div className="stat">
@@ -611,29 +711,40 @@ export default function AboutPage() {
             
             <h3>7.1 The Streaming Pipeline</h3>
             <ol>
-              <li>Query multiple stream providers in parallel</li>
+              <li>Provider Registry selects providers by content type and priority</li>
+              <li>Parallel extraction across multiple providers with automatic fallback</li>
               <li>Provider-specific decoders crack obfuscation and extract playable URLs</li>
-              <li>Proxy layer handles CORS, header spoofing, and referrer manipulation</li>
-              <li>Clean stream delivered to custom video player</li>
-              <li>Automatic fallback to alternatives if primary source fails</li>
+              <li>Multi-layer proxy handles CORS, header spoofing, CDN routing, and residential IP forwarding</li>
+              <li>Clean stream delivered to custom video player with subtitle overlay</li>
             </ol>
 
-            <h3>7.2 Hybrid Anime System (January 2026)</h3>
+            <h3>7.2 Hybrid Anime System</h3>
             <p>
-              TMDB for fast browsing, MAL for accurate episode data. Automatic conversion handles 
-              absolute episode numbering:
+              TMDB for fast browsing, MAL for accurate episode data. Dual provider support with 
+              AnimeKai (primary, priority 30) and HiAnime (fallback, priority 35):
             </p>
             <ul>
               <li><strong>Browse:</strong> TMDB API with Japanese origin filter</li>
-              <li><strong>Details:</strong> Auto-detect anime → fetch MAL data</li>
-              <li><strong>Episode Mapping:</strong> TMDB episode 48 → MAL Season 3 Episode 1</li>
-              <li><strong>Streaming:</strong> AnimeKai with correct MAL ID and episode</li>
+              <li><strong>Details:</strong> Auto-detect anime → fetch MAL data via ARM API</li>
+              <li><strong>Episode Mapping:</strong> TMDB episode 48 → MAL Season 3 Episode 1 (bounded cache)</li>
+              <li><strong>Primary:</strong> AnimeKai with native 183-table cipher → MegaUp CDN</li>
+              <li><strong>Fallback:</strong> HiAnime with MegaCloud CDN (TLS fingerprint bypass)</li>
+              <li><strong>Sub/Dub:</strong> One-click toggle with preference memory</li>
             </ul>
 
-            <h3>7.3 The Numbers</h3>
+            <h3>7.3 Live TV &amp; Sports Architecture</h3>
+            <ul>
+              <li><strong>DLHD:</strong> 850+ channels, dedicated extractor worker, server-side AES-128 decryption</li>
+              <li><strong>VIPRow:</strong> Live sports events, Casthill token refresh, manifest URL rewriting</li>
+              <li><strong>PPV:</strong> Pay-per-view events through residential proxy</li>
+              <li><strong>CDN-Live:</strong> Dedicated decoder with URL rewriting</li>
+              <li><strong>IPTV Stalker:</strong> Portal-based with MAC authentication</li>
+            </ul>
+
+            <h3>7.4 The Numbers</h3>
             <div className="stats-grid">
               <div className="stat">
-                <span className="stat-value">80K+</span>
+                <span className="stat-value">90K+</span>
                 <span className="stat-label">Lines of code</span>
               </div>
               <div className="stat">
@@ -677,12 +788,31 @@ export default function AboutPage() {
               <li><strong>JJK Season 3 Fix:</strong> Automatic episode mapping for absolute-numbered anime</li>
             </ul>
 
-            <h3>8.3 AnimeKai Integration</h3>
+            <h3>8.3 February-March 2026 Updates</h3>
             <ul>
+              <li><strong>Provider Registry:</strong> Unified architecture with 11 providers, priority ordering, 
+              content-type filtering, and error isolation</li>
+              <li><strong>HiAnime Integration:</strong> Secondary anime provider with MegaCloud CDN bypass 
+              via TLS fingerprint impersonation</li>
+              <li><strong>VIPRow Live Sports:</strong> Casthill stream extraction, boanki.net token auth, 
+              manifest rewriting, key/segment proxying</li>
+              <li><strong>PPV Events:</strong> Pay-per-view streaming through residential proxy</li>
+              <li><strong>CDN-Live Decoder:</strong> Dedicated decoder with proper Referer handling and URL rewriting</li>
+              <li><strong>IPTV Stalker:</strong> Portal-based IPTV with MAC authentication through RPI proxy</li>
+              <li><strong>MultiEmbed:</strong> Additional movie/TV provider with multi-source extraction</li>
+              <li><strong>Zod Validation:</strong> Runtime schema validation for content and stream data</li>
+              <li><strong>Backend Switching:</strong> DLHD channels now support multiple backends with 
+              obfuscated IDs (actual server names never exposed to client)</li>
+            </ul>
+
+            <h3>8.4 AnimeKai + HiAnime Dual System</h3>
+            <ul>
+              <li><strong>AnimeKai (Priority 30):</strong> Primary anime provider with native 183-table cipher</li>
+              <li><strong>HiAnime (Priority 35):</strong> Fallback provider with MegaCloud CDN</li>
               <li><strong>Sub/Dub Toggle:</strong> One click to switch audio tracks</li>
               <li><strong>Preference Memory:</strong> Remembers your sub/dub preference</li>
-              <li><strong>Multiple Servers:</strong> Mega, Yuki, and others with automatic fallback</li>
-              <li><strong>Auto-Detection:</strong> Japanese animation automatically uses AnimeKai</li>
+              <li><strong>Skip Intro/Outro:</strong> Automatic skip markers from provider metadata</li>
+              <li><strong>Auto-Detection:</strong> Japanese animation automatically uses anime providers</li>
             </ul>
           </section>
 
@@ -697,32 +827,34 @@ export default function AboutPage() {
                 <div>
                   <h4>Exploitation Is Optional</h4>
                   <p>Flyx operates without advertisements, tracking, or malware while providing 
-                  functional streaming. Exploitative practices are profit-maximizing choices, not 
-                  technical requirements.</p>
+                  functional streaming across 11 providers. Exploitative practices are profit-maximizing 
+                  choices, not technical requirements.</p>
                 </div>
               </div>
               <div className="finding">
                 <span className="number">2</span>
                 <div>
                   <h4>Zero-Cost Operation Is Achievable</h4>
-                  <p>The platform runs entirely on free tiers. Cloudflare Pages, D1, Workers. 
-                  The &quot;we need aggressive ads to pay for servers&quot; argument is demonstrably false.</p>
+                  <p>The platform runs entirely on free tiers plus a Raspberry Pi. Cloudflare Pages, 
+                  D1, Workers. The &quot;we need aggressive ads to pay for servers&quot; argument is 
+                  demonstrably false.</p>
                 </div>
               </div>
               <div className="finding">
                 <span className="number">3</span>
                 <div>
                   <h4>Security Through Obscurity Fails</h4>
-                  <p>Every provider we analyzed—from WASM binaries to PoW systems—was eventually 
-                  cracked. Obfuscation adds friction but not security.</p>
+                  <p>Every provider we analyzed—from WASM binaries to PoW systems to TLS fingerprinting 
+                  to 183-table ciphers—was eventually cracked. Obfuscation adds friction but not security.</p>
                 </div>
               </div>
               <div className="finding">
                 <span className="number">4</span>
                 <div>
-                  <h4>Solo Development Is Feasible</h4>
-                  <p>One person, working part-time, can build a production-quality streaming platform 
-                  with 8 providers, 850+ live channels, and hybrid anime integration.</p>
+                  <h4>Architecture Matters More Than Cleverness</h4>
+                  <p>The Provider Registry pattern—with error isolation, priority ordering, and automatic 
+                  fallback—proved more valuable than any individual extraction breakthrough. When DLHD 
+                  updates their security, only one adapter needs updating.</p>
                 </div>
               </div>
             </div>
@@ -746,15 +878,19 @@ export default function AboutPage() {
               obfuscation at any time, requiring ongoing maintenance.</li>
               <li>The legal status of content aggregation remains ambiguous in many jurisdictions.</li>
               <li>Some anime with absolute episode numbering require hardcoded overrides when MAL 
-              search fails (e.g., JJK Season 3).</li>
+              search fails.</li>
+              <li>CDNs that use TLS fingerprinting require residential proxy with curl-impersonate, 
+              adding latency.</li>
+              <li>IPTV Stalker portals may rotate MAC addresses or change authentication schemes.</li>
             </ul>
 
             <h3>10.3 The Cat-and-Mouse Reality</h3>
             <p>
               Reverse engineering streaming providers is an ongoing battle. DLHD updated their 
-              security twice in January 2026 alone (PoW authentication, then timestamp validation). 
-              The system is architected with this reality in mind—provider-specific adapters can be 
-              updated independently, and automated health checks monitor extraction success rates.
+              security three times in January 2026 alone. HiAnime added TLS fingerprinting. VIPRow 
+              rotates token endpoints. The Provider Registry architecture was designed for exactly 
+              this reality—provider-specific adapters can be updated independently, and the system 
+              gracefully degrades when individual providers fail.
             </p>
           </section>
 
@@ -764,11 +900,14 @@ export default function AboutPage() {
             
             <h3>11.1 Completed Since Initial Release</h3>
             <ul>
-              <li><strong>8 Providers:</strong> Vidsrc, VidLink, AnimeKai, MegaUp, Flixer, 111movies, DLHD, fallbacks</li>
-              <li><strong>Live TV:</strong> 850+ channels with PoW authentication</li>
-              <li><strong>Hybrid Anime:</strong> TMDB browse + MAL details with automatic episode mapping</li>
+              <li><strong>11 Providers:</strong> Flixer, VidLink, AnimeKai, HiAnime, VidSrc, MultiEmbed, 
+              DLHD, VIPRow, PPV, CDN-Live, IPTV</li>
+              <li><strong>Live TV:</strong> 850+ channels with PoW authentication and server-side decryption</li>
+              <li><strong>Live Sports:</strong> VIPRow with Casthill token refresh</li>
+              <li><strong>Hybrid Anime:</strong> TMDB browse + MAL details with dual provider support</li>
               <li><strong>Multi-Platform:</strong> Chromecast, AirPlay, TV navigation, Copy URL</li>
               <li><strong>Subtitle System:</strong> 29 languages, sync adjustment, non-UTF8 encoding</li>
+              <li><strong>Provider Registry:</strong> Unified architecture with error isolation</li>
             </ul>
 
             <h3>11.2 Still on the Roadmap</h3>
@@ -777,7 +916,7 @@ export default function AboutPage() {
               <li><strong>Progressive Web App:</strong> Offline capability and app-like experience</li>
               <li><strong>Internationalization:</strong> Multiple UI languages, RTL support</li>
               <li><strong>Watch Parties:</strong> Synchronized viewing with friends</li>
-              <li><strong>Provider Redundancy:</strong> Continuing to expand backup providers</li>
+              <li><strong>Provider Health Dashboard:</strong> Real-time monitoring of extraction success rates</li>
             </ul>
           </section>
 
@@ -787,13 +926,14 @@ export default function AboutPage() {
             <p className="lead">
               We built a streaming platform. It works. It does not assault users with pop-ups, mine 
               cryptocurrency on their CPUs, or track them across the web. And we did it alone, 
-              part-time, with no budget, over eight months of evenings and weekends.
+              part-time, with no budget, over ten months of evenings and weekends.
             </p>
             <p>
-              Eight providers cracked. 850+ live TV channels. Hybrid anime system with automatic 
-              episode mapping. Chromecast, AirPlay, TV navigation, Copy URL for external players. 
-              29-language subtitles with sync adjustment. All built by one person, still with no 
-              budget, still without exploiting a single user.
+              Eleven providers cracked. 850+ live TV channels. Live sports and PPV events. Hybrid 
+              anime system with dual providers and automatic episode mapping. Chromecast, AirPlay, 
+              TV navigation, Copy URL for external players. 29-language subtitles with sync adjustment. 
+              A unified Provider Registry that gracefully handles provider failures. All built by one 
+              person, still with no budget, still without exploiting a single user.
             </p>
             <p>
               That is the point. Not that we are special (we are not). Not that we are particularly 
@@ -810,12 +950,6 @@ export default function AboutPage() {
               proof that demonstrates not only that ethical streaming aggregation is possible, but 
               exactly how to build it.
             </p>
-            <p>
-              The pirate streaming sites can no longer hide behind claims of necessity. We have 
-              demonstrated that their entire business model can be replicated without the exploitation. 
-              The malware is optional. The cryptocurrency mining is optional. The seventeen pop-up 
-              advertisements are optional. They are choices, and those choices reveal priorities.
-            </p>
 
             <h3>12.2 On Fighting Piracy with Piracy</h3>
             <p>
@@ -823,32 +957,19 @@ export default function AboutPage() {
               engineer profit from content they do not own. We profit from... well, we do not profit 
               at all, which rather undermines the piracy metaphor, but the point stands.
             </p>
-            <p>
-              By demonstrating that their systems can be bypassed and their content accessed without 
-              supporting their exploitative practices, we remove their ability to profit from stolen 
-              content. If enough users choose ethical alternatives, the economics of malware-based 
-              streaming become untenable.
-            </p>
-            <p>
-              Is this piracy? Technically, yes. Is it ethical? That depends on your framework. But 
-              if you accept that the original pirate sites are unethical (and they are—they serve 
-              malware to users), then perhaps fighting them with their own methods has a certain 
-              moral symmetry.
-            </p>
 
             <h3>12.3 The Broader Implications</h3>
-            <p>
-              This project has implications beyond streaming. It demonstrates that:
-            </p>
             <ul>
               <li><strong>Exploitation is a choice:</strong> Services can operate without malware, 
-              tracking, or deceptive practices. The fact that many choose not to reveals their priorities.</li>
+              tracking, or deceptive practices.</li>
               <li><strong>Obfuscation is not security:</strong> Every protection we encountered was 
-              eventually bypassed. Security through obscurity fails given sufficient motivation.</li>
-              <li><strong>Solo development is viable:</strong> Modern tools and platforms enable 
-              individuals to build production-quality services that would have required teams a decade ago.</li>
-              <li><strong>Free tiers are generous:</strong> The economics of cloud computing have 
-              shifted dramatically. Services that would have cost thousands per month can now run for free.</li>
+              eventually bypassed. WASM, PoW, TLS fingerprinting, 183-table ciphers—all fell.</li>
+              <li><strong>Architecture outlasts cleverness:</strong> The Provider Registry pattern 
+              proved more valuable than any individual hack. Good architecture absorbs change.</li>
+              <li><strong>Solo development is viable:</strong> Modern tools enable individuals to build 
+              production-quality services that would have required teams a decade ago.</li>
+              <li><strong>Free tiers are generous:</strong> Cloudflare&apos;s free tier handles everything. 
+              Add a Raspberry Pi and you have a complete streaming infrastructure.</li>
             </ul>
 
             <blockquote>
@@ -861,30 +982,15 @@ export default function AboutPage() {
             <h3>12.4 A Message to Users</h3>
             <p>
               You deserve better. You do not have to accept malware as the price of free content. 
-              You do not have to tolerate cryptocurrency miners running on your device. You do not 
-              have to navigate seventeen pop-up advertisements to watch a video.
-            </p>
-            <p>
-              Alternatives can exist. This project is proof. Demand better from the services you use. 
-              And if they refuse to provide it, build it yourself. Or use something someone else built. 
-              The tools are available. The knowledge is documented. The only thing standing between 
-              you and a better internet is the willingness to build it.
+              Alternatives can exist. This project is proof. Demand better from the services you use.
             </p>
 
             <h3>12.5 A Message to Developers</h3>
             <p>
               If you have the skills to build something, build something good. The world has enough 
-              services that exploit users. It has enough dark patterns, enough deceptive interfaces, 
-              enough malware disguised as legitimate software.
-            </p>
-            <p>
-              Build something that respects users. Build something that prioritizes their experience 
-              over your profit margins. Build something you would be proud to show your parents, or 
-              your children, or anyone else whose opinion you value.
-            </p>
-            <p>
-              The economics work. The technology exists. The only question is whether you choose to 
-              use your skills for good or for profit. And if you can find a way to do both, even better.
+              services that exploit users. Build something that respects them. The economics work. 
+              The technology exists. The only question is whether you choose to use your skills for 
+              good or for profit. And if you can find a way to do both, even better.
             </p>
 
             <h3>12.6 Final Thoughts</h3>
@@ -896,20 +1002,9 @@ export default function AboutPage() {
             <p>
               And sometimes, proof is enough.
             </p>
-            <p>
-              To the pirate sites we reverse engineered: Thank you for the learning experience. Your 
-              obfuscation techniques were educational, if ultimately futile. We hope you enjoy reading 
-              about how we bypassed all of them.
-            </p>
-            <p>
-              To the users: You deserve better than malware. We hope this helps.
-            </p>
-            <p>
-              To the developers: Build good things. The world needs more of them.
-            </p>
             <p className="signature">
               <em>- Vynx, Professional Insomniac and Occasional Pirate Hunter</em><br/>
-              <em>January 2026</em>
+              <em>March 2026</em>
             </p>
           </section>
 
@@ -943,7 +1038,7 @@ export default function AboutPage() {
               publicly available APIs, and external hosting services over which we exercise no control.
             </p>
 
-            <h3>13.3 DMCA Compliance (Or: A Letter to Rights Holders)</h3>
+            <h3>13.3 DMCA Compliance</h3>
             <div className="dmca-notice">
               <h4>🏴‍☠️ Dear Rights Holders: Let&apos;s Talk</h4>
               <p>
@@ -954,47 +1049,22 @@ export default function AboutPage() {
               <p>
                 What we <em>do</em> is reverse engineer the obfuscation techniques of <strong>actual 
                 pirate streaming sites</strong>—the ones that are profiting from your content through 
-                malicious advertising, cryptocurrency mining, and browser hijacking. You know, the 
-                sites that are actually making money from your intellectual property.
+                malicious advertising, cryptocurrency mining, and browser hijacking.
               </p>
               <p>
                 We have spent hundreds of hours reverse engineering these operations. We know how 
-                they work. We know where they host their content. We know their CDN providers, their 
-                obfuscation techniques, their infrastructure, and in some cases, their approximate 
-                geographic locations based on server response times and TLS certificate authorities.
+                they work. We know their CDN providers, their obfuscation techniques, their 
+                infrastructure. If you want to take down the actual pirates, we would be happy to 
+                share our research. We are, in a sense, doing your job for free.
               </p>
               <p>
-                <strong>We would be more than happy to share our findings.</strong>
-              </p>
-              <p>
-                Your fight is with the pirate sites that are actually hosting and profiting from your 
-                content. We are just documenting how their systems work. But if you would like detailed 
-                technical documentation of their infrastructure, obfuscation methods, and operational 
-                patterns—information that might be useful in legal proceedings or takedown efforts—we 
-                are happy to provide it.
-              </p>
-              <p>
-                Think of us as unpaid security researchers who have thoroughly documented the systems 
-                you are trying to shut down. We are not your enemy. We might even be useful.
-              </p>
-              <p className="dmca-footer">
-                <strong>Contact:</strong> If you are a legitimate rights holder seeking information 
-                about pirate streaming infrastructure, we are open to discussion. If you are a pirate 
-                site operator who found this page and is now concerned about how much we know about 
-                your systems: Good. You should be.
+                <strong>Contact:</strong> legal@flyx.stream
               </p>
             </div>
 
-            <h3>13.4 Privacy</h3>
-            <p><strong>What We Do NOT Collect:</strong> Names, emails, addresses, phone numbers, 
-            payment info, biometric data, cross-site tracking.</p>
-            <p><strong>What We Do Collect:</strong> Anonymous session identifiers, aggregate usage 
-            statistics, anonymized error logs for debugging.</p>
-
             <div className="legal-footer">
-              <p><strong>Effective Date:</strong> November 2025</p>
-              <p><strong>Last Updated:</strong> January 2026</p>
-              <p><strong>Version:</strong> 1.2</p>
+              <p>Last updated: March 2026</p>
+              <p>This legal framework is subject to change.</p>
             </div>
           </section>
 
@@ -1002,26 +1072,20 @@ export default function AboutPage() {
           <section id="references">
             <h2>14. References</h2>
             <div className="references">
-              <p>[1] Rafique, M. Z., et al. (2016). It&apos;s free for a reason: Exploring the ecosystem 
-              of free live streaming services. <em>NDSS</em>.</p>
-              
-              <p>[2] Konoth, R. K., et al. (2018). MineSweeper: An in-depth look into drive-by 
-              cryptocurrency mining and its defense. <em>ACM CCS</em>.</p>
-              
-              <p>[3] Laperdrix, P., et al. (2020). Browser fingerprinting: A survey. <em>ACM 
-              Transactions on the Web</em>, 14(2), 1-33.</p>
-              
-              <p>[4] Gray, C. M., et al. (2018). The dark (patterns) side of UX design. <em>CHI 
-              Conference on Human Factors in Computing Systems</em>, 1-14.</p>
-              
-              <p>[5] DLHD January 2026 Security Update - Internal Documentation. Proof-of-Work 
-              authentication with HMAC-SHA256 + MD5 nonce computation.</p>
-              
-              <p>[6] AnimeKai Cipher Analysis - Internal Documentation. 183-table position-dependent 
-              substitution cipher reverse engineering.</p>
-              
-              <p>[7] Flixer WASM Cracking - Internal Documentation. Rust-compiled WebAssembly 
-              analysis using Ghidra and memory forensics.</p>
+              <p>[1] Rafique, M. Z., et al. (2016). &quot;It&apos;s Free for a Reason: Exploring the Ecosystem of Free Live Streaming Services.&quot; NDSS Symposium.</p>
+              <p>[2] Konoth, R. K., et al. (2018). &quot;MineSweeper: An In-depth Look into Drive-by Cryptocurrency Mining and Its Defense.&quot; ACM CCS.</p>
+              <p>[3] Gray, C. M., et al. (2018). &quot;The Dark (Patterns) Side of UX Design.&quot; CHI Conference on Human Factors in Computing Systems.</p>
+              <p>[4] Cloudflare. (2026). &quot;Workers Documentation.&quot; developers.cloudflare.com</p>
+              <p>[5] Next.js. (2026). &quot;App Router Documentation.&quot; nextjs.org/docs</p>
+              <p>[6] MyAnimeList. (2026). &quot;MAL API Documentation.&quot; myanimelist.net/apiconfig</p>
+              <p>[7] TMDB. (2026). &quot;The Movie Database API.&quot; developer.themoviedb.org</p>
+              <p>[8] NSA. (2024). &quot;Ghidra Software Reverse Engineering Framework.&quot; ghidra-sre.org</p>
+            </div>
+
+            <div className="back-link">
+              <p>
+                <Link href="/reverse-engineering">→ Read the full Reverse Engineering documentation</Link>
+              </p>
             </div>
           </section>
 
