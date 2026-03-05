@@ -1,0 +1,1815 @@
+{
+  "timestamp": "2026-01-28T21:40:23.770Z",
+  "stats": {
+    "total": 850,
+    "active": 850,
+    "inactive": 0,
+    "success": 622,
+    "failed": 228,
+    "successRate": "73.2%",
+    "elapsed": "1317.4"
+  },
+  "byServer": {
+    "nfs": {
+      "success": 106,
+      "channels": [
+        10,
+        1,
+        7,
+        9,
+        5,
+        8,
+        3,
+        2,
+        4,
+        11,
+        13,
+        16,
+        18,
+        17,
+        24,
+        19,
+        20,
+        26,
+        27,
+        29,
+        28,
+        32,
+        30,
+        31,
+        33,
+        34,
+        37,
+        48,
+        52,
+        77,
+        104,
+        128,
+        132,
+        133,
+        181,
+        180,
+        182,
+        183,
+        185,
+        186,
+        184,
+        188,
+        187,
+        190,
+        193,
+        191,
+        194,
+        192,
+        196,
+        195,
+        197,
+        198,
+        200,
+        199,
+        208,
+        222,
+        224,
+        225,
+        227,
+        229,
+        240,
+        241,
+        279,
+        283,
+        284,
+        288,
+        292,
+        294,
+        304,
+        307,
+        319,
+        334,
+        339,
+        343,
+        371,
+        389,
+        391,
+        395,
+        400,
+        402,
+        403,
+        575,
+        577,
+        585,
+        583,
+        644,
+        652,
+        656,
+        667,
+        690,
+        689,
+        693,
+        696,
+        709,
+        712,
+        713,
+        714,
+        742,
+        747,
+        762,
+        794,
+        796,
+        795,
+        816,
+        829,
+        838
+      ]
+    },
+    "zeko": {
+      "success": 127,
+      "channels": [
+        38,
+        36,
+        44,
+        54,
+        56,
+        62,
+        64,
+        67,
+        90,
+        111,
+        114,
+        113,
+        115,
+        118,
+        116,
+        117,
+        126,
+        123,
+        125,
+        141,
+        140,
+        142,
+        144,
+        143,
+        147,
+        145,
+        146,
+        265,
+        266,
+        267,
+        273,
+        272,
+        277,
+        293,
+        302,
+        301,
+        300,
+        306,
+        308,
+        309,
+        312,
+        313,
+        314,
+        315,
+        316,
+        318,
+        317,
+        321,
+        328,
+        335,
+        336,
+        338,
+        346,
+        347,
+        352,
+        351,
+        355,
+        364,
+        365,
+        367,
+        370,
+        372,
+        375,
+        373,
+        374,
+        378,
+        382,
+        379,
+        381,
+        383,
+        385,
+        386,
+        384,
+        405,
+        409,
+        411,
+        412,
+        413,
+        416,
+        419,
+        422,
+        421,
+        425,
+        430,
+        433,
+        435,
+        436,
+        437,
+        438,
+        446,
+        447,
+        448,
+        503,
+        501,
+        508,
+        509,
+        510,
+        524,
+        543,
+        546,
+        547,
+        555,
+        597,
+        602,
+        646,
+        699,
+        702,
+        704,
+        703,
+        705,
+        706,
+        707,
+        745,
+        758,
+        759,
+        763,
+        768,
+        767,
+        765,
+        775,
+        777,
+        791,
+        793,
+        799,
+        820,
+        822,
+        848
+      ]
+    },
+    "wind": {
+      "success": 127,
+      "channels": [
+        41,
+        43,
+        42,
+        47,
+        46,
+        49,
+        50,
+        58,
+        57,
+        59,
+        60,
+        61,
+        66,
+        68,
+        70,
+        71,
+        72,
+        75,
+        76,
+        80,
+        82,
+        84,
+        87,
+        89,
+        88,
+        121,
+        122,
+        124,
+        129,
+        134,
+        150,
+        155,
+        161,
+        162,
+        163,
+        164,
+        169,
+        171,
+        175,
+        176,
+        178,
+        177,
+        230,
+        231,
+        233,
+        234,
+        236,
+        237,
+        239,
+        259,
+        274,
+        276,
+        325,
+        324,
+        326,
+        329,
+        333,
+        337,
+        354,
+        360,
+        366,
+        376,
+        377,
+        390,
+        387,
+        397,
+        406,
+        410,
+        420,
+        429,
+        431,
+        443,
+        445,
+        451,
+        453,
+        457,
+        456,
+        458,
+        459,
+        463,
+        467,
+        466,
+        464,
+        470,
+        468,
+        473,
+        471,
+        475,
+        476,
+        479,
+        477,
+        481,
+        480,
+        484,
+        522,
+        541,
+        550,
+        554,
+        570,
+        580,
+        581,
+        578,
+        599,
+        600,
+        672,
+        671,
+        675,
+        674,
+        680,
+        678,
+        679,
+        683,
+        682,
+        684,
+        685,
+        688,
+        750,
+        753,
+        754,
+        776,
+        787,
+        788,
+        825,
+        824,
+        846,
+        847,
+        849
+      ]
+    },
+    "ddy6": {
+      "success": 140,
+      "channels": [
+        40,
+        55,
+        69,
+        73,
+        78,
+        83,
+        85,
+        100,
+        98,
+        105,
+        106,
+        102,
+        107,
+        109,
+        110,
+        127,
+        135,
+        136,
+        137,
+        139,
+        148,
+        149,
+        152,
+        151,
+        154,
+        160,
+        166,
+        172,
+        173,
+        174,
+        179,
+        202,
+        204,
+        207,
+        205,
+        206,
+        209,
+        211,
+        212,
+        215,
+        218,
+        216,
+        217,
+        223,
+        269,
+        268,
+        281,
+        287,
+        289,
+        290,
+        295,
+        296,
+        297,
+        298,
+        323,
+        342,
+        353,
+        358,
+        363,
+        361,
+        388,
+        393,
+        414,
+        415,
+        418,
+        426,
+        428,
+        432,
+        449,
+        454,
+        455,
+        461,
+        462,
+        486,
+        487,
+        488,
+        489,
+        494,
+        496,
+        495,
+        497,
+        498,
+        500,
+        499,
+        511,
+        514,
+        516,
+        518,
+        519,
+        520,
+        525,
+        540,
+        542,
+        553,
+        558,
+        557,
+        559,
+        576,
+        574,
+        611,
+        612,
+        613,
+        641,
+        655,
+        654,
+        662,
+        681,
+        687,
+        717,
+        716,
+        718,
+        722,
+        723,
+        725,
+        728,
+        729,
+        731,
+        734,
+        732,
+        735,
+        737,
+        736,
+        740,
+        739,
+        744,
+        746,
+        749,
+        756,
+        773,
+        770,
+        774,
+        771,
+        772,
+        809,
+        817,
+        819,
+        818,
+        826,
+        827,
+        850
+      ]
+    },
+    "dokko1": {
+      "success": 119,
+      "channels": [
+        65,
+        86,
+        91,
+        93,
+        92,
+        94,
+        95,
+        96,
+        130,
+        156,
+        157,
+        158,
+        159,
+        221,
+        219,
+        341,
+        349,
+        348,
+        350,
+        359,
+        357,
+        380,
+        444,
+        452,
+        460,
+        526,
+        530,
+        536,
+        532,
+        535,
+        527,
+        538,
+        528,
+        533,
+        539,
+        556,
+        560,
+        561,
+        562,
+        563,
+        566,
+        567,
+        568,
+        565,
+        571,
+        588,
+        589,
+        591,
+        590,
+        592,
+        594,
+        595,
+        596,
+        603,
+        601,
+        604,
+        605,
+        606,
+        607,
+        608,
+        609,
+        610,
+        622,
+        624,
+        625,
+        628,
+        627,
+        626,
+        629,
+        632,
+        631,
+        634,
+        635,
+        636,
+        638,
+        637,
+        642,
+        640,
+        643,
+        645,
+        650,
+        648,
+        649,
+        651,
+        657,
+        658,
+        659,
+        661,
+        663,
+        664,
+        665,
+        670,
+        669,
+        697,
+        751,
+        752,
+        778,
+        782,
+        781,
+        784,
+        798,
+        801,
+        800,
+        802,
+        803,
+        808,
+        810,
+        811,
+        813,
+        832,
+        833,
+        834,
+        835,
+        836,
+        837,
+        839,
+        841,
+        842,
+        845
+      ]
+    },
+    "wiki": {
+      "success": 3,
+      "channels": [
+        439,
+        440,
+        843
+      ]
+    }
+  },
+  "byError": {
+    "JWT_RETRY_EXHAUSTED": 168,
+    "LOOKUP_RETRY_EXHAUSTED": 56,
+    "NO_JWT_IN_PAGE": 1,
+    "M3U8_RETRY_EXHAUSTED": 3
+  },
+  "inactiveChannels": [],
+  "failedChannels": [
+    {
+      "channel": 25,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 12,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 6,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 23,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 15,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 14,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 22,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 21,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 35,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 51,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 99,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 103,
+      "error": "NO_JWT_IN_PAGE",
+      "server": "nfs"
+    },
+    {
+      "channel": 45,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 39,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 53,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 63,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 81,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 74,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 79,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 97,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 108,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 112,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 101,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 120,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 119,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 138,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 131,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 165,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 153,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 167,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 168,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 170,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 242,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 243,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 244,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 189,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 245,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 246,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 247,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 248,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 201,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 249,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 250,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 203,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 251,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 252,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 214,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 253,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 210,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 254,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 255,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 256,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 257,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 258,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 261,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 262,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 263,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 213,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 264,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 220,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 226,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 228,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 232,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 235,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 238,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 285,
+      "error": "M3U8_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 260,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 270,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 275,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 280,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 282,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 271,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 278,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 286,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 299,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 291,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 305,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 310,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 303,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 320,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 311,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 327,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 332,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 322,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 330,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 344,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 331,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 340,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 345,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 369,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 362,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 417,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 368,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 356,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 399,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 401,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 392,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 442,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 441,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 408,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 396,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 404,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 394,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 398,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 407,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 423,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 491,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 492,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 493,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 434,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 427,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 424,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 482,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 483,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 485,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 465,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 450,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 469,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 472,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 474,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 478,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 504,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 505,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 506,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 507,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 512,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 513,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 490,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 517,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 545,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 502,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 548,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 549,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 551,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 552,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 521,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 572,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 515,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 586,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 582,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 523,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 531,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 529,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 534,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 537,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 614,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 615,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 616,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 617,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 618,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 619,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 620,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 621,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 564,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 569,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 544,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 639,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 573,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 579,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 587,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 584,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 668,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 593,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 598,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 633,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 695,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 653,
+      "error": "M3U8_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 623,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 630,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 701,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 666,
+      "error": "M3U8_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 710,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 711,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 673,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 677,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 647,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 691,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 660,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 676,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 686,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 692,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 694,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 700,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 698,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 715,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 708,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 719,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 721,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 760,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 724,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 727,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 720,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 726,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 761,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 730,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 733,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 786,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 738,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 743,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 741,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 755,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    },
+    {
+      "channel": 748,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 757,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 766,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 769,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 764,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 812,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 815,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 779,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 780,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 785,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 783,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 789,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 823,
+      "error": "LOOKUP_RETRY_EXHAUSTED",
+      "server": null
+    },
+    {
+      "channel": 790,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 792,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 797,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 807,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 804,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 805,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 806,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 814,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 821,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "zeko"
+    },
+    {
+      "channel": 828,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 831,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "nfs"
+    },
+    {
+      "channel": 830,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "ddy6"
+    },
+    {
+      "channel": 840,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "dokko1"
+    },
+    {
+      "channel": 844,
+      "error": "JWT_RETRY_EXHAUSTED",
+      "server": "wind"
+    }
+  ]
+}

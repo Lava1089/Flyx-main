@@ -1,0 +1,1565 @@
+{
+  "timestamp": "2026-01-28T22:05:49.717Z",
+  "stats": {
+    "total": 850,
+    "active": 847,
+    "inactive": 3,
+    "encrypted": 634,
+    "unencrypted": 14,
+    "failed": 199,
+    "successRate": "76.5%",
+    "elapsed": "1469.1"
+  },
+  "byServer": {
+    "nfs": {
+      "encrypted": 102,
+      "unencrypted": 9,
+      "channels": [
+        1,
+        10,
+        7,
+        11,
+        8,
+        9,
+        3,
+        4,
+        5,
+        13,
+        2,
+        17,
+        16,
+        18,
+        19,
+        20,
+        27,
+        26,
+        28,
+        29,
+        30,
+        32,
+        31,
+        34,
+        33,
+        37,
+        48,
+        52,
+        77,
+        104,
+        128,
+        132,
+        133,
+        180,
+        183,
+        185,
+        181,
+        182,
+        184,
+        186,
+        187,
+        190,
+        191,
+        194,
+        192,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        208,
+        222,
+        225,
+        224,
+        226,
+        227,
+        228,
+        229,
+        240,
+        241,
+        283,
+        284,
+        288,
+        292,
+        294,
+        303,
+        304,
+        319,
+        322,
+        334,
+        339,
+        343,
+        345,
+        371,
+        389,
+        395,
+        401,
+        402,
+        403,
+        575,
+        583,
+        585,
+        644,
+        652,
+        656,
+        667,
+        689,
+        690,
+        693,
+        694,
+        696,
+        691,
+        712,
+        709,
+        714,
+        713,
+        742,
+        743,
+        747,
+        762,
+        764,
+        789,
+        794,
+        795,
+        796,
+        814,
+        816,
+        829,
+        831,
+        838
+      ]
+    },
+    "zeko": {
+      "encrypted": 130,
+      "unencrypted": 0,
+      "channels": [
+        38,
+        36,
+        44,
+        54,
+        56,
+        62,
+        64,
+        67,
+        90,
+        111,
+        114,
+        115,
+        116,
+        118,
+        117,
+        119,
+        123,
+        126,
+        125,
+        141,
+        142,
+        144,
+        81,
+        145,
+        146,
+        147,
+        213,
+        214,
+        265,
+        266,
+        272,
+        273,
+        277,
+        278,
+        300,
+        301,
+        306,
+        308,
+        309,
+        311,
+        313,
+        314,
+        315,
+        316,
+        318,
+        321,
+        328,
+        335,
+        336,
+        338,
+        344,
+        346,
+        347,
+        351,
+        364,
+        365,
+        370,
+        374,
+        372,
+        373,
+        375,
+        378,
+        379,
+        368,
+        382,
+        381,
+        383,
+        385,
+        386,
+        384,
+        404,
+        405,
+        409,
+        411,
+        412,
+        413,
+        416,
+        419,
+        422,
+        421,
+        425,
+        430,
+        435,
+        433,
+        436,
+        437,
+        438,
+        423,
+        446,
+        447,
+        448,
+        501,
+        502,
+        507,
+        506,
+        503,
+        504,
+        505,
+        508,
+        510,
+        509,
+        524,
+        543,
+        544,
+        547,
+        555,
+        598,
+        597,
+        602,
+        646,
+        699,
+        702,
+        704,
+        706,
+        707,
+        745,
+        758,
+        757,
+        759,
+        765,
+        768,
+        766,
+        775,
+        777,
+        791,
+        793,
+        799,
+        820,
+        822,
+        848
+      ]
+    },
+    "ddy6": {
+      "encrypted": 149,
+      "unencrypted": 2,
+      "channels": [
+        40,
+        55,
+        69,
+        73,
+        83,
+        85,
+        102,
+        98,
+        100,
+        105,
+        107,
+        106,
+        108,
+        109,
+        110,
+        120,
+        127,
+        135,
+        137,
+        139,
+        149,
+        148,
+        151,
+        152,
+        154,
+        160,
+        166,
+        165,
+        172,
+        173,
+        174,
+        179,
+        201,
+        202,
+        205,
+        206,
+        204,
+        209,
+        211,
+        212,
+        215,
+        216,
+        217,
+        218,
+        223,
+        268,
+        269,
+        281,
+        286,
+        287,
+        289,
+        295,
+        296,
+        297,
+        298,
+        299,
+        291,
+        323,
+        342,
+        356,
+        353,
+        358,
+        361,
+        363,
+        369,
+        388,
+        393,
+        414,
+        415,
+        418,
+        428,
+        432,
+        427,
+        434,
+        449,
+        454,
+        455,
+        461,
+        462,
+        482,
+        474,
+        488,
+        489,
+        490,
+        487,
+        486,
+        496,
+        495,
+        497,
+        494,
+        498,
+        500,
+        499,
+        513,
+        512,
+        514,
+        517,
+        519,
+        520,
+        525,
+        540,
+        553,
+        557,
+        558,
+        559,
+        574,
+        576,
+        611,
+        612,
+        613,
+        654,
+        662,
+        681,
+        687,
+        717,
+        716,
+        718,
+        719,
+        721,
+        720,
+        722,
+        723,
+        724,
+        725,
+        727,
+        730,
+        726,
+        728,
+        731,
+        734,
+        735,
+        733,
+        732,
+        738,
+        736,
+        737,
+        739,
+        741,
+        744,
+        746,
+        749,
+        756,
+        771,
+        770,
+        772,
+        809,
+        818,
+        817,
+        819,
+        826,
+        828
+      ]
+    },
+    "wind": {
+      "encrypted": 134,
+      "unencrypted": 1,
+      "channels": [
+        41,
+        43,
+        46,
+        47,
+        49,
+        50,
+        53,
+        57,
+        59,
+        60,
+        61,
+        66,
+        68,
+        70,
+        72,
+        71,
+        75,
+        76,
+        82,
+        80,
+        84,
+        87,
+        88,
+        89,
+        122,
+        121,
+        124,
+        129,
+        134,
+        150,
+        155,
+        161,
+        162,
+        163,
+        164,
+        171,
+        175,
+        176,
+        178,
+        177,
+        231,
+        233,
+        235,
+        234,
+        236,
+        237,
+        239,
+        259,
+        260,
+        274,
+        276,
+        324,
+        325,
+        327,
+        326,
+        329,
+        333,
+        331,
+        332,
+        337,
+        340,
+        354,
+        360,
+        366,
+        377,
+        376,
+        387,
+        390,
+        397,
+        399,
+        396,
+        406,
+        410,
+        420,
+        429,
+        431,
+        443,
+        445,
+        451,
+        453,
+        459,
+        457,
+        458,
+        465,
+        464,
+        463,
+        466,
+        467,
+        468,
+        471,
+        473,
+        470,
+        477,
+        476,
+        475,
+        478,
+        481,
+        483,
+        480,
+        484,
+        485,
+        522,
+        541,
+        550,
+        554,
+        570,
+        578,
+        580,
+        581,
+        579,
+        599,
+        672,
+        671,
+        674,
+        676,
+        678,
+        679,
+        680,
+        682,
+        683,
+        684,
+        685,
+        688,
+        750,
+        754,
+        753,
+        776,
+        787,
+        788,
+        825,
+        824,
+        844,
+        847,
+        846,
+        849
+      ]
+    },
+    "dokko1": {
+      "encrypted": 117,
+      "unencrypted": 2,
+      "channels": [
+        65,
+        74,
+        86,
+        93,
+        94,
+        95,
+        91,
+        92,
+        96,
+        130,
+        153,
+        157,
+        156,
+        158,
+        159,
+        219,
+        220,
+        270,
+        348,
+        349,
+        350,
+        357,
+        380,
+        444,
+        452,
+        460,
+        523,
+        526,
+        529,
+        528,
+        530,
+        531,
+        532,
+        533,
+        535,
+        536,
+        538,
+        539,
+        534,
+        562,
+        564,
+        565,
+        567,
+        568,
+        571,
+        584,
+        588,
+        591,
+        589,
+        590,
+        592,
+        594,
+        595,
+        596,
+        601,
+        604,
+        605,
+        603,
+        609,
+        608,
+        607,
+        610,
+        622,
+        624,
+        625,
+        623,
+        627,
+        629,
+        630,
+        631,
+        632,
+        635,
+        636,
+        634,
+        626,
+        638,
+        637,
+        640,
+        642,
+        643,
+        645,
+        648,
+        649,
+        650,
+        651,
+        657,
+        658,
+        659,
+        664,
+        663,
+        669,
+        698,
+        697,
+        751,
+        752,
+        778,
+        781,
+        782,
+        783,
+        784,
+        797,
+        798,
+        801,
+        803,
+        808,
+        810,
+        811,
+        813,
+        832,
+        833,
+        834,
+        835,
+        836,
+        839,
+        837,
+        840,
+        842,
+        841,
+        845
+      ]
+    },
+    "wiki": {
+      "encrypted": 2,
+      "unencrypted": 0,
+      "channels": [
+        439,
+        440
+      ]
+    }
+  },
+  "byError": {
+    "JWT_FAIL_AFTER_RETRIES": 150,
+    "LOOKUP_FAIL": 45,
+    "M3U8_FAIL": 4
+  },
+  "inactiveChannels": [
+    103,
+    290,
+    577
+  ],
+  "unencryptedChannels": [
+    {
+      "channel": 222,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium222/mono.css"
+    },
+    {
+      "channel": 283,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium283/mono.css"
+    },
+    {
+      "channel": 284,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium284/mono.css"
+    },
+    {
+      "channel": 304,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium304/mono.css"
+    },
+    {
+      "channel": 339,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium339/mono.css"
+    },
+    {
+      "channel": 343,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium343/mono.css"
+    },
+    {
+      "channel": 345,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium345/mono.css"
+    },
+    {
+      "channel": 371,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium371/mono.css"
+    },
+    {
+      "channel": 380,
+      "m3u8": "https://dokko1.dvalna.ru/dokko1/premium380/mono.css"
+    },
+    {
+      "channel": 428,
+      "m3u8": "https://ddy6.dvalna.ru/ddy6/premium428/mono.css"
+    },
+    {
+      "channel": 443,
+      "m3u8": "https://wind.dvalna.ru/wind/premium443/mono.css"
+    },
+    {
+      "channel": 513,
+      "m3u8": "https://ddy6.dvalna.ru/ddy6/premium513/mono.css"
+    },
+    {
+      "channel": 652,
+      "m3u8": "https://nfs.dvalna.ru/nfs/premium652/mono.css"
+    },
+    {
+      "channel": 842,
+      "m3u8": "https://dokko1.dvalna.ru/dokko1/premium842/mono.css"
+    }
+  ],
+  "failedChannels": [
+    {
+      "channel": 6,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 24,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 14,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 23,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 15,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 12,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 22,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 21,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 25,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 35,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 42,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 45,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 39,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 51,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 99,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 58,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 63,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 78,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 79,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 101,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 112,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 97,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 140,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 113,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 136,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 131,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 138,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 143,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 170,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 168,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 167,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 243,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 242,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 244,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 188,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 169,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 189,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 246,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 245,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 247,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 248,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 249,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 193,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 250,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 251,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 252,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 203,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 255,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 253,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 254,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 256,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 258,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 210,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 261,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 263,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 264,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 230,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 207,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 232,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 238,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 221,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 285,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channel": 257,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 262,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 267,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 275,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 271,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 293,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 280,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 282,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 279,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 305,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 302,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 310,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 307,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 312,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 317,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 320,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 341,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 355,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 330,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 352,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 367,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 359,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 362,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 417,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 392,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 391,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 442,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 441,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 394,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 398,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 400,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 408,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 407,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 493,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 426,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 424,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 450,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 456,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 472,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 469,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 479,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 545,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 492,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 549,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 548,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 551,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 515,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 518,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 521,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 511,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 491,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 572,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 516,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 527,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 582,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 586,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 537,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 546,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 542,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 560,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 614,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 561,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 615,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 552,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 556,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 573,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 566,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 617,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 618,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 569,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 563,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 620,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 639,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 593,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 587,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 606,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 653,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channel": 600,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 666,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channel": 621,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 616,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 619,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 628,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 633,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 647,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 641,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 660,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 655,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 695,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 701,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 661,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 668,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 665,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 670,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 710,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 673,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 675,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 677,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 692,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 686,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 761,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 760,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 703,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 705,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 700,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 708,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 711,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 715,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 729,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 740,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 748,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 792,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channel": 763,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 767,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 755,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 769,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 774,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 780,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 812,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 773,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 779,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 786,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 815,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 785,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 823,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channel": 790,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 804,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 805,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 800,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 802,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 807,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 806,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 827,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 821,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 830,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 843,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    },
+    {
+      "channel": 850,
+      "error": "JWT_FAIL_AFTER_RETRIES"
+    }
+  ]
+}

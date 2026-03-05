@@ -1,0 +1,19 @@
+#EXTM3U
+# Powered by V.CDN 1.5.7
+#EXT-X-MEDIA-SEQUENCE:22366
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:5
+#EXT-X-PROGRAM-DATE-TIME:2026-01-29T21:28:48.562+00:00
+#EXTINF:4.004,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2Fkvr9wsepswsh.css&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899073&iv=303030303030303030303030697bd090
+#EXTINF:4.004,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2Ft2qh426fryqm.txt&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899073&iv=303030303030303030303030697bd090
+#EXTINF:4.004,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2F9wbqhogobl7v.js&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899073&iv=303030303030303030303030697bd090
+#EXTINF:4.004,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2Fs3ctvc05xhcl.html&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899073&iv=303030303030303030303030697bd090
+#EXTINF:1.902,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2Fa7f4037c4kyb.html&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899073&iv=303030303030303030303030697bd090
+#EXT-X-DISCONTINUITY
+#EXTINF:4.104,
+https://dlhd.vynx.workers.dev/dlhdprivate?url=https%3A%2F%2Fbackend.allaivideo.fun%2Fassets%2F2026-01-29%2F21%2Fpremium392%2Fagthtx39i0g7.txt&jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmVtaXVtMzkyIiwiY291bnRyeSI6IlVTIiwiaWF0IjoxNzY5NzIyMzExLCJleHAiOjE3Njk3NDAzMTF9.H8Wludx7I84LYsN4auz9SA-5uq1Yyt2mPIsFxbAfhzk&keyUrl=https%3A%2F%2Fchevy.dvalna.ru%2Fkey%2Fpremium392%2F5899074&iv=303030303030303030303030697bd1ac

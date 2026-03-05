@@ -1,0 +1,1013 @@
+{
+  "timestamp": "2026-01-28T22:23:54.938Z",
+  "rechecked": 154,
+  "recovered": 75,
+  "stillFailing": 79,
+  "byError": {
+    "JWT_FAIL": 65,
+    "LOOKUP_FAIL": 11,
+    "M3U8_FAIL": 3
+  },
+  "recoveredChannels": [
+    {
+      "channelId": 12,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium12/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium12/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 22,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium22/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium22/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 23,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium23/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium23/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 14,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium14/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium14/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 21,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium21/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium21/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 15,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium15/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium15/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 24,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium24/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium24/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 35,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium35/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium35/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 45,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium45/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium45/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 101,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium101/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium101/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 63,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium63/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium63/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 51,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium51/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium51/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 112,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium112/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium112/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 79,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium79/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium79/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 97,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium97/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium97/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 140,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium140/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium140/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 170,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium170/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium170/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 143,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium143/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium143/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 131,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium131/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium131/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 138,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium138/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium138/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 168,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium168/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium168/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 189,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium189/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium189/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 193,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium193/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium193/5897975",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 221,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium221/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium221/5897401",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 203,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium203/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium203/5897704",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 232,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium232/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium232/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 207,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium207/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium207/5897631",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 282,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium282/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium282/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 267,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium267/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium267/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 271,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium271/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium271/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 279,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium279/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium279/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 310,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium310/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium310/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 341,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium341/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium341/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 367,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium367/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium367/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 359,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium359/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium359/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 392,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium392/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium392/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 398,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium398/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium398/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 407,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium407/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium407/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 394,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium394/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium394/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 424,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium424/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium424/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 408,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium408/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium408/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 450,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium450/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium450/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 456,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium456/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium456/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 521,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium521/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium521/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 479,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium479/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium479/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 527,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium527/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium527/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 561,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium561/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium561/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 537,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium537/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium537/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 546,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium546/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.kiko2.ru/key/premium546/5891736",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 573,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium573/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium573/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 560,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium560/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium560/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 563,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium563/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium563/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 593,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium593/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium593/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 587,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium587/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium587/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 628,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium628/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium628/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 633,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium633/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.kiko2.ru/key/premium633/5889154",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 641,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium641/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium641/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 670,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium670/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium670/5898795",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 661,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium661/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium661/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 673,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium673/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium673/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 665,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium665/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium665/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 705,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium705/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium705/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 675,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium675/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium675/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 692,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium692/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.kiko2.ru/key/premium692/5890199",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 708,
+      "server": "nfs",
+      "m3u8Url": "https://nfs.dvalna.ru/nfs/premium708/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium708/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 686,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium686/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium686/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 700,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium700/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium700/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 715,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium715/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium715/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 792,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium792/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium792/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 729,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium729/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium729/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 755,
+      "server": "wind",
+      "m3u8Url": "https://wind.dvalna.ru/wind/premium755/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium755/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 769,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium769/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium769/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 767,
+      "server": "zeko",
+      "m3u8Url": "https://zeko.dvalna.ru/zeko/premium767/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium767/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 773,
+      "server": "ddy6",
+      "m3u8Url": "https://ddy6.dvalna.ru/ddy6/premium773/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium773/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    },
+    {
+      "channelId": 779,
+      "server": "dokko1",
+      "m3u8Url": "https://dokko1.dvalna.ru/dokko1/premium779/mono.css",
+      "domain": "dvalna.ru",
+      "keyUrl": "https://chevy.dvalna.ru/key/premium779/5898796",
+      "isEncrypted": true,
+      "status": "SUCCESS"
+    }
+  ],
+  "failedChannels": [
+    {
+      "channelId": 6,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 25,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 42,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 39,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 58,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 78,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 188,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 113,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 136,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 167,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 169,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 230,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 210,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 238,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 257,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 262,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 275,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 293,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 280,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 305,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 302,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 307,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 312,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 317,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 320,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 285,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channelId": 355,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 330,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 352,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 362,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 391,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 400,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 426,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 492,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 472,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 469,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 515,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 491,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 518,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 511,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 516,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 552,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 542,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 556,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 566,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 569,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 606,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 621,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 600,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 616,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 619,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 647,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 668,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 660,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 655,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 653,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channelId": 666,
+      "error": "M3U8_FAIL"
+    },
+    {
+      "channelId": 677,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 711,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 703,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 748,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 740,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 763,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 774,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 780,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 786,
+      "error": "LOOKUP_FAIL"
+    },
+    {
+      "channelId": 785,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 790,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 805,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 804,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 800,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 802,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 807,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 806,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 827,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 821,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 830,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 843,
+      "error": "JWT_FAIL"
+    },
+    {
+      "channelId": 850,
+      "error": "JWT_FAIL"
+    }
+  ],
+  "finalTotals": {
+    "active": 802,
+    "success": 723,
+    "encrypted": 709,
+    "unencrypted": 14,
+    "failed": 79
+  }
+}

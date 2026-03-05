@@ -1,0 +1,21 @@
+name = "dlhd"
+main = "src/index.ts"
+compatibility_date = "2024-01-17"
+
+# Uncomment if you need KV namespace for rate limiting
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "your-kv-namespace-id"
+# preview_id = "your-preview-kv-namespace-id"
+
+# Environment variables (set via wrangler secret)
+# API_KEYS - comma-separated list of valid API keys
+# RPI_PROXY_URL - URL of the RPI proxy for bypassing Cloudflare
+# RPI_PROXY_API_KEY - API key for the RPI proxy
+
+[vars]
+RATE_LIMIT_WINDOW_MS = "60000"
+RATE_LIMIT_MAX_REQUESTS = "100"
+API_KEYS = "vynx"
+RPI_PROXY_URL = "https://rpi-proxy.vynx.cc"
+RPI_PROXY_API_KEY = "5f1845926d725bb2a8230a6ed231fce1d03f07782f74a3f683c30ec04d4ac560"

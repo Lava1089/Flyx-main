@@ -1,0 +1,20 @@
+﻿#EXTM3U
+# Powered by V.CDN 1.5.7
+#EXT-X-MEDIA-SEQUENCE:24323
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:5
+#EXT-X-KEY:METHOD=AES-128,URI="https://chevy.dvalna.ru/key/premium51/5899083",IV=0x303030303030303030303030697bdbe0,KEYFORMAT="identity"
+#EXT-X-PROGRAM-DATE-TIME:2026-01-29T22:17:38.247+00:00
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/wejoukpkpprb.txt
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/6tsifsl555yn.js
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/ssjuxhh0mv2t.js
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/tvkgmgu8du5d.js
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/9wjs7o7qdro3.css
+#EXTINF:4.004,
+https://backend.allaivideo.fun/assets/2026-01-29/22/premium51/jy71tovn8jkl.txt
+

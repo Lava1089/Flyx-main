@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>DLHD Stream Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
+    video { width: 100%; max-width: 800px; background: #000; }
+    .status { margin: 10px 0; padding: 10px; background: #333; border-radius: 4px; }
+    .error { background: #500; }
+    .success { background: #050; }
+    input { width: 100%; max-width: 600px; padding: 8px; margin: 5px 0; }
+    button { padding: 8px 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>DLHD Stream Test Player</h1>
+  
+  <div>
+    <label>Channel ID:</label>
+    <input type="number" id="channelId" value="51" min="1" max="500">
+    <button onclick="loadStream()">Load Stream</button>
+  </div>
+  
+  <div class="status" id="status">Ready</div>
+  
+  <video id="video" controls></video>
+  
+  <div id="log" style="margin-top: 20px; font-family: monospace; font-size: 12px;"></div>
+  
+  <script>
+    const video = document.getElementById('video');
+    const status = document.getElementById('status');
+    const log = document.getElementById('log');
+    let hls = null;
+    
+    function addLog(msg) {
+      const time = new Date().toLocaleTimeString();
+      log.innerHTML = `[${time}] ${msg}<br>` + log.innerHTML;
+    }
+    
+    function loadStream() {
+      const channelId = document.getElementById('channelId').value;
+      const streamUrl = `https://dlhd.vynx.workers.dev/play/${channelId}?key=vynx`;
+      
+      addLog(`Loading stream: ${streamUrl}`);
+      status.textContent = 'Loading...';
+      status.className = 'status';
+      
+      if (hls) {
+        hls.destroy();
+      }
+      
+      if (Hls.isSupported()) {
+        hls = new Hls({
+          debug: false,
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90
+        });
+        
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          addLog('Manifest parsed, starting playback');
+          status.textContent = 'Playing';
+          status.className = 'status success';
+          video.play();
+        });
+        
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          addLog(`Error: ${data.type} - ${data.details}`);
+          if (data.fatal) {
+            status.textContent = `Fatal error: ${data.details}`;
+            status.className = 'status error';
+            
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                addLog('Network error, trying to recover...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                addLog('Media error, trying to recover...');
+                hls.recoverMediaError();
+                break;
+              default:
+                addLog('Cannot recover, destroying HLS');
+                hls.destroy();
+                break;
+            }
+          }
+        });
+        
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          addLog(`Fragment loaded: ${data.frag.sn} (${Math.round(data.stats.total / 1024)}KB)`);
+        });
+        
+        hls.on(Hls.Events.KEY_LOADED, (event, data) => {
+          addLog('Encryption key loaded');
+        });
+        
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        video.src = streamUrl;
+        video.addEventListener('loadedmetadata', () => {
+          status.textContent = 'Playing (native HLS)';
+          status.className = 'status success';
+          video.play();
+        });
+      } else {
+        status.textContent = 'HLS not supported in this browser';
+        status.className = 'status error';
+      }
+    }
+    
+    // Auto-load on page load
+    window.onload = loadStream;
+  </script>
+</body>
+</html>
