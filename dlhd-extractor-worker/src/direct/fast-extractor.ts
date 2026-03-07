@@ -31,14 +31,19 @@ const ALL_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'] as const;
 
 // All known DLHD domains for M3U8 proxy
 // SECURITY: Keep these private - don't expose via public APIs  
-// UPDATED Feb 28, 2026: Added vovlacosa.sbs (new lookup domain found in player page)
-const ALL_DOMAINS = ['adsfadfds.cfd', 'soyspace.cyou'] as const;
+// UPDATED Mar 2026: adsfadfds.cfd is DEAD (CF 403). soyspace.cyou is primary.
+// New key domain: go.ai-chatx.site (reCAPTCHA-gated, browser fetches keys directly)
+// Mar 7 2026: Player script now uses go.ai-chatx.site/proxy/ as primary M3U8 proxy too
+const ALL_DOMAINS = ['soyspace.cyou'] as const;
 
 // Domains for server_lookup API (ordered by reliability)
-const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'adsfadfds.cfd', 'soyspace.cyou'] as const;
+const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'] as const;
 
 // Default domain (for M3U8 proxy)
-const DEFAULT_DOMAIN = 'adsfadfds.cfd';
+const DEFAULT_DOMAIN = 'soyspace.cyou';
+
+// Key domain - browser fetches keys directly from here after reCAPTCHA whitelist
+export const KEY_DOMAIN = 'go.ai-chatx.site';
 
 // Fallback request timeout (ms)
 const FALLBACK_REQUEST_TIMEOUT = 8000;
@@ -83,8 +88,8 @@ export async function lookupServer(channelId: number): Promise<string | null> {
         {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.ksohls.ru/',
-            'Origin': 'https://www.ksohls.ru',
+            'Referer': 'https://adffdafdsafds.sbs/',
+            'Origin': 'https://adffdafdsafds.sbs',
           },
           signal: controller.signal,
         }
@@ -180,9 +185,8 @@ export function getServerForChannel(channelId: number): string | null {
 
 /**
  * Build M3U8 URL for a channel on a specific server/domain
- * UPDATED Feb 25, 2026: M3U8 now served via proxy pattern
- * OLD: https://{server}new.dvalna.ru/{server}/premium{ch}/mono.css
- * NEW: https://chevy.adsfadfds.cfd/proxy/{server}/premium{ch}/mono.css
+ * UPDATED Mar 2026: M3U8 now served via chevy.soyspace.cyou proxy
+ * NEW: https://chevy.soyspace.cyou/proxy/{server}/premium{ch}/mono.css
  */
 function buildM3U8Url(channelId: string, server: string, domain: string = DEFAULT_DOMAIN): string {
   const channelKey = `premium${channelId}`;
@@ -220,11 +224,12 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   const m3u8Url = buildM3U8Url(channelId, server);
 
   // Step 3: Build headers - NO AUTH NEEDED for M3U8!
+  // Updated Mar 2026: Referer changed to adffdafdsafds.sbs (new player domain)
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://www.ksohls.ru/',
-    'Origin': 'https://www.ksohls.ru',
+    'Referer': 'https://adffdafdsafds.sbs/',
+    'Origin': 'https://adffdafdsafds.sbs',
   };
 
   const elapsed = Date.now() - startTime;
@@ -233,8 +238,8 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   return {
     m3u8Url,
     headers,
-    referer: 'https://www.ksohls.ru/',
-    origin: 'https://www.ksohls.ru',
+    referer: 'https://adffdafdsafds.sbs/',
+    origin: 'https://adffdafdsafds.sbs',
     quality: undefined,
     isEncrypted: true,
   };
@@ -321,8 +326,8 @@ export async function extractWithFallback(
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://www.ksohls.ru/',
-          'Origin': 'https://www.ksohls.ru',
+          'Referer': 'https://adffdafdsafds.sbs/',
+          'Origin': 'https://adffdafdsafds.sbs',
           'Authorization': `Bearer ${token}`,
         }));
 
@@ -352,12 +357,12 @@ export async function extractWithFallback(
                   headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': '*/*',
-                    'Referer': 'https://www.ksohls.ru/',
-                    'Origin': 'https://www.ksohls.ru',
+                    'Referer': 'https://adffdafdsafds.sbs/',
+                    'Origin': 'https://adffdafdsafds.sbs',
                     'Authorization': `Bearer ${token}`,
                   },
-                  referer: 'https://www.ksohls.ru/',
-                  origin: 'https://www.ksohls.ru',
+                  referer: 'https://adffdafdsafds.sbs/',
+                  origin: 'https://adffdafdsafds.sbs',
                   quality: undefined,
                   isEncrypted: true,
                 },
@@ -447,7 +452,7 @@ export function getAllDomains(): readonly string[] {
 /**
  * Generate auth token for a channel (V5 EPlayerAuth)
  * 
- * This fetches the authToken from www.ksohls.ru which is MUCH faster
+ * This fetches the authToken from the player page which is MUCH faster
  * than hitsplay.fun (~300ms vs ~14000ms).
  * 
  * The authToken is a pipe-delimited string:
@@ -460,7 +465,7 @@ export async function generateJWT(channelId: string): Promise<{ token: string; c
   const chNum = parseInt(channelId, 10);
   const channelKey = `premium${chNum}`;
   
-  // Fetch auth data from www.ksohls.ru (fast endpoint)
+  // Fetch auth data from player page (adffdafdsafds.sbs primary, www.ksohls.ru fallback)
   const authData = await fetchAuthData(channelId);
   
   if (authData && authData.authToken) {

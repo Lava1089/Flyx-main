@@ -20,7 +20,7 @@ import { encodeProxyUrl, resolveUrl, getResourceType, encodeBase64Url } from './
  * Domains with custom encryption format (32-byte header with IV)
  * Client needs to handle the custom header format for these domains
  */
-const CUSTOM_ENCRYPTION_DOMAINS = ['dvalna.ru', 'soyspace.cyou', 'adsfadfds.cfd'];
+const CUSTOM_ENCRYPTION_DOMAINS = ['dvalna.ru', 'soyspace.cyou'];
 
 /**
  * M3U8 tag types that contain URLs

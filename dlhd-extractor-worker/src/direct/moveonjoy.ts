@@ -1,12 +1,12 @@
 /**
- * Moveonjoy.com Backend - NO AUTH, NO ENCRYPTION
+ * Moveonjoy.com Backend - DISABLED (March 2026)
  * 
- * Direct M3U8 access with no authentication or key fetching needed.
- * This is the fastest and most reliable backend when available.
+ * All moveonjoy.com URLs return 404 as of March 2026.
+ * Keeping the module for reference but all functions return false/null
+ * to avoid wasting time on requests that will fail.
  * 
+ * Previously: Direct M3U8 access with no authentication or key fetching needed.
  * Master playlist: https://fl{N}.moveonjoy.com/{STREAM_NAME}/index.m3u8
- * Media playlist:  https://fl{N}.moveonjoy.com/{STREAM_NAME}/tracks-v1a1/mono.m3u8
- * Segments:        https://fl{N}.moveonjoy.com/{STREAM_NAME}/tracks-v1a1/{date}/{time}.ts
  */
 
 // Channel ID -> moveonjoy URL mapping
@@ -67,9 +67,10 @@ const MOVEONJOY_CHANNELS: Record<string, { url: string; name: string }> = {
 
 /**
  * Check if a channel has a moveonjoy backend available
+ * DISABLED March 2026: All moveonjoy URLs return 404
  */
-export function hasMoveonjoyChannel(channelId: string): boolean {
-  return channelId in MOVEONJOY_CHANNELS;
+export function hasMoveonjoyChannel(_channelId: string): boolean {
+  return false; // Moveonjoy is dead as of March 2026
 }
 
 /**

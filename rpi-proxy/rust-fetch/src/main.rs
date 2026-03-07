@@ -2,10 +2,217 @@ use anyhow::{Context, Result, bail};
 use reqwest::{header, Client};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::Duration;
 
 mod animekai;
 mod animekai_tables;
+
+// ─── reCAPTCHA v3 HTTP-only bypass ─────────────────────
+// Replicates the api2/anchor → api2/reload flow used by PyPasser,
+// go-recaptcha-v3-bypass, and s0ftik3/recaptcha-bypass.
+// No browser needed — pure HTTP with Chrome TLS fingerprint.
+
+mod recaptcha_v3 {
+    use anyhow::{Context, Result, bail};
+    use reqwest::Client;
+
+    /// Extract the reCAPTCHA JS version string from the API JS loader
+    async fn get_recaptcha_version(client: &Client) -> Result<String> {
+        let js_url = "https://www.google.com/recaptcha/api.js?render=explicit";
+        let body = client.get(js_url)
+            .header("Referer", "https://adffdafdsafds.sbs/")
+            .send().await.context("fetch recaptcha api.js")?
+            .text().await.context("read api.js body")?;
+        
+        // Look for releases/VERSION or v=VERSION pattern
+        // e.g. "https://www.gstatic.com/recaptcha/releases/u-xcq3POCWFlCr3x8_IPxgPu/recaptcha__en.js"
+        if let Some(start) = body.find("releases/") {
+            let rest = &body[start + 9..];
+            if let Some(end) = rest.find('/') {
+                let version = &rest[..end];
+                if !version.is_empty() && version.len() < 60 {
+                    return Ok(version.to_string());
+                }
+            }
+        }
+        
+        // Fallback: try fetching the enterprise loader
+        let enterprise_url = "https://www.google.com/recaptcha/enterprise.js?render=explicit";
+        let body2 = client.get(enterprise_url)
+            .header("Referer", "https://adffdafdsafds.sbs/")
+            .send().await.unwrap_or_else(|_| panic!("enterprise fetch"))
+            .text().await.unwrap_or_default();
+        
+        if let Some(start) = body2.find("releases/") {
+            let rest = &body2[start + 9..];
+            if let Some(end) = rest.find('/') {
+                let version = &rest[..end];
+                if !version.is_empty() && version.len() < 60 {
+                    return Ok(version.to_string());
+                }
+            }
+        }
+        
+        bail!("could not extract reCAPTCHA version from api.js")
+    }
+
+    /// Get reCAPTCHA v3 token via HTTP-only anchor/reload flow
+    pub async fn solve(
+        client: &Client,
+        site_key: &str,
+        page_url: &str,
+        action: &str,
+    ) -> Result<String> {
+        // 1. Extract version
+        let version = get_recaptcha_version(client).await?;
+        eprintln!("[recaptcha-v3] version={}", version);
+
+        // 2. Build co param (base64 of origin with port)
+        let parsed = url::Url::parse(page_url).context("bad page URL")?;
+        let origin_with_port = format!("{}://{}:{}",
+            parsed.scheme(),
+            parsed.host_str().unwrap_or(""),
+            if parsed.scheme() == "https" { 443 } else { 80 }
+        );
+        let co = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            origin_with_port.as_bytes(),
+        );
+        // reCAPTCHA uses URL-safe base64 with trailing dot
+        let co = format!("{}.", co.trim_end_matches('='));
+        eprintln!("[recaptcha-v3] co={}", co);
+
+        // 3. Random callback
+        let cb = format!("cb{}", rand::random::<u32>() % 999999);
+
+        // 4. GET anchor page
+        let anchor_url = format!(
+            "https://www.google.com/recaptcha/api2/anchor?ar=1&k={}&co={}&hl=en&v={}&size=invisible&cb={}",
+            site_key, co, version, cb
+        );
+        eprintln!("[recaptcha-v3] anchor GET: {}", &anchor_url[..anchor_url.len().min(120)]);
+
+        let anchor_resp = client.get(&anchor_url)
+            .header("Referer", page_url)
+            .send().await.context("anchor request failed")?;
+        
+        let anchor_html = anchor_resp.text().await.context("read anchor body")?;
+        eprintln!("[recaptcha-v3] anchor HTML: {} bytes", anchor_html.len());
+
+        // 5. Parse recaptcha-token from anchor HTML
+        // Pattern: <input ... id="recaptcha-token" ... value="TOKEN">
+        let token = extract_input_value(&anchor_html, "recaptcha-token")
+            .context("could not find recaptcha-token in anchor page")?;
+        eprintln!("[recaptcha-v3] anchor token: {}...{}", &token[..token.len().min(20)], &token[token.len().saturating_sub(10)..]);
+
+        // 6. POST reload
+        let reload_url = format!(
+            "https://www.google.com/recaptcha/api2/reload?k={}",
+            site_key
+        );
+        
+        let form_params = [
+            ("v", version.as_str()),
+            ("reason", "q"),
+            ("c", token.as_str()),
+            ("k", site_key),
+            ("co", co.as_str()),
+            ("hl", "en"),
+            ("size", "invisible"),
+            ("chr", "%5B89%2C64%2C27%5D"),
+            ("vh", "13599012192"),
+            ("bg", ""),
+            ("sa", action),
+        ];
+        
+        eprintln!("[recaptcha-v3] reload POST: {}", reload_url);
+
+        let reload_resp = client.post(&reload_url)
+            .header("Referer", &anchor_url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .form(&form_params)
+            .send().await.context("reload request failed")?;
+
+        let reload_body = reload_resp.text().await.context("read reload body")?;
+        eprintln!("[recaptcha-v3] reload response: {} bytes", reload_body.len());
+
+        // 7. Parse rresp token from reload response
+        // Format: )]}\n["rresp","TOKEN_HERE",null,120]
+        let final_token = extract_rresp(&reload_body)
+            .context("could not parse rresp from reload response")?;
+        
+        eprintln!("[recaptcha-v3] ✅ got token: {}...{} ({}b)", 
+            &final_token[..final_token.len().min(20)],
+            &final_token[final_token.len().saturating_sub(10)..],
+            final_token.len()
+        );
+
+        Ok(final_token)
+    }
+
+    /// Extract value from <input ... id="ID" ... value="VALUE">
+    fn extract_input_value(html: &str, id: &str) -> Option<String> {
+        // Find the input with this id
+        let id_pattern = format!(r#"id="{}""#, id);
+        let pos = html.find(&id_pattern)?;
+        
+        // Search for value= in the surrounding tag
+        // Look backwards for '<' to find tag start
+        let tag_start = html[..pos].rfind('<')?;
+        // Look forwards for '>' to find tag end
+        let tag_end = html[pos..].find('>')? + pos;
+        let tag = &html[tag_start..=tag_end];
+        
+        // Extract value="..."
+        let val_start = tag.find(r#"value=""#)? + 7;
+        let val_end = tag[val_start..].find('"')? + val_start;
+        Some(tag[val_start..val_end].to_string())
+    }
+
+    /// Extract token from rresp response: )]\}\n["rresp","TOKEN",...]
+    fn extract_rresp(body: &str) -> Option<String> {
+        // Try pattern: ["rresp","TOKEN"
+        if let Some(start) = body.find(r#"["rresp",""#) {
+            let rest = &body[start + 10..];
+            if let Some(end) = rest.find('"') {
+                let token = &rest[..end];
+                if token.len() > 20 {
+                    return Some(token.to_string());
+                }
+            }
+        }
+        
+        // Fallback: try uvresp
+        if let Some(start) = body.find(r#"["uvresp",""#) {
+            let rest = &body[start + 11..];
+            if let Some(end) = rest.find('"') {
+                let token = &rest[..end];
+                if token.len() > 20 {
+                    return Some(token.to_string());
+                }
+            }
+        }
+        
+        None
+    }
+}
+
+// ─── Mode: recaptcha-v3 ────────────────────────────────
+// HTTP-only reCAPTCHA v3 token generation.
+// Input: --url <page_url> --site-key <key> --action <action>
+// Output: reCAPTCHA token to stdout
+
+async fn mode_recaptcha_v3(
+    client: &Client,
+    page_url: &str,
+    site_key: &str,
+    action: &str,
+) -> Result<()> {
+    let token = recaptcha_v3::solve(client, site_key, page_url, action).await?;
+    print!("{}", token);
+    Ok(())
+}
 
 // ─── HTTP Client ────────────────────────────────────────
 
@@ -55,6 +262,8 @@ async fn fetch_text(client: &Client, url: &str) -> Result<String> {
     }
     Ok(body)
 }
+
+// (post_json removed — no external API dependencies)
 
 // (post_json removed — no external API dependencies)
 
@@ -422,19 +631,23 @@ async fn mode_megaup(client: &Client, embed_url: &str) -> Result<()> {
 
 // ─── CLI ────────────────────────────────────────────────
 
-fn parse_args() -> (String, String, HashMap<String, String>, u64, bool) {
+fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, String) {
     let args: Vec<String> = std::env::args().collect();
     let mut url = String::new();
     let mut mode = String::from("fetch");
     let mut headers = HashMap::new();
     let mut timeout: u64 = 15;
     let mut follow = true;
+    let mut site_key = String::new();
+    let mut action = String::new();
     let mut i = 1;
 
     while i < args.len() {
         match args[i].as_str() {
             "--url" | "-u" => { i += 1; url = args.get(i).cloned().unwrap_or_default(); }
             "--mode" | "-m" => { i += 1; mode = args.get(i).cloned().unwrap_or_default(); }
+            "--site-key" => { i += 1; site_key = args.get(i).cloned().unwrap_or_default(); }
+            "--action" => { i += 1; action = args.get(i).cloned().unwrap_or_default(); }
             "--headers" | "-H" => {
                 i += 1;
                 if let Some(json) = args.get(i) {
@@ -448,17 +661,24 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool) {
             "--timeout" | "-t" => { i += 1; timeout = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(15); }
             "--no-redirect" => { follow = false; }
             "--help" | "-h" => {
-                eprintln!("rust-fetch v0.3 — Chrome-like fetcher + anime decryptor");
+                eprintln!("rust-fetch v0.3 — Chrome-like fetcher + anime decryptor + reCAPTCHA v3");
                 eprintln!();
                 eprintln!("USAGE:");
                 eprintln!("  rust-fetch --url <URL> [OPTIONS]");
                 eprintln!();
                 eprintln!("MODES:");
                 eprintln!("  --mode fetch          Plain fetch (default)");
+                eprintln!("  --mode fetch-bin      Binary fetch (raw bytes to stdout, for AES keys)");
                 eprintln!("  --mode megacloud      Fetch MegaCloud embed → decrypt → output sources JSON");
                 eprintln!("  --mode megaup         Fetch MegaUp /media/ → decrypt via API → output sources JSON");
                 eprintln!("  --mode kai-encrypt    AnimeKai encrypt (--url is the plaintext)");
                 eprintln!("  --mode kai-decrypt    AnimeKai decrypt (--url is the ciphertext)");
+                eprintln!("  --mode recaptcha-v3   Solve reCAPTCHA v3 via HTTP-only (no browser)");
+                eprintln!();
+                eprintln!("RECAPTCHA-V3 OPTIONS:");
+                eprintln!("  --site-key KEY     reCAPTCHA site key");
+                eprintln!("  --action ACTION    reCAPTCHA action name");
+                eprintln!("  --url URL          Page URL (origin for co param)");
                 eprintln!();
                 eprintln!("OPTIONS:");
                 eprintln!("  --headers '{{...}}'  Custom headers JSON");
@@ -471,23 +691,38 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool) {
         i += 1;
     }
 
-    if url.is_empty() {
+    if url.is_empty() && mode != "recaptcha-v3" {
         eprintln!("error: --url is required");
         std::process::exit(1);
     }
 
-    (url, mode, headers, timeout, follow)
+    (url, mode, headers, timeout, follow, site_key, action)
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let (url, mode, custom_headers, timeout_secs, follow) = parse_args();
+    let (url, mode, custom_headers, timeout_secs, follow, site_key, action) = parse_args();
     let client = build_client(Duration::from_secs(timeout_secs), follow, &custom_headers)?;
 
     match mode.as_str() {
         "fetch" => {
             let body = fetch_text(&client, &url).await?;
             print!("{}", body);
+        }
+        "fetch-bin" => {
+            // Binary fetch — writes raw bytes to stdout without UTF-8 conversion.
+            // Essential for AES keys and other binary data.
+            let resp = client.get(&url).send().await.context("request failed")?;
+            let status = resp.status();
+            eprintln!("[{}] {}", status.as_u16(), url);
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                bail!("HTTP {}: {}", status.as_u16(), &body[..body.len().min(200)]);
+            }
+            let bytes = resp.bytes().await.context("read body bytes failed")?;
+            eprintln!("[fetch-bin] {} bytes", bytes.len());
+            std::io::stdout().write_all(&bytes).context("write stdout")?;
+            std::io::stdout().flush().context("flush stdout")?;
         }
         "megacloud" => {
             mode_megacloud(&client, &url).await?;
@@ -496,17 +731,34 @@ async fn main() -> Result<()> {
             mode_megaup(&client, &url).await?;
         }
         "kai-encrypt" => {
-            // url is actually the plaintext to encrypt
             let encrypted = animekai::encrypt(&url)?;
             print!("{}", encrypted);
         }
         "kai-decrypt" => {
-            // url is actually the ciphertext to decrypt
             let decrypted = animekai::decrypt(&url)?;
             print!("{}", decrypted);
         }
+        "recaptcha-v3" => {
+            let sk = if site_key.is_empty() {
+                // Default DLHD site key
+                "6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj".to_string()
+            } else {
+                site_key
+            };
+            let act = if action.is_empty() {
+                "player_access".to_string()
+            } else {
+                action
+            };
+            let page = if url.is_empty() {
+                "https://adffdafdsafds.sbs/".to_string()
+            } else {
+                url
+            };
+            mode_recaptcha_v3(&client, &page, &sk, &act).await?;
+        }
         other => {
-            bail!("unknown mode: {}. Use fetch, megacloud, megaup, kai-encrypt, or kai-decrypt", other);
+            bail!("unknown mode: {}. Use fetch, fetch-bin, megacloud, megaup, kai-encrypt, kai-decrypt, or recaptcha-v3", other);
         }
     }
 

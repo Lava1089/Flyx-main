@@ -112,13 +112,14 @@ function proxyAnimeKaiStream(
 
   // CDN-specific header logic
   const isDlhdCdn = url.hostname.includes('dvalna.ru') || url.hostname.includes('soyspace.cyou') ||
-    url.hostname.includes('adsfadfds.cfd') || url.hostname.includes('ksohls.ru');
+    url.hostname.includes('adsfadfds.cfd') || url.hostname.includes('ksohls.ru') ||
+    url.hostname.includes('ai-chatx.site') || url.hostname.includes('adffdafdsafds.sbs');
   const isFlixerCdn = /^p\.\d+\.workers\.dev$/.test(url.hostname);
   const isVidLinkCdn = url.hostname.includes('vodvidl.site') || url.hostname.includes('videostr.net');
 
   if (isDlhdCdn) {
-    headers['Referer'] = customReferer ?? 'https://www.ksohls.ru/';
-    headers['Origin'] = customOrigin ?? 'https://www.ksohls.ru';
+    headers['Referer'] = customReferer ?? 'https://adffdafdsafds.sbs/';
+    headers['Origin'] = customOrigin ?? 'https://adffdafdsafds.sbs';
     if (customAuth) headers['Authorization'] = customAuth;
   } else if (isFlixerCdn) {
     headers['Referer'] = customReferer ?? 'https://flixer.su/';

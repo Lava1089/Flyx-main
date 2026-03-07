@@ -1,17 +1,17 @@
 /**
- * DLHD Proxy - February 25, 2026 Update
+ * DLHD Proxy - March 2026 Update
  *
- * Proxies daddylive.mp live streams through Cloudflare Workers.
- * M3U8 via proxy: chevy.adsfadfds.cfd/proxy/{server}/...
- * Keys via: chevy.soyspace.cyou/key/...
- * Auth from: www.ksohls.ru (XOR-encrypted EPlayerAuth)
- * Key requests now require Proof-of-Work nonce computation.
+ * Proxies daddylive live streams through Cloudflare Workers.
+ * M3U8 via proxy: chevy.soyspace.cyou/proxy/{server}/...
+ * Keys via: go.ai-chatx.site/key/... (browser fetches directly after reCAPTCHA whitelist)
+ * Main site: thedaddy.top (daddylive.mp is DNS-dead)
+ * Player page: www.ksohls.ru (EPlayerAuth REMOVED, reCAPTCHA v3 replaces it)
  *
- * Authentication Flow (January 2026):
- *   1. Fetch player page → Extract JWT token (eyJ...)
+ * Authentication Flow (March 2026):
+ *   1. Hidden iframe loads player page → reCAPTCHA v3 whitelists user's IP
  *   2. Server lookup → Get server key (zeko, wind, etc.)
  *   3. Fetch M3U8 → Get playlist with key URLs
- *   4. Fetch key → Proxy through RPI (residential IP required)
+ *   4. Browser fetches keys directly from go.ai-chatx.site (IP whitelisted)
  *
  * Routes:
  *   GET /?channel=<id>           - Get proxied M3U8 playlist
@@ -152,8 +152,8 @@ const CHANNEL_TO_TOPEMBED: Record<string, string> = {
   '92': 'BeinSports2[Arab]',
 };
 
-/** New domain (February 25, 2026) - M3U8 via proxy, keys via chevy.soyspace.cyou */
-const CDN_DOMAIN = 'adsfadfds.cfd';
+/** New domain (March 2026) - M3U8 via proxy, keys via go.ai-chatx.site (browser-side) */
+const CDN_DOMAIN = 'soyspace.cyou';
 
 /** HMAC secret for PoW computation - loaded from environment variable */
 // SECURITY: Never hardcode secrets in source code
@@ -687,7 +687,7 @@ const FALLBACK_SERVER_KEYS = ['wiki', 'hzt', 'x4', 'zeko', 'wind', 'nfs', 'ddy6'
  */
 async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promise<string | null> {
   // Try multiple lookup domains (vovlacosa.sbs is the primary as of Feb 28, 2026)
-  const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou', 'adsfadfds.cfd'];
+  const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou'];
   
   for (const domain of lookupDomains) {
     const url = `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`;
@@ -757,23 +757,22 @@ async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promi
 
 /**
  * Construct M3U8 URL for a channel
- * UPDATED February 25, 2026: M3U8 now served via proxy pattern
- * OLD: https://{server}new.dvalna.ru/{server}/premium{ch}/mono.css
- * NEW: https://chevy.adsfadfds.cfd/proxy/{server}/premium{ch}/mono.css
+ * UPDATED March 2026: M3U8 served via chevy.soyspace.cyou proxy
  */
 function constructM3U8Url(serverKey: string, channelKey: string): string {
   return `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
 }
 
 /**
- * Rewrite M3U8 to proxy keys and segments through our worker
+ * Rewrite M3U8 to route keys through RPI proxy (server-side key fetching)
+ * and proxy segments through our worker
  */
-function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string, jwt: string): string {
+function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string, jwt: string, rpiProxyUrl?: string, rpiProxyKey?: string): string {
   let modified = content;
 
-  // Rewrite key URLs to proxy through us
-  // Key URLs now come from chevy.soyspace.cyou (Feb 25, 2026)
-  // JWT no longer needed - key endpoint just needs residential IP + correct headers
+  // Rewrite key URLs to proxy through our CF worker's /key endpoint
+  // NEVER expose RPI proxy URL directly to the browser!
+  const workerKeyOrigin = proxyOrigin.replace(/\/dlhd$/, '').replace(/\/tv$/, '');
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
     let absoluteKeyUrl = originalKeyUrl;
 
@@ -790,13 +789,8 @@ function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string, 
       }
     }
 
-    // Normalize key URLs to chevy.soyspace.cyou (the key server)
-    const keyPathMatch = absoluteKeyUrl.match(/\/key\/([^/]+)\/(\d+)/);
-    if (keyPathMatch) {
-      absoluteKeyUrl = `https://chevy.soyspace.cyou/key/${keyPathMatch[1]}/${keyPathMatch[2]}`;
-    }
-
-    return `URI="${proxyOrigin}/dlhd/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
+    // Route through CF worker's /key endpoint — it proxies to RPI server-side
+    return `URI="${workerKeyOrigin}/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
   });
 
   // Remove ENDLIST for live streams
@@ -1022,7 +1016,7 @@ async function handlePlaylistRequest(
     rpiBase = rpiBase.replace(/\/+$/, '');
     
     // Use /dlhd/stream endpoint with referer header - DLHD CDN requires it
-    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`;
+    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}`;
     logger.info('Calling RPI /dlhd/stream for M3U8', { 
       rpiBase,
       rpiUrl: rpiUrl.substring(0, 200),
@@ -1056,8 +1050,8 @@ async function handlePlaylistRequest(
       return jsonResponse({ error: 'Invalid M3U8 response', preview: content.substring(0, 100) }, 502, origin);
     }
 
-    // Rewrite M3U8 to proxy keys and segments
-    const proxiedM3U8 = rewriteM3U8(content, proxyOrigin, m3u8Url, session.jwt);
+    // Rewrite M3U8 to proxy keys through RPI and segments through our worker
+    const proxiedM3U8 = rewriteM3U8(content, proxyOrigin, m3u8Url, session.jwt, env?.RPI_PROXY_URL, env?.RPI_PROXY_KEY);
 
     return new Response(proxiedM3U8, {
       status: 200,
@@ -1213,7 +1207,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
  */
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['soyspace.cyou', 'adsfadfds.cfd', 'dvalna.ru', 'arbitrageai.cc'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'go.ai-chatx.site', 'dvalna.ru', 'arbitrageai.cc'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs

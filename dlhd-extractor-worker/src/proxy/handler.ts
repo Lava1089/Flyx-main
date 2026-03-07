@@ -52,14 +52,17 @@ const PASSTHROUGH_HEADERS = [
 const RPI_PROXY_DOMAINS = [
   'dlhd.link',
   'dlhd.sx',
-  'daddylive.mp',
+  'thedaddy.top',
+  'dlstreams.top',
   'soyspace.cyou',
-  'adsfadfds.cfd',
+  'go.ai-chatx.site',
   'dvalna.ru',
+  'adffdafdsafds.sbs',
   'www.ksohls.ru',
   'ksohls.ru',
   'topembed.pw',
   'arbitrageai.cc',
+  'vovlacosa.sbs',
 ];
 
 /**
@@ -236,7 +239,7 @@ async function fetchUpstream(
       if (useProxy) {
         // Check if this is a dvalna.ru domain - use /dlhdprivate endpoint
         const hostname = new URL(url).hostname;
-        const isDlhd = hostname.includes('dvalna.ru') || hostname.includes('soyspace.cyou') || hostname.includes('adsfadfds.cfd');
+        const isDlhd = hostname.includes('dvalna.ru') || hostname.includes('soyspace.cyou') || hostname.includes('go.ai-chatx.site');
         
         console.log(`[fetchUpstream] Using RPI proxy, isDlhd: ${isDlhd}`);
         
@@ -457,7 +460,7 @@ function isDlhdSegment(url: string): boolean {
     const hostname = new URL(url).hostname;
     return hostname.includes('dvalna.ru') || 
            hostname.includes('soyspace.cyou') || 
-           hostname.includes('adsfadfds.cfd') ||
+           hostname.includes('go.ai-chatx.site') ||
            hostname.includes('r2.cloudflarestorage.com');
   } catch {
     return false;
@@ -492,7 +495,7 @@ export async function handleSegmentProxy(
   const allowedSegmentDomains = [
     'dvalna.ru',
     'soyspace.cyou',
-    'adsfadfds.cfd',
+    'go.ai-chatx.site',
     'allaivideo.fun',
     'cdnlive.fun',
     'r2.cloudflarestorage.com', // New segment CDN (Cloudflare R2)
@@ -629,7 +632,7 @@ export async function handleKeyProxy(
   const allowedKeyDomains = [
     'dvalna.ru',
     'soyspace.cyou',
-    'adsfadfds.cfd',
+    'go.ai-chatx.site',
   ];
   
   try {

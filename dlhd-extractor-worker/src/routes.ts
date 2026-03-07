@@ -74,85 +74,79 @@ function cleanExpiredKeys() {
 /**
  * Rewrite M3U8 content for the /play endpoint
  * 
- * UPDATED February 2026: Everything fetched directly from CF (no RPI proxy!)
- * - Keys fetched with V5 EPlayerAuth
- * - M3U8 and segments fetched directly
- * - Just proxy URLs through the worker for CORS
+ * UPDATED March 2026: Server-side key proxying via this worker's /key endpoint
+ * - Keys: rewritten to this worker's /key endpoint which proxies to RPI server-side
+ *   → Browser NEVER sees the RPI URL
+ *   → RPI is whitelisted via reCAPTCHA, fetches real AES-128 keys
+ * - Segments: already absolute URLs pointing to public CDNs — left as-is
+ *   → Cloudflare R2, Google Cloud Storage, iuimg.com, etc. — all CORS *
  */
 async function rewriteM3u8ForPlayEndpoint(
   m3u8Content: string,
   baseUrl: string,
   workerBaseUrl: string,
-  jwtToken: string,
-  channelSalt?: string
+  _jwtToken: string,
+  _channelSalt?: string,
+  _rpiProxyUrl?: string,
+  _rpiApiKey?: string
 ): Promise<string> {
   const lines = m3u8Content.split('\n');
   const rewrittenLines: string[] = [];
   
-  // Extract base path from M3U8 URL (e.g., https://chevy.adsfadfds.cfd/proxy/zeko/premium51/)
+  // Extract base path from M3U8 URL (e.g., https://chevy.soyspace.cyou/proxy/zeko/premium51/)
   const basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
   
-  // NOTE: We no longer extract IV from segment headers - the M3U8's IV is correct
-  // The old 32-byte header format is no longer used by the new CDN
-  
-  // Rewrite URLs - proxy key and segments through worker
   for (const line of lines) {
     const trimmed = line.trim();
     
-    // Rewrite EXT-X-KEY line - proxy the key URL but keep the original IV
+    // Rewrite EXT-X-KEY line — point key URI to THIS worker's /key endpoint
+    // The /key endpoint proxies to RPI server-side — browser never sees RPI URL
     if (trimmed.startsWith('#EXT-X-KEY') && trimmed.includes('URI="')) {
-      // Extract key URL
       const uriMatch = trimmed.match(/URI="([^"]+)"/);
       if (uriMatch) {
         const uri = uriMatch[1];
-        const keyUrl = uri.startsWith('http') ? uri : basePath + uri;
         
-        // Build proxied key URL through CF Worker's /dlhdprivate
-        const proxiedKeyUrl = new URL('/dlhdprivate', workerBaseUrl);
-        proxiedKeyUrl.searchParams.set('url', keyUrl);
-        proxiedKeyUrl.searchParams.set('jwt', jwtToken);
-        // CRITICAL: Pass channelSalt to avoid re-fetching auth for every key request
-        if (channelSalt) {
-          proxiedKeyUrl.searchParams.set('salt', channelSalt);
+        // Build absolute key URL on the original key server
+        let originalKeyUrl: string;
+        if (uri.startsWith('http')) {
+          originalKeyUrl = uri;
+        } else {
+          // Relative URI — resolve against the M3U8's base URL
+          // e.g., if M3U8 is from go.ai-chatx.site, key URI /key/premium44/123
+          //   → https://go.ai-chatx.site/key/premium44/123
+          try {
+            const baseOrigin = new URL(baseUrl).origin;
+            originalKeyUrl = `${baseOrigin}${uri.startsWith('/') ? '' : '/'}${uri}`;
+          } catch {
+            // Fallback to go.ai-chatx.site (primary key server as of Mar 2026)
+            originalKeyUrl = `https://go.ai-chatx.site${uri.startsWith('/') ? '' : '/'}${uri}`;
+          }
         }
         
-        // Replace only the URI, keep the original IV from the M3U8
-        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${proxiedKeyUrl.toString()}"`);
-        console.log(`[rewriteM3u8] Proxied key URL, keeping original IV from M3U8`);
+        // Route through THIS worker's /key endpoint — it proxies to RPI server-side
+        const rewrittenKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(originalKeyUrl)}`;
         
+        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${rewrittenKeyUrl}"`);
+        console.log(`[rewriteM3u8] Key URL → ${rewrittenKeyUrl.substring(0, 100)}...`);
         rewrittenLines.push(newLine);
         continue;
       }
     }
     
-    // Skip empty lines
-    if (trimmed === '') {
+    // Empty lines and comments — pass through
+    if (trimmed === '' || trimmed.startsWith('#')) {
       rewrittenLines.push(line);
       continue;
     }
     
-    // Keep other comments as-is
-    if (trimmed.startsWith('#')) {
-      rewrittenLines.push(line);
-      continue;
-    }
-    
-    // This is a segment URL - rewrite it
+    // Segment URLs — make absolute if relative, but DON'T proxy
+    // Segments are already on public CDNs with CORS * (R2, GCS, etc.)
     let segmentUrl = trimmed;
-    
-    // Make absolute if relative
     if (!segmentUrl.startsWith('http')) {
       segmentUrl = basePath + segmentUrl;
     }
     
-    // Build proxied URL through CF Worker's /dlhdprivate
-    // NOTE: No longer stripping 32-byte header - segments are standard AES-128 now
-    const proxiedUrl = new URL('/dlhdprivate', workerBaseUrl);
-    proxiedUrl.searchParams.set('url', segmentUrl);
-    proxiedUrl.searchParams.set('jwt', jwtToken);
-    // Don't add strip=1 - segments don't have headers anymore
-    
-    rewrittenLines.push(proxiedUrl.toString());
+    rewrittenLines.push(segmentUrl);
   }
   
   return rewrittenLines.join('\n');
@@ -168,6 +162,194 @@ export function createRoutes(router: Router): void {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
+  });
+
+  // Key proxy endpoint — proxies key requests to RPI server-side
+  // Browser calls this instead of hitting RPI directly
+  // The M3U8 rewriter points EXT-X-KEY URIs here
+  //
+  // Strategy (March 2026):
+  //   1. Try RPI /fetch endpoint (residential IP, IPv4 forced) — multiple key servers
+  //   2. Fallback: direct fetch from CF worker (usually gets fake keys but worth trying)
+  //   3. Return first valid (non-fake) 16-byte key, or best available result
+  router.get('/key', async (request, env, params) => {
+    const url = new URL(request.url);
+    const keyUrlParam = url.searchParams.get('url');
+    const origin = request.headers.get('origin');
+
+    const corsHeaders: Record<string, string> = {
+      'Access-Control-Allow-Origin': origin || '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    };
+
+    if (!keyUrlParam) {
+      return new Response(JSON.stringify({ error: 'Missing url parameter' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    const keyUrl = decodeURIComponent(keyUrlParam);
+    console.log(`[/key] Proxying key request: ${keyUrl.substring(0, 80)}...`);
+
+    const rpiProxyUrl = env.RPI_PROXY_URL;
+    const rpiApiKey = env.RPI_PROXY_API_KEY;
+
+    // Known fake keys that key servers return to non-whitelisted IPs
+    const FAKE_KEYS = new Set([
+      '45db13cfa0ed393fdb7da4dfe9b5ac81',
+      '455806f8bc592fdacb6ed5e071a517b1',
+    ]);
+
+    // Extract key path from URL (e.g., /key/premium44/5909725)
+    const keyPathMatch = keyUrl.match(/(\/key\/[^?]+)/);
+    const keyPath = keyPathMatch ? keyPathMatch[1] : null;
+
+    // Build list of key URLs to try (different servers, same key path)
+    // UPDATED Mar 7 2026: go.ai-chatx.site is the PRIMARY key server
+    // (same domain as reCAPTCHA verify — whitelist is per-domain)
+    const keyServers = [keyUrl]; // Original URL first
+    if (keyPath) {
+      const servers = [
+        `https://go.ai-chatx.site${keyPath}`,
+        `https://chevy.soyspace.cyou${keyPath}`,
+        `https://chevy.vovlacosa.sbs${keyPath}`,
+      ];
+      for (const s of servers) {
+        if (!keyServers.includes(s)) keyServers.push(s);
+      }
+    }
+
+    const fetchHeaders = JSON.stringify({
+      'Referer': 'https://adffdafdsafds.sbs/',
+      'Origin': 'https://adffdafdsafds.sbs',
+    });
+
+    // Helper: try fetching a key from a URL via RPI /fetch endpoint
+    async function tryRpiFetch(targetUrl: string): Promise<{ hex: string; data: ArrayBuffer } | null> {
+      if (!rpiProxyUrl || !rpiApiKey) return null;
+      try {
+        const rpiUrl = `${rpiProxyUrl}/fetch?url=${encodeURIComponent(targetUrl)}&headers=${encodeURIComponent(fetchHeaders)}&key=${rpiApiKey}`;
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch(rpiUrl, {
+          headers: { 'X-API-Key': rpiApiKey },
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength !== 16) return null;
+        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        return { hex, data: buf };
+      } catch {
+        return null;
+      }
+    }
+
+    // Helper: try fetching a key directly from CF worker
+    async function tryDirectFetch(targetUrl: string): Promise<{ hex: string; data: ArrayBuffer } | null> {
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+            'Referer': 'https://adffdafdsafds.sbs/',
+            'Origin': 'https://adffdafdsafds.sbs',
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(tid);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength !== 16) return null;
+        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        return { hex, data: buf };
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      let bestFakeKey: ArrayBuffer | null = null;
+
+      // Strategy 1: Try RPI /fetch for each key server
+      for (const serverUrl of keyServers) {
+        console.log(`[/key] RPI fetch: ${serverUrl.substring(0, 80)}...`);
+        const result = await tryRpiFetch(serverUrl);
+        if (result) {
+          if (!FAKE_KEYS.has(result.hex)) {
+            console.log(`[/key] ✅ Valid key via RPI: ${result.hex.substring(0, 8)}...`);
+            return new Response(result.data, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': '16',
+                ...corsHeaders,
+                'Cache-Control': 'no-store',
+                'X-Key-Source': 'rpi-fetch',
+              },
+            });
+          }
+          console.log(`[/key] RPI returned fake key: ${result.hex.substring(0, 8)}...`);
+          if (!bestFakeKey) bestFakeKey = result.data;
+        }
+      }
+
+      // Strategy 2: Try direct fetch from CF worker
+      for (const serverUrl of keyServers) {
+        console.log(`[/key] Direct fetch: ${serverUrl.substring(0, 80)}...`);
+        const result = await tryDirectFetch(serverUrl);
+        if (result) {
+          if (!FAKE_KEYS.has(result.hex)) {
+            console.log(`[/key] ✅ Valid key via direct: ${result.hex.substring(0, 8)}...`);
+            return new Response(result.data, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': '16',
+                ...corsHeaders,
+                'Cache-Control': 'no-store',
+                'X-Key-Source': 'cf-direct',
+              },
+            });
+          }
+          if (!bestFakeKey) bestFakeKey = result.data;
+        }
+      }
+
+      // All attempts returned fake keys or failed
+      // Return the fake key anyway — HLS.js needs SOMETHING to not error out,
+      // and sometimes "fake" keys actually work for certain channels
+      if (bestFakeKey) {
+        const hex = Array.from(new Uint8Array(bestFakeKey)).map(b => b.toString(16).padStart(2, '0')).join('');
+        console.log(`[/key] ⚠️ Returning best available key (possibly fake): ${hex.substring(0, 8)}...`);
+        return new Response(bestFakeKey, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': '16',
+            ...corsHeaders,
+            'Cache-Control': 'no-store',
+            'X-Key-Source': 'fallback-fake',
+          },
+        });
+      }
+
+      console.log(`[/key] ❌ All key fetch attempts failed`);
+      return new Response(JSON.stringify({ error: 'All key servers failed' }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    } catch (e) {
+      console.log(`[/key] Error: ${(e as Error).message}`);
+      return new Response(JSON.stringify({ error: (e as Error).message }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
   });
 
   // Backend listing endpoint - returns available backends for a channel
@@ -226,8 +408,8 @@ export function createRoutes(router: Router): void {
     const servers = await getServersForChannelDynamic(chNum);
     const channelKey = `premium${channelId}`;
     
-    // Only test adsfadfds.cfd domain (new proxy domain as of Feb 25, 2026)
-    const domain = 'adsfadfds.cfd';
+    // Only test soyspace.cyou domain (primary proxy domain as of Mar 2026)
+    const domain = 'soyspace.cyou';
     
     // SECURITY: Generate obfuscated backend IDs to prevent infrastructure enumeration
     // The actual server.domain is only used internally - clients get opaque IDs
@@ -319,8 +501,8 @@ export function createRoutes(router: Router): void {
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://www.ksohls.ru/',
-          'Origin': 'https://www.ksohls.ru',
+          'Referer': 'https://adffdafdsafds.sbs/',
+          'Origin': 'https://adffdafdsafds.sbs',
         }));
         
         const controller = new AbortController();
@@ -408,8 +590,9 @@ export function createRoutes(router: Router): void {
     // Also test shouldUseRpiProxy
     const testUrl = 'https://chevy.soyspace.cyou/test';
     const RPI_PROXY_DOMAINS = [
-      'dlhd.link', 'dlhd.sx', 'daddylive.mp', 'soyspace.cyou', 'adsfadfds.cfd',
-      'topembed.pw', 'www.ksohls.ru', 'dvalna.ru',
+      'dlhd.link', 'dlhd.sx', 'thedaddy.top', 'soyspace.cyou',
+      'topembed.pw', 'www.ksohls.ru', 'dvalna.ru', 'go.ai-chatx.site',
+      'adffdafdsafds.sbs', 'dlstreams.top', 'vovlacosa.sbs',
     ];
     const hostname = new URL(testUrl).hostname;
     const shouldProxy = RPI_PROXY_DOMAINS.some(domain => 
@@ -539,7 +722,7 @@ export function createRoutes(router: Router): void {
     const channel = url.searchParams.get('ch') || '44';
     const results: Record<string, unknown> = { channel, timestamp: new Date().toISOString(), tests: [] as unknown[] };
 
-    // Step 1: Fetch auth data from www.ksohls.ru
+    // Step 1: Fetch auth data from player page (adffdafdsafds.sbs)
     const { fetchAuthData, generateKeyHeaders: genHeaders } = await import('./direct/dlhd-auth-v5');
     const authData = await fetchAuthData(channel);
     if (!authData) {
@@ -553,7 +736,7 @@ export function createRoutes(router: Router): void {
     const { token: jwtToken, channelKey } = await generateJWT(channel);
     
     const servers = ['zeko', 'chevy', 'nfs', 'ddy6'];
-    const domain = 'adsfadfds.cfd';
+    const domain = 'soyspace.cyou';
     let realKeyUrl: string | null = null;
     let workingServer: string | null = null;
     
@@ -563,8 +746,8 @@ export function createRoutes(router: Router): void {
         const m3u8Resp = await fetch(m3u8Url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.ksohls.ru/',
-            'Origin': 'https://www.ksohls.ru',
+            'Referer': 'https://adffdafdsafds.sbs/',
+            'Origin': 'https://adffdafdsafds.sbs',
             'Authorization': `Bearer ${jwtToken}`,
           },
         });
@@ -717,14 +900,14 @@ export function createRoutes(router: Router): void {
       let domains: readonly string[];
       
       if (forcedBackend) {
-        // Parse backend format: "server.domain" (e.g., "ddy6.adsfadfds.cfd")
-        // Split only on the first dot to handle domains like "adsfadfds.cfd"
+        // Parse backend format: "server.domain" (e.g., "ddy6.soyspace.cyou")
+        // Split only on the first dot to handle domains like "soyspace.cyou"
         const dotIndex = forcedBackend.indexOf('.');
         if (dotIndex === -1) {
           return new Response(JSON.stringify({ 
             error: 'Invalid backend format',
-            hint: 'Use format: server.domain (e.g., ddy6.adsfadfds.cfd)',
-            example: '/play/51?backend=zeko.adsfadfds.cfd'
+            hint: 'Use format: server.domain (e.g., ddy6.soyspace.cyou)',
+            example: '/play/51?backend=zeko.soyspace.cyou'
           }), { 
             status: 400, 
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
@@ -735,8 +918,8 @@ export function createRoutes(router: Router): void {
         if (!server || !domain) {
           return new Response(JSON.stringify({ 
             error: 'Invalid backend format',
-            hint: 'Use format: server.domain (e.g., ddy6.adsfadfds.cfd)',
-            example: '/play/51?backend=zeko.adsfadfds.cfd'
+            hint: 'Use format: server.domain (e.g., ddy6.soyspace.cyou)',
+            example: '/play/51?backend=zeko.soyspace.cyou'
           }), { 
             status: 400, 
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
@@ -763,38 +946,62 @@ export function createRoutes(router: Router): void {
         });
       }
       
-      // Step 2: Generate JWT locally (instant - ~1ms)
-      // CRITICAL: Generate a fresh JWT on EVERY request to ensure it's always valid
+      // Step 2: Get channel key (no auth needed for M3U8 — keys are fetched client-side now)
+      // March 2026: EPlayerAuth removed by DLHD admins, reCAPTCHA v3 whitelist replaces it
+      // generateJWT still works for M3U8 fetch (just needs Referer header, not real auth)
       const jwtStart = Date.now();
-      const { token, channelKey, channelSalt } = await generateJWT(channelId);
+      const { token, channelKey } = await generateJWT(channelId);
       console.log(`[/play] JWT generation: ${Date.now() - jwtStart}ms`);
-      console.log(`[/play] Generated JWT for channel ${channelId}: ${token.substring(0, 50)}...`);
-      if (channelSalt) {
-        console.log(`[/play] Got channelSalt: ${channelSalt.substring(0, 16)}...`);
-        // Cache auth data so /dlhdprivate key requests can reuse it
-        setCachedAuth(channelId, token, channelSalt);
-      }
       
       // Compute workerBaseUrl once for proxy URL rewriting
       const workerBaseUrl = `${url.protocol}//${url.host}`;
       
-      // Step 3: Try new proxy M3U8 FIRST (primary backend since Feb 25, 2026)
-      // Priority order: chevy.adsfadfds.cfd/proxy → lovecdn (Player 6) → moveonjoy (easiest)
+      // Step 3: Try proxy M3U8 (primary backend since Mar 2026)
+      // Priority order: chevy.soyspace.cyou/proxy → lovecdn (Player 6) → moveonjoy (easiest)
       let m3u8Content: string | null = null;
       let workingServer: string | null = null;
       let workingDomain: string | null = null;
       let lastError: string | null = null;
       
       // Build headers for M3U8 request
+      // Updated Mar 2026: Referer changed to adffdafdsafds.sbs (new player domain)
       const m3u8Headers: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
-        'Referer': 'https://www.ksohls.ru/',
-        'Origin': 'https://www.ksohls.ru',
+        'Referer': 'https://adffdafdsafds.sbs/',
+        'Origin': 'https://adffdafdsafds.sbs',
         'Authorization': `Bearer ${token}`,
       };
       
       // Try each server/domain combination - fetch M3U8 DIRECTLY (no RPI needed!)
+      // UPDATED Mar 7 2026: Try go.ai-chatx.site FIRST (primary M3U8 proxy per browser recon)
+      // go.ai-chatx.site uses pattern: /proxy/{server}/{channelKey}/mono.css (no chevy. prefix)
+      // chevy.soyspace.cyou uses pattern: chevy.soyspace.cyou/proxy/{server}/{channelKey}/mono.css
+      
+      // Priority 1: go.ai-chatx.site (primary — same domain as key server + reCAPTCHA verify)
+      for (const server of servers) {
+        if (m3u8Content) break;
+        const m3u8Url = `https://go.ai-chatx.site/proxy/${server}/${channelKey}/mono.css`;
+        console.log(`[/play] Trying go.ai-chatx.site: ${m3u8Url}`);
+        try {
+          const response = await fetch(m3u8Url, { headers: m3u8Headers });
+          if (response.ok) {
+            const content = await response.text();
+            if (content.includes('#EXTM3U') || content.includes('#EXT-X-')) {
+              m3u8Content = content;
+              workingServer = server;
+              workingDomain = 'go.ai-chatx.site';
+              console.log(`[/play] SUCCESS: go.ai-chatx.site/${server} works for channel ${channelId}`);
+              break;
+            }
+          }
+          console.log(`[/play] go.ai-chatx.site/${server} returned ${response.status}`);
+        } catch (e) {
+          console.log(`[/play] go.ai-chatx.site/${server} error: ${e}`);
+        }
+      }
+      
+      // Priority 2: chevy.{domain}/proxy/ (fallback)
       for (const server of servers) {
         if (m3u8Content) break; // Found a working server
         
@@ -959,18 +1166,24 @@ export function createRoutes(router: Router): void {
         });
       }
       
-      // Step 4: Rewrite M3U8 URLs to go through CF Worker's /dlhdprivate
+      // Step 4: Rewrite M3U8 URLs — keys routed through RPI proxy (server-side key fetching)
       const rewriteStart = Date.now();
-      // Use the actual URL pattern that was fetched (chevy.{domain}/proxy/{server}/...)
-      const m3u8Url = `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
+      // Build the actual M3U8 URL that was fetched — needed for resolving relative key URIs
+      // go.ai-chatx.site uses: https://go.ai-chatx.site/proxy/{server}/{channelKey}/mono.css (no chevy. prefix)
+      // soyspace.cyou etc use: https://chevy.{domain}/proxy/{server}/{channelKey}/mono.css
+      const m3u8Url = workingDomain === 'go.ai-chatx.site'
+        ? `https://go.ai-chatx.site/proxy/${workingServer}/${channelKey}/mono.css`
+        : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
       
-      // Rewrite the M3U8 content with the current JWT and channelSalt
+      // Rewrite the M3U8 content — keys routed through RPI, segments left as-is
       const rewrittenM3u8 = await rewriteM3u8ForPlayEndpoint(
         m3u8Content, 
         m3u8Url, 
         workerBaseUrl, 
         token,
-        channelSalt // Pass channelSalt to avoid re-fetching auth for key requests
+        undefined,
+        env.RPI_PROXY_URL,
+        env.RPI_PROXY_API_KEY
       );
       const rewriteTime = Date.now() - rewriteStart;
       const totalTime = Date.now() - startTime;
@@ -1271,8 +1484,8 @@ export function createRoutes(router: Router): void {
     console.log(`[/dlhdprivate] Direct fetch: ${targetUrl.substring(0, 60)}...`);
     
     try {
-      const upstreamReferer = customReferer || 'https://www.ksohls.ru/';
-      const upstreamOrigin = customReferer ? customReferer.replace(/\/$/, '') : 'https://www.ksohls.ru';
+      const upstreamReferer = customReferer || 'https://adffdafdsafds.sbs/';
+      const upstreamOrigin = customReferer ? customReferer.replace(/\/$/, '') : 'https://adffdafdsafds.sbs';
       const response = await fetch(targetUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

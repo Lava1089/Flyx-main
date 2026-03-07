@@ -18,15 +18,17 @@ const DEFAULT_ALLOWED_ORIGINS = [
 // Domains allowed for proxy requests
 const ALLOWED_PROXY_DOMAINS = [
   'soyspace.cyou',
-  'adsfadfds.cfd',
+  'go.ai-chatx.site',  // reCAPTCHA-gated key server (Mar 2026)
   'dvalna.ru',
   'dlhd.link',
   'dlhd.sx',
   'dlhd.dad',
   'daddylive.sx',
-  'daddylive.mp',
+  'thedaddy.top',      // New main site (Mar 2026, replaces daddylive.mp)
+  'dlstreams.top',     // New main domain (Mar 2026, dlhd.link redirects here)
   'daddyhd.com',
-  'www.ksohls.ru',  // Current primary player domain (Feb 25, 2026)
+  'adffdafdsafds.sbs', // Current primary player domain (Mar 2026)
+  'www.ksohls.ru',     // Previous player domain (Feb 2026)
   'ksohls.ru',
   'topembed.pw',
   'allaivideo.fun',  // DLHD CDN for encrypted segments

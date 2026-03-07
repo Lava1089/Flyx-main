@@ -17,13 +17,13 @@ import { getProxyConfig } from '../discovery/fetcher';
 // Known DLHD servers discovered via server_lookup API (Jan 2026)
 // Discovered by scanning all 850 channels - these are ALL the servers
 const DLHD_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'];
-const DLHD_DOMAINS = ['adsfadfds.cfd', 'soyspace.cyou', 'dvalna.ru'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'dvalna.ru'];
 
 // The ONLY working lookup endpoint
 const LOOKUP_ENDPOINT = 'https://chevy.soyspace.cyou/server_lookup';
 
 // Auth source
-const JWT_SOURCE_URL = 'https://www.ksohls.ru/premiumtv/daddyhd.php';
+const JWT_SOURCE_URL = 'https://adffdafdsafds.sbs/premiumtv/daddyhd.php';
 
 /**
  * Auth data from JWT source
@@ -146,7 +146,7 @@ export async function lookupServer(
       response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://www.ksohls.ru/',
+          'Referer': 'https://adffdafdsafds.sbs/',
         },
       });
     }
@@ -186,7 +186,7 @@ export async function findWorkingServer(
         let response: Response;
         
         if (proxyConfig.url && proxyConfig.apiKey) {
-          const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}&origin=${encodeURIComponent('https://www.ksohls.ru')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
+          const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}&origin=${encodeURIComponent('https://adffdafdsafds.sbs')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
           response = await fetch(proxyUrl, {
             headers: { 'X-API-Key': proxyConfig.apiKey },
           });
@@ -194,8 +194,8 @@ export async function findWorkingServer(
           response = await fetch(m3u8Url, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Referer': 'https://www.ksohls.ru/',
-              'Origin': 'https://www.ksohls.ru',
+              'Referer': 'https://adffdafdsafds.sbs/',
+              'Origin': 'https://adffdafdsafds.sbs',
               'Authorization': `Bearer ${authData.token}`,
             },
           });
@@ -237,7 +237,7 @@ export async function findWorkingServer(
           
           if (proxyConfig.url && proxyConfig.apiKey) {
             // Route through RPI proxy with auth
-            const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}&origin=${encodeURIComponent('https://www.ksohls.ru')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
+            const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}&origin=${encodeURIComponent('https://adffdafdsafds.sbs')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
             response = await fetch(proxyUrl, {
               headers: {
                 'X-API-Key': proxyConfig.apiKey,
@@ -247,8 +247,8 @@ export async function findWorkingServer(
             response = await fetch(m3u8Url, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.ksohls.ru/',
-                'Origin': 'https://www.ksohls.ru',
+                'Referer': 'https://adffdafdsafds.sbs/',
+                'Origin': 'https://adffdafdsafds.sbs',
                 'Authorization': `Bearer ${authData.token}`,
               },
             });
@@ -341,16 +341,16 @@ export async function extractDirectStream(
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://www.ksohls.ru/',
-    'Origin': 'https://www.ksohls.ru',
+    'Referer': 'https://adffdafdsafds.sbs/',
+    'Origin': 'https://adffdafdsafds.sbs',
     'Authorization': `Bearer ${authData.token}`,
   };
 
   return {
     m3u8Url,
     headers,
-    referer: 'https://www.ksohls.ru/',
-    origin: 'https://www.ksohls.ru',
+    referer: 'https://adffdafdsafds.sbs/',
+    origin: 'https://adffdafdsafds.sbs',
     quality: undefined,
     isEncrypted: true, // DLHD streams are always encrypted
   };

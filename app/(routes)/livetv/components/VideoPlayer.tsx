@@ -60,7 +60,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
   const [selectedBackend, setSelectedBackend] = useState<string | undefined>(undefined);
   const [showBackendMenu, setShowBackendMenu] = useState(false);
   const [loadingBackends, setLoadingBackends] = useState(false);
-
+  
   // Get current channel from event
   const currentEventChannel = event?.channels?.[selectedChannelIndex];
 
@@ -412,6 +412,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     }
 
     // Direct HLS URL (Cloudflare Worker proxy)
+    // Keys are proxied server-side through RPI — no client-side auth needed
     loadHlsStream(video, streamUrl);
     
     // Loading timeout — instead of killing the stream, attempt a full reload
@@ -427,7 +428,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     return () => {
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
     };
-  }, [getStreamUrl, loadHlsStream, isLoading, error, attemptFullReload]);
+  }, [getStreamUrl, loadHlsStream, isLoading, error, attemptFullReload, channel, event, selectedChannelIndex]);
 
   // Keep ref in sync so attemptFullReload can call initPlayer without circular deps
   useEffect(() => { initPlayerRef.current = initPlayer; }, [initPlayer]);
@@ -509,6 +510,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
         clearTimeout(loadingTimeoutRef.current);
         loadingTimeoutRef.current = null;
       }
+
     };
   }, [isOpen, event, channel]);
 

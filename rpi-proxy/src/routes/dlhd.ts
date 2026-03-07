@@ -42,8 +42,8 @@ export async function handleDLHDKeyV4(req: RPIRequest, res: ServerResponse): Pro
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: '*/*',
-        Origin: 'https://www.ksohls.ru',
-        Referer: 'https://www.ksohls.ru/',
+        Origin: 'https://adffdafdsafds.sbs',
+        Referer: 'https://adffdafdsafds.sbs/',
         Authorization: `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp,
         'X-Key-Nonce': nonce,
@@ -264,4 +264,120 @@ function establishHeartbeatSession(
     hbReq.on('error', (err) => resolve({ success: false, error: err.message }));
     hbReq.on('timeout', () => { hbReq.destroy(); resolve({ success: false, error: 'Timeout' }); });
   });
+}
+
+/**
+ * /dlhd-key-v6 — Server-side key fetching via rust-fetch (residential IP + Chrome TLS).
+ * 
+ * March 2026: DLHD uses reCAPTCHA v3 IP whitelist. Without whitelist, key servers
+ * return fake 16-byte keys. This endpoint uses rust-fetch from the RPI's residential
+ * IP to fetch keys with a Chrome TLS fingerprint.
+ */
+export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Promise<void> {
+  const targetUrl = req.url.searchParams.get('url');
+
+  if (!targetUrl) {
+    sendJsonError(res, 400, {
+      error: 'Missing url parameter',
+      details: '/dlhd-key-v6?url=<key_url>',
+      timestamp: Date.now(),
+    });
+    return;
+  }
+
+  const decoded = decodeURIComponent(targetUrl);
+  if (!isAllowedProxyDomain(decoded)) {
+    sendJsonError(res, 403, { error: 'Domain not allowed', timestamp: Date.now() });
+    return;
+  }
+
+  console.log(`[DLHD-Key-V6] Fetching key: ${decoded.substring(0, 80)}...`);
+
+  // Extract key path for trying multiple servers
+  const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
+  const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
+
+  const keyServers = [
+    decoded,
+    `https://go.ai-chatx.site${keyPath}`,
+    `https://chevy.vovlacosa.sbs${keyPath}`,
+    `https://chevy.soyspace.cyou${keyPath}`,
+  ];
+  const uniqueServers = [...new Set(keyServers)];
+
+  const { spawn } = await import('child_process');
+  let validKey: Buffer | null = null;
+
+  for (const keyUrl of uniqueServers) {
+    try {
+      console.log(`[DLHD-Key-V6] Trying: ${keyUrl.substring(0, 80)}`);
+
+      const keyBuf = await new Promise<Buffer>((resolve, reject) => {
+        const args = [
+          '--url', keyUrl,
+          '--timeout', '10',
+          '--mode', 'fetch-bin',
+          '--headers', JSON.stringify({
+            Referer: 'https://adffdafdsafds.sbs/',
+            Origin: 'https://adffdafdsafds.sbs',
+          }),
+        ];
+
+        const proc = spawn('rust-fetch', args);
+        const chunks: Buffer[] = [];
+        let stderr = '';
+
+        proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+        proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+        proc.on('error', (err: Error) => reject(err));
+        proc.on('close', (code: number) => {
+          if (code !== 0) {
+            reject(new Error(`rust-fetch exit ${code}: ${stderr}`));
+            return;
+          }
+          resolve(Buffer.concat(chunks));
+        });
+      });
+
+      if (keyBuf.length !== 16) {
+        console.log(`[DLHD-Key-V6] ❌ Not 16 bytes (${keyBuf.length})`);
+        continue;
+      }
+
+      const keyHex = keyBuf.toString('hex');
+      console.log(`[DLHD-Key-V6] Got 16-byte key: ${keyHex}`);
+
+      // Known fake key — skip
+      if (keyHex === '45db13cfa0ed393fdb7da4dfe9b5ac81') {
+        console.log(`[DLHD-Key-V6] ❌ Known fake key, skipping`);
+        continue;
+      }
+
+      validKey = keyBuf;
+      console.log(`[DLHD-Key-V6] ✅ Key accepted: ${keyHex}`);
+      break;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`[DLHD-Key-V6] Error: ${msg}`);
+      continue;
+    }
+  }
+
+  if (validKey) {
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': validKey.length,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+      'X-Fetched-By': 'rpi-v6-rustfetch',
+    });
+    res.end(validKey);
+  } else {
+    sendJsonError(res, 502, {
+      error: 'All key servers returned fake keys — RPI IP may not be whitelisted',
+      hint: 'reCAPTCHA v3 whitelist required',
+      timestamp: Date.now(),
+    });
+  }
 }

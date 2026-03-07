@@ -70,7 +70,7 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const ALL_SERVER_KEYS = [
   'ddy6',     // ONLY server we use - most reliable
 ];
-const CDN_DOMAIN = 'adsfadfds.cfd';
+const CDN_DOMAIN = 'soyspace.cyou';
 
 // CORRECT SECRET - extracted from WASM module (January 2026)
 // The old 64-char hex secret is WRONG! This is the real one from the WASM.
@@ -513,9 +513,8 @@ async function getServerKey(channelKey: string, logger: any, env?: Env): Promise
 }
 
 function constructM3U8Url(serverKey: string, channelKey: string): string {
-  // UPDATED February 25, 2026: M3U8 now served via proxy pattern
-  // OLD: https://{server}new.dvalna.ru/{server}/premium{ch}/mono.css
-  // NEW: https://chevy.adsfadfds.cfd/proxy/{server}/premium{ch}/mono.css
+  // UPDATED March 2026: M3U8 served via chevy.soyspace.cyou proxy
+  // NEW: https://chevy.soyspace.cyou/proxy/{server}/premium{ch}/mono.css
   return `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
 }
 
@@ -1211,8 +1210,8 @@ async function tryCdnLiveBackend(
  * Returns the content if successful, null otherwise
  * 
  * CRITICAL: DLHD CDN requires:
- * - Origin: https://www.ksohls.ru
- * - Referer: https://www.ksohls.ru/
+ * - Origin: https://adffdafdsafds.sbs
+ * - Referer: https://adffdafdsafds.sbs/
  * - Authorization: Bearer <JWT> (optional - not always needed)
  */
 async function tryDvalnaServer(
@@ -1228,9 +1227,9 @@ async function tryDvalnaServer(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    // Use RPI proxy with www.ksohls.ru referer - JWT is optional
+    // Use RPI proxy with adffdafdsafds.sbs referer - JWT is optional
     let rpiUrl = env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY
-      ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`
+      ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}`
       : null;
     
     if (!rpiUrl) {
@@ -1703,9 +1702,9 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
 
   try {
     let data: ArrayBuffer;
-    let fetchedVia = 'rpi-dlhd-key-v5';
+    let fetchedVia = 'rpi-dlhd-key-v6';
     
-    // Use RPI proxy's dedicated /dlhd-key endpoint - handles V5 auth (EPlayerAuth + PoW + channelSalt)
+    // Use RPI proxy's /dlhd-key-v6 endpoint - uses rust-fetch binary mode with reCAPTCHA whitelist
     if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
       return jsonResponse({ 
         error: 'RPI proxy not configured', 
@@ -1713,10 +1712,10 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
       }, 502, origin);
     }
     
-    // /dlhd-key does the full auth flow: fetch player page → extract XOR-encrypted salt/token → compute PoW → fetch key
-    const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key?url=${encodeURIComponent(newKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
+    // /dlhd-key-v6 uses rust-fetch fetch-bin mode for binary key data, tries multiple CDN servers
+    const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key-v6?url=${encodeURIComponent(newKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
     
-    logger.info('Fetching key via RPI /dlhd-key (V5 auth)', { channelKey, keyNumber });
+    logger.info('Fetching key via RPI /dlhd-key-v6', { channelKey, keyNumber });
     
     // Add timeout to prevent hanging
     const controller = new AbortController();
@@ -1753,10 +1752,10 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
       // Check for known fake error key
       const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
       if (hex === '455806f8bc592fdacb6ed5e071a517b1') {
-        logger.warn('Got fake error key (455806...) - V5 auth failed');
+        logger.warn('Got fake error key (455806...) - auth failed');
         return jsonResponse({ 
           error: 'Key auth failed - got error response disguised as 16-byte key',
-          hint: 'RPI /dlhd-key V5 auth may have failed to extract channelSalt',
+          hint: 'RPI /dlhd-key-v6 returned fake key - reCAPTCHA whitelist may have expired',
           channelKey,
           keyNumber,
         }, 502, origin);
@@ -1790,7 +1789,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
 }
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['soyspace.cyou', 'adsfadfds.cfd', 'arbitrageai.cc', 'r2.cloudflarestorage.com'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'go.ai-chatx.site', 'arbitrageai.cc', 'r2.cloudflarestorage.com'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs
@@ -1841,7 +1840,7 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
   // SECURITY: Validate domain whitelist to prevent proxying arbitrary URLs
   const allowedDomains = [
     'soyspace.cyou',
-    'adsfadfds.cfd',
+    'go.ai-chatx.site',
     'arbitrageai.cc',
     'r2.cloudflarestorage.com',
     'cdn-live-tv.ru',
@@ -1882,10 +1881,10 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     } else if (urlHost.includes('moveonjoy.com')) {
       referer = 'https://tv-bu1.blogspot.com/';
       requestOrigin = 'https://tv-bu1.blogspot.com';
-    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('adsfadfds.cfd') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
-      // DLHD CDN requires www.ksohls.ru referer
-      referer = 'https://www.ksohls.ru/';
-      requestOrigin = 'https://www.ksohls.ru';
+    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('go.ai-chatx.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
+      // DLHD CDN requires adffdafdsafds.sbs referer (updated Mar 2026)
+      referer = 'https://adffdafdsafds.sbs/';
+      requestOrigin = 'https://adffdafdsafds.sbs';
     }
   } catch {}
   
@@ -1997,29 +1996,19 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
 function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string): string {
   let modified = content;
 
-  // Rewrite key URLs - keys MUST be proxied (require PoW auth)
-  // Key URLs now come from chevy.soyspace.cyou
-  // Channel keys can be premium{id} OR named keys like eplayerespn_usa, ustvabc, etc.
+  // Rewrite key URLs to proxy through our CF worker's /key endpoint
+  // NEVER expose RPI proxy URL directly to the browser!
+  // The /key handler on the CF worker will fetch from RPI server-side.
+  const workerKeyOrigin = proxyOrigin.replace(/\/tv$/, '');
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
-    // Skip if already proxied through our worker
-    if (originalKeyUrl.includes('/key?url=') || originalKeyUrl.includes('/segment?url=')) {
-      return `URI="${originalKeyUrl}"`;
-    }
-    
     let absoluteKeyUrl = originalKeyUrl;
     if (!absoluteKeyUrl.startsWith('http')) {
       const base = new URL(m3u8BaseUrl);
       absoluteKeyUrl = new URL(originalKeyUrl, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
     }
     
-    // Match key URLs with any channel key format (premium{id} or named like eplayerespn_usa)
-    const keyPathMatch = absoluteKeyUrl.match(/\/key\/([^/]+)\/(\d+)/);
-    if (keyPathMatch) {
-      // Normalize to chevy.{CDN_DOMAIN} for our proxy
-      absoluteKeyUrl = `https://chevy.${CDN_DOMAIN}/key/${keyPathMatch[1]}/${keyPathMatch[2]}`;
-    }
-    // proxyOrigin already contains /tv, so just append /key (not /tv/key)
-    return `URI="${proxyOrigin}/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
+    // Route through CF worker's /key endpoint — it proxies to RPI server-side
+    return `URI="${workerKeyOrigin}/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
   });
 
   modified = modified.replace(/\n?#EXT-X-ENDLIST\s*$/m, '');

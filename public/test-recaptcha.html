@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>reCAPTCHA Direct Test</title>
+<script src="https://www.google.com/recaptcha/api.js?render=6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj"></script>
+</head>
+<body>
+<h3>DLHD reCAPTCHA Direct Test</h3>
+<p>Step 1: Load reCAPTCHA v3 with DLHD's site key</p>
+<p>Step 2: Get token and POST to go.ai-chatx.site/verify</p>
+<p>Step 3: Test if key endpoint returns real key</p>
+<hr>
+<pre id="log">Loading reCAPTCHA...</pre>
+<button onclick="runTest()" id="btn" disabled>Run Full Test</button>
+<script>
+const log = document.getElementById('log');
+function addLog(msg) { log.textContent += '\n' + msg; }
+
+// Wait for reCAPTCHA to load
+grecaptcha.ready(function() {
+  addLog('✅ reCAPTCHA v3 loaded');
+  document.getElementById('btn').disabled = false;
+});
+
+async function runTest() {
+  try {
+    // Step 1: Get reCAPTCHA token
+    addLog('\n--- Step 1: Getting reCAPTCHA token ---');
+    const token = await grecaptcha.execute('6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj', {action: 'verify'});
+    addLog('Token: ' + token.substring(0, 40) + '...');
+
+    // Step 2: POST to verify endpoint
+    addLog('\n--- Step 2: POSTing to go.ai-chatx.site/verify ---');
+    const verifyResp = await fetch('https://go.ai-chatx.site/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token })
+    });
+    const verifyText = await verifyResp.text();
+    addLog('Verify status: ' + verifyResp.status);
+    addLog('Verify response: ' + verifyText);
+
+    // Step 3: Wait a moment then test key
+    addLog('\n--- Step 3: Testing key fetch (waiting 2s) ---');
+    await new Promise(r => setTimeout(r, 2000));
+    
+    const keyResp = await fetch('https://go.ai-chatx.site/key/premium51/5909120');
+    const keyBuf = await keyResp.arrayBuffer();
+    const keyBytes = new Uint8Array(keyBuf);
+    const keyHex = Array.from(keyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    const isFake = keyHex === '45db13cfa0ed393fdb7da4dfe9b5ac81';
+    
+    addLog('Key status: ' + keyResp.status);
+    addLog('Key hex: ' + keyHex);
+    addLog(isFake ? '❌ FAKE KEY — whitelist did NOT work' : '✅ REAL KEY — whitelist WORKED!');
+    
+    // If fake, try different POST body formats
+    if (isFake) {
+      addLog('\n--- Trying alternative POST formats ---');
+      
+      // Try g-recaptcha-response format
+      const resp2 = await fetch('https://go.ai-chatx.site/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'g-recaptcha-response=' + encodeURIComponent(token)
+      });
+      addLog('Form format: ' + resp2.status + ' ' + await resp2.text());
+      
+      // Try with recaptcha_token
+      const resp3 = await fetch('https://go.ai-chatx.site/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recaptcha_token: token })
+      });
+      addLog('recaptcha_token format: ' + resp3.status + ' ' + await resp3.text());
+
+      // Try with response field
+      const resp4 = await fetch('https://go.ai-chatx.site/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response: token })
+      });
+      addLog('response format: ' + resp4.status + ' ' + await resp4.text());
+    }
+    
+  } catch (e) {
+    addLog('ERROR: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
