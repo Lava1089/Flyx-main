@@ -13,6 +13,7 @@ import Hls from 'hls.js';
 import { LiveEvent, TVChannel } from '../hooks/useLiveTVData';
 import { getTvPlaylistUrl, getAvailableBackends, resolveBackendId } from '@/app/lib/proxy-config';
 import { extractCDNLiveStream } from '@/app/lib/livetv/cdnlive-extractor';
+import { DLHDWhitelist } from '@/app/lib/livetv/dlhd-whitelist';
 import styles from './VideoPlayer.module.css';
 
 interface VideoPlayerProps {
@@ -101,6 +102,13 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
 
   // Ref to hold initPlayer for use in attemptFullReload (avoids circular deps)
   const initPlayerRef = useRef<() => void>(() => {});
+
+  // DLHD whitelist — singleton, persists across channel switches
+  const whitelistRef = useRef<DLHDWhitelist | null>(null);
+  if (!whitelistRef.current) {
+    const cfTvProxy = process.env.NEXT_PUBLIC_CF_TV_PROXY_URL || '';
+    whitelistRef.current = new DLHDWhitelist(cfTvProxy);
+  }
 
   // Attempt full stream reload (destroy + re-init) as last-resort recovery
   const attemptFullReload = useCallback(() => {
@@ -412,7 +420,21 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
     }
 
     // Direct HLS URL (Cloudflare Worker proxy)
-    // Keys are proxied server-side through RPI — no client-side auth needed
+    // For DLHD sources, whitelist the user's IP first so key fetches go direct to CDN
+    const isDlhd = channel?.source === 'dlhd' || event?.source === 'dlhd';
+    if (isDlhd && whitelistRef.current) {
+      const channelId = channel?.channelId || event?.channels?.[selectedChannelIndex]?.channelId;
+      if (channelId) {
+        console.log('[VideoPlayer] Whitelisting IP for DLHD channel:', channelId);
+        const wlResult = await whitelistRef.current.whitelist(channelId);
+        if (wlResult.success) {
+          console.log('[VideoPlayer] Whitelist OK — keys will fetch direct from CDN');
+        } else {
+          console.warn('[VideoPlayer] Whitelist failed:', wlResult.error, '— playback may still work via server-side key proxy');
+        }
+      }
+    }
+
     loadHlsStream(video, streamUrl);
     
     // Loading timeout — instead of killing the stream, attempt a full reload

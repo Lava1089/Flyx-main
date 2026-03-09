@@ -989,16 +989,15 @@ interface MoveonjoyResult {
 // ============================================================================
 // CLIENT-SIDE WHITELIST — reCAPTCHA v3 HTTP-only solve
 // ============================================================================
-// Two-step flow that whitelists the USER's IP without loading any Google
-// scripts, tracking pixels, or DLHD page content in their browser.
+// Flow that whitelists the USER's IP without loading any Google scripts,
+// tracking pixels, or DLHD page content in their browser.
 //
 // Step 1: GET /whitelist/token?channel=premium51
 //   → CF worker solves reCAPTCHA v3 via HTTP-only anchor/reload flow
 //   → Returns { token, channel_id } to the client
 //
-// Step 2: POST /whitelist/verify  (body: { token, channel_id })
-//   → CF worker proxies the verify POST to chevy.soyspace.cyou/verify
-//     using the CLIENT's real IP (cf-connecting-ip) as the connecting IP
+// Step 2: Client POSTs directly to chevy.soyspace.cyou/verify
+//   → Upstream has Access-Control-Allow-Origin: *, so browser can POST
 //   → The upstream whitelists the client's IP for ~30 minutes
 //
 // After whitelist, the client's browser can fetch keys directly from
@@ -1068,13 +1067,41 @@ async function solveRecaptchaV3(pageUrl: string, action: string): Promise<string
  * GET /whitelist/token?channel=premium51
  * Solves reCAPTCHA v3 server-side and returns the token to the client.
  * No Google scripts or tracking ever reach the user's browser.
+ *
+ * SECURITY: Rate limited to prevent reCAPTCHA solve abuse.
+ * Each IP gets max 5 token requests per 60 seconds.
  */
+// In-memory rate limit for whitelist token requests (per-isolate, resets on deploy)
+const whitelistTokenRateLimit = new Map<string, { count: number; resetAt: number }>();
+const WHITELIST_TOKEN_RATE_LIMIT = 5;       // max requests per window
+const WHITELIST_TOKEN_RATE_WINDOW_MS = 60_000; // 60 second window
+
 async function handleWhitelistToken(
-  url: URL, logger: any, origin: string | null
+  url: URL, logger: any, origin: string | null, request?: Request
 ): Promise<Response> {
   const channel = url.searchParams.get('channel');
   if (!channel || !/^premium\d+$/.test(channel)) {
     return jsonResponse({ error: 'Missing or invalid channel (e.g. premium51)' }, 400, origin);
+  }
+
+  // Rate limit per IP
+  const clientIP = request?.headers.get('cf-connecting-ip') || 'unknown';
+  const now = Date.now();
+  const rl = whitelistTokenRateLimit.get(clientIP);
+  if (rl && now < rl.resetAt) {
+    if (rl.count >= WHITELIST_TOKEN_RATE_LIMIT) {
+      logger.warn('Whitelist token rate limit exceeded', { ip: clientIP, count: rl.count });
+      return jsonResponse({ error: 'Rate limit exceeded', retryAfter: Math.ceil((rl.resetAt - now) / 1000) }, 429, origin);
+    }
+    rl.count++;
+  } else {
+    whitelistTokenRateLimit.set(clientIP, { count: 1, resetAt: now + WHITELIST_TOKEN_RATE_WINDOW_MS });
+  }
+  // Periodic cleanup of stale entries (every ~100 requests)
+  if (Math.random() < 0.01) {
+    for (const [ip, entry] of whitelistTokenRateLimit) {
+      if (now >= entry.resetAt) whitelistTokenRateLimit.delete(ip);
+    }
   }
 
   const channelNum = channel.replace('premium', '');
@@ -1101,102 +1128,8 @@ async function handleWhitelistToken(
   }
 }
 
-/**
- * POST /whitelist/verify
- * Proxies the verify request to chevy.soyspace.cyou/verify so the CLIENT's
- * IP gets whitelisted. The CF worker forwards the request using the client's
- * real IP (from cf-connecting-ip).
- *
- * Body: { token: string, channel_id: string }
- *
- * Why proxy instead of letting the browser POST directly?
- * → CORS. chevy.soyspace.cyou doesn't set Access-Control-Allow-Origin for
- *   our domain, so the browser would block the response. By proxying through
- *   our worker, we add proper CORS headers.
- *
- * The upstream whitelists based on the IP in the request. Since CF workers
- * connect from CF edge IPs (not the user's IP), we need the upstream to
- * see the user's real IP. We pass it via X-Forwarded-For. If the upstream
- * ignores that header and uses the connecting IP, this won't work and we'd
- * need the browser to POST directly (which requires the upstream to have CORS).
- */
-async function handleWhitelistVerify(
-  request: Request, logger: any, origin: string | null
-): Promise<Response> {
-  let body: { token?: string; channel_id?: string };
-  try {
-    body = await request.json() as { token?: string; channel_id?: string };
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON body' }, 400, origin);
-  }
-
-  if (!body.token || !body.channel_id) {
-    return jsonResponse({ error: 'Missing token or channel_id' }, 400, origin);
-  }
-
-  const clientIP = request.headers.get('cf-connecting-ip')
-    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    || 'unknown';
-
-  logger.info('Proxying whitelist verify', {
-    channel: body.channel_id,
-    clientIP,
-    tokenLen: body.token.length,
-  });
-
-  try {
-    const verifyResp = await fetch(`https://chevy.${CDN_DOMAIN}/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': `https://${PLAYER_DOMAIN}`,
-        'Referer': `https://${PLAYER_DOMAIN}/`,
-        'User-Agent': USER_AGENT,
-        'X-Forwarded-For': clientIP,
-      },
-      body: JSON.stringify({
-        'recaptcha-token': body.token,
-        'channel_id': body.channel_id,
-      }),
-    });
-
-    const verifyBody = await verifyResp.text();
-    logger.info('Verify response', {
-      status: verifyResp.status,
-      body: verifyBody.substring(0, 200),
-      clientIP,
-    });
-
-    // Parse to check if the whitelisted IP matches the client
-    let parsed: any = {};
-    try { parsed = JSON.parse(verifyBody); } catch {}
-
-    // If the upstream whitelisted the CF worker IP instead of the client IP,
-    // log a warning — the client will need to POST directly
-    if (parsed.ip && parsed.ip !== clientIP) {
-      logger.warn('Whitelist IP mismatch — upstream used connecting IP, not X-Forwarded-For', {
-        whitelistedIP: parsed.ip,
-        clientIP,
-        hint: 'Client may need to POST to /verify directly',
-      });
-    }
-
-    return new Response(verifyBody, {
-      status: verifyResp.status,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders(origin),
-      },
-    });
-  } catch (err) {
-    logger.error('Verify proxy failed', { error: (err as Error).message });
-    return jsonResponse({
-      success: false,
-      error: 'Verify request failed',
-      details: (err as Error).message,
-    }, 502, origin);
-  }
-}
+// handleWhitelistVerify REMOVED — client POSTs directly to chevy.soyspace.cyou/verify
+// (upstream has Access-Control-Allow-Origin: *, so browser can POST without proxy)
 
 
 // ============================================================================
@@ -1223,15 +1156,7 @@ export default {
       return new Response(null, { status: 200, headers: corsHeaders(origin) });
     }
 
-    // Allow POST for whitelist verify proxy, GET/HEAD for everything else
-    if (path === '/whitelist/verify' && request.method === 'POST') {
-      // Origin check still applies
-      if (!isAllowedOrigin(origin, referer)) {
-        return jsonResponse({ error: 'Access denied' }, 403, origin);
-      }
-      return handleWhitelistVerify(request, logger, origin);
-    }
-
+    // Only allow GET/HEAD — whitelist verify is done client-side directly to upstream
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return jsonResponse({ error: 'Method not allowed' }, 405, origin);
     }
@@ -1253,7 +1178,7 @@ export default {
       if (path === '/health' || path === '/' && !url.searchParams.has('channel')) {
         return jsonResponse({ status: 'healthy', domain: CDN_DOMAIN, method: 'pow-auth' }, 200, origin);
       }
-      if (path === '/whitelist/token') return handleWhitelistToken(url, logger, origin);
+      if (path === '/whitelist/token') return handleWhitelistToken(url, logger, origin, request);
       if (path === '/key') return handleKeyProxy(url, logger, origin, env);
       if (path === '/segment') {
         // Pass client IP for rate limiting
@@ -2220,19 +2145,17 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
 function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string): string {
   let modified = content;
 
-  // Rewrite key URLs to proxy through our CF worker's /key endpoint
-  // NEVER expose RPI proxy URL directly to the browser!
-  // The /key handler on the CF worker will fetch from RPI server-side.
-  const workerKeyOrigin = proxyOrigin.replace(/\/tv$/, '');
+  // KEY URLs: Leave as direct CDN URLs — client's IP is whitelisted via DLHDWhitelist,
+  // so the browser can fetch keys directly from chevy.soyspace.cyou without proxy.
+  // This eliminates the slow 6-8s RPI round-trip for key fetching.
+  // Just resolve relative key URLs to absolute CDN URLs.
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
     let absoluteKeyUrl = originalKeyUrl;
     if (!absoluteKeyUrl.startsWith('http')) {
       const base = new URL(m3u8BaseUrl);
       absoluteKeyUrl = new URL(originalKeyUrl, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
     }
-    
-    // Route through CF worker's /key endpoint — it proxies to RPI server-side
-    return `URI="${workerKeyOrigin}/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
+    return `URI="${absoluteKeyUrl}"`;
   });
 
   modified = modified.replace(/\n?#EXT-X-ENDLIST\s*$/m, '');
