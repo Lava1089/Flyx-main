@@ -10,7 +10,8 @@ exports.isCdnLiveDomain = isCdnLiveDomain;
 const PROXY_ALLOWED_DOMAINS = [
     // DLHD key servers
     'soyspace.cyou', 'adsfadfds.cfd', 'dvalna.ru', 'topembed.pw', 'dlhd.link',
-    'daddylive.mp', 'www.ksohls.ru', 'ksohls.ru', 'lefttoplay.xyz', 'hitsplay.fun', 'codepcplay.fun',
+    'daddylive.mp', 'dlstreams.top', 'adffdafdsafds.sbs', 'go.ai-chatx.site', 'vovlacosa.sbs',
+    'www.ksohls.ru', 'ksohls.ru', 'lefttoplay.xyz', 'hitsplay.fun', 'codepcplay.fun',
     // AnimeKai/MegaUp
     'megaup.net', 'megaup.live', 'megaup.cc', '4spromax.site', 'hub26link.site',
     'dev23app.site', 'net22lab.site', 'pro25zone.site', 'tech20hub.site',
@@ -23,7 +24,7 @@ const PROXY_ALLOWED_DOMAINS = [
     // PPV
     'poocloud.in', 'modistreams.org',
     // Flixer
-    'flixer.sh', 'workers.dev',
+    'flixer.su', 'flixer.sh', 'workers.dev',
     // VidLink CDN
     'vodvidl.site', 'videostr.net', 'vidlink.pro',
     // VidSrc / 2embed

@@ -42,7 +42,9 @@ router.use((0, rate_limit_1.createRateLimitMiddleware)(rateLimiter));
 router.route('/proxy', proxy_1.handleProxy);
 // DLHD
 router.route('/dlhd-key-v4', dlhd_1.handleDLHDKeyV4);
+router.route('/dlhd-key-v6', dlhd_1.handleDLHDKeyV6);
 router.route('/dlhd-key', dlhd_1.handleDLHDKey);
+router.route('/dlhd-whitelist', dlhd_1.handleDLHDWhitelist);
 router.route('/heartbeat', dlhd_1.handleHeartbeat);
 // AnimeKai
 router.route('/animekai', animekai_1.handleAnimeKai);

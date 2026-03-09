@@ -118,8 +118,8 @@ function proxyAnimeKaiStream(
   const isVidLinkCdn = url.hostname.includes('vodvidl.site') || url.hostname.includes('videostr.net');
 
   if (isDlhdCdn) {
-    headers['Referer'] = customReferer ?? 'https://adffdafdsafds.sbs/';
-    headers['Origin'] = customOrigin ?? 'https://adffdafdsafds.sbs';
+    headers['Referer'] = customReferer ?? 'https://www.ksohls.ru/';
+    headers['Origin'] = customOrigin ?? 'https://www.ksohls.ru';
     if (customAuth) headers['Authorization'] = customAuth;
   } else if (isFlixerCdn) {
     headers['Referer'] = customReferer ?? 'https://flixer.su/';

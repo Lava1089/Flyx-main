@@ -303,13 +303,13 @@ export async function computeKeyPath(
 /**
  * Fetch auth data from player page
  * 
- * Uses adffdafdsafds.sbs (current primary as of Mar 2026)
+ * Uses www.ksohls.ru (current primary as of Mar 2026)
  * 
- * Domain history: epicplayplay.cfd → codepcplay.fun → epaly.fun → lefttoplay.xyz → www.ksohls.ru → adffdafdsafds.sbs
+ * Domain history: epicplayplay.cfd â†’ codepcplay.fun â†’ epaly.fun â†’ lefttoplay.xyz â†’ www.ksohls.ru â†’ www.ksohls.ru
  * Dead domains: epaly.fun (SSL), eplayer.to (DNS), codepcplay.fun (DNS), hitsplay.fun (403), lefttoplay.xyz (403)
  * 
  * IMPORTANT (Feb 25, 2026): Auth values are now XOR-encrypted with polymorphic keys.
- * The page no longer has plain `authToken: "value"` — instead it has:
+ * The page no longer has plain `authToken: "value"` â€” instead it has:
  *   const _dec_XXXX = (d, k) => d.map(b => String.fromCharCode(b ^ k)).join('');
  *   EPlayerAuth.init({ authToken: _dec_XXXX(_init_YYYY, xorKey), ... })
  * We must extract the decoder function, byte arrays, and XOR keys to decrypt.
@@ -364,7 +364,7 @@ function extractEncryptedAuth(html: string): Record<string, string> | null {
   }
   console.log(`[AuthV5] Found ${Object.keys(byteArrays).length} byte arrays`);
   
-  // Step 3: Find EPlayerAuth.init() call and extract field→decrypt mappings
+  // Step 3: Find EPlayerAuth.init() call and extract fieldâ†’decrypt mappings
   // Pattern: authToken: _dec_XXXX(_init_YYYY, 42)
   // The init block may span multiple lines, so use a broader regex
   const initMatch = html.match(/EPlayerAuth\.init\s*\(\s*\{([\s\S]*?)\}\s*\)/);
@@ -389,7 +389,7 @@ function extractEncryptedAuth(html: string): Record<string, string> | null {
       result[fieldName] = xorDecrypt(bytes, xorKey);
       console.log(`[AuthV5] Decrypted ${fieldName}: ${result[fieldName].substring(0, 40)}...`);
     } else {
-      console.log(`[AuthV5] ⚠️ Byte array ${arrayVar} not found for field ${fieldName}`);
+      console.log(`[AuthV5] âš ï¸ Byte array ${arrayVar} not found for field ${fieldName}`);
     }
   }
   
@@ -426,10 +426,10 @@ export async function fetchAuthData(channel: string): Promise<DLHDAuthDataV5 | n
   console.log(`[AuthV5] Fetching auth for channel ${channel}...`);
   
   // Try multiple player domains - DLHD rotates these frequently
-  // Domain history: epicplayplay.cfd → codepcplay.fun → epaly.fun → lefttoplay.xyz → www.ksohls.ru → adffdafdsafds.sbs (Mar 2026)
+  // Domain history: epicplayplay.cfd â†’ codepcplay.fun â†’ epaly.fun â†’ lefttoplay.xyz â†’ www.ksohls.ru â†’ www.ksohls.ru (Mar 2026)
   // Dead: epaly.fun (SSL), eplayer.to (DNS), codepcplay.fun (DNS), hitsplay.fun (403), lefttoplay.xyz (403)
   const endpoints = [
-    `https://adffdafdsafds.sbs/premiumtv/daddyhd.php?id=${channel}`,
+    `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`,
     `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`,
   ];
   
@@ -462,7 +462,7 @@ export async function fetchAuthData(channel: string): Promise<DLHDAuthDataV5 | n
         const country = encryptedAuth.country || 'US';
         const timestamp = encryptedAuth.timestamp ? parseInt(encryptedAuth.timestamp) : Math.floor(Date.now() / 1000);
         
-        console.log(`[AuthV5] ✅ Got XOR-encrypted EPlayerAuth data with salt: ${channelSalt.substring(0, 16)}...`);
+        console.log(`[AuthV5] âœ… Got XOR-encrypted EPlayerAuth data with salt: ${channelSalt.substring(0, 16)}...`);
         
         return {
           authToken,
@@ -501,7 +501,7 @@ export async function fetchAuthData(channel: string): Promise<DLHDAuthDataV5 | n
           const country = countryMatch ? countryMatch[1] : 'US';
           const timestamp = timestampMatch ? parseInt(timestampMatch[1]) : Math.floor(Date.now() / 1000);
           
-          console.log(`[AuthV5] ✅ Got plain EPlayerAuth data with salt: ${channelSalt.substring(0, 16)}...`);
+          console.log(`[AuthV5] âœ… Got plain EPlayerAuth data with salt: ${channelSalt.substring(0, 16)}...`);
           
           return {
             authToken,
@@ -527,14 +527,14 @@ export async function fetchAuthData(channel: string): Promise<DLHDAuthDataV5 | n
 /**
  * Generate auth headers for key request
  * NOTE: Browser uses Math.floor(Date.now() / 1000) with NO offset!
- * The -7 offset was WRONG — deobfuscation of EPlayerAuth confirmed no offset.
+ * The -7 offset was WRONG â€” deobfuscation of EPlayerAuth confirmed no offset.
  */
 export async function generateKeyHeaders(
   resource: string,
   keyNumber: string,
   authData: DLHDAuthDataV5
 ): Promise<Record<string, string>> {
-  // NO OFFSET — browser uses current time exactly (confirmed via deobfuscation)
+  // NO OFFSET â€” browser uses current time exactly (confirmed via deobfuscation)
   return generateKeyHeadersWithOffset(resource, keyNumber, authData, 0);
 }
 
@@ -557,8 +557,8 @@ export async function generateKeyHeadersWithOffset(
   return {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Origin': 'https://adffdafdsafds.sbs',
-    'Referer': 'https://adffdafdsafds.sbs/',
+    'Origin': 'https://www.ksohls.ru',
+    'Referer': 'https://www.ksohls.ru/',
     'Authorization': `Bearer ${authData.authToken}`,
     'X-Key-Timestamp': timestamp.toString(),
     'X-Key-Nonce': nonce.toString(),

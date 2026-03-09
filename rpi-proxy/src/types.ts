@@ -31,6 +31,8 @@ export interface RPIErrorResponse {
   provider?: string;
   timestamp: number;
   details?: string;
+  hint?: string;
+  channel?: string;
 }
 
 /** Standardized JSON success response */

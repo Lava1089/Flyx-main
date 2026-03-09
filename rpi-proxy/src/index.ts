@@ -16,7 +16,7 @@ import { sendJson } from './utils';
 
 // Route handlers
 import { handleProxy } from './routes/proxy';
-import { handleDLHDKeyV4, handleDLHDKey, handleDLHDKeyV6, handleHeartbeat } from './routes/dlhd';
+import { handleDLHDKeyV4, handleDLHDKey, handleDLHDKeyV6, handleDLHDWhitelist, handleHeartbeat } from './routes/dlhd';
 import { handleAnimeKai } from './routes/animekai';
 import { handleVIPRowStream, handleVIPRowManifest, handleVIPRowKey, handleVIPRowSegment } from './routes/viprow';
 import { handlePPV } from './routes/ppv';
@@ -44,6 +44,7 @@ router.route('/proxy', handleProxy);
 router.route('/dlhd-key-v4', handleDLHDKeyV4);
 router.route('/dlhd-key-v6', handleDLHDKeyV6);
 router.route('/dlhd-key', handleDLHDKey);
+router.route('/dlhd-whitelist', handleDLHDWhitelist);
 router.route('/heartbeat', handleHeartbeat);
 
 // AnimeKai

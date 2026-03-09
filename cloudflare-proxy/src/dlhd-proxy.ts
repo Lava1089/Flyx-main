@@ -1016,7 +1016,7 @@ async function handlePlaylistRequest(
     rpiBase = rpiBase.replace(/\/+$/, '');
     
     // Use /dlhd/stream endpoint with referer header - DLHD CDN requires it
-    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}`;
+    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`;
     logger.info('Calling RPI /dlhd/stream for M3U8', { 
       rpiBase,
       rpiUrl: rpiUrl.substring(0, 200),

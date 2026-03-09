@@ -21,7 +21,7 @@ mod recaptcha_v3 {
     async fn get_recaptcha_version(client: &Client) -> Result<String> {
         let js_url = "https://www.google.com/recaptcha/api.js?render=explicit";
         let body = client.get(js_url)
-            .header("Referer", "https://adffdafdsafds.sbs/")
+            .header("Referer", "https://www.ksohls.ru/")
             .send().await.context("fetch recaptcha api.js")?
             .text().await.context("read api.js body")?;
         
@@ -674,6 +674,7 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, 
                 eprintln!("  --mode kai-encrypt    AnimeKai encrypt (--url is the plaintext)");
                 eprintln!("  --mode kai-decrypt    AnimeKai decrypt (--url is the ciphertext)");
                 eprintln!("  --mode recaptcha-v3   Solve reCAPTCHA v3 via HTTP-only (no browser)");
+                eprintln!("  --mode dlhd-whitelist Full DLHD flow: reCAPTCHA → verify → whitelist IP");
                 eprintln!();
                 eprintln!("RECAPTCHA-V3 OPTIONS:");
                 eprintln!("  --site-key KEY     reCAPTCHA site key");
@@ -751,14 +752,50 @@ async fn main() -> Result<()> {
                 action
             };
             let page = if url.is_empty() {
-                "https://adffdafdsafds.sbs/".to_string()
+                "https://www.ksohls.ru/premiumtv/daddyhd.php?id=44".to_string()
             } else {
                 url
             };
             mode_recaptcha_v3(&client, &page, &sk, &act).await?;
         }
+        "dlhd-whitelist" => {
+            // Full DLHD whitelist flow:
+            // 1. Generate reCAPTCHA v3 token
+            // 2. POST to chevy.soyspace.cyou/verify
+            // 3. Output JSON result
+            let channel = if url.is_empty() { "premium44".to_string() } else { url };
+            let page = format!("https://www.ksohls.ru/premiumtv/daddyhd.php?id={}", 
+                channel.strip_prefix("premium").unwrap_or("44"));
+            let sk = "6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj";
+            
+            eprintln!("[dlhd-whitelist] channel={}, page={}", channel, page);
+            
+            // Step 1: Get reCAPTCHA token
+            let token = recaptcha_v3::solve(&client, sk, &page, "player_access").await?;
+            eprintln!("[dlhd-whitelist] token: {}b", token.len());
+            
+            // Step 2: POST to verify
+            let verify_body = serde_json::json!({
+                "recaptcha-token": token,
+                "channel_id": channel,
+            });
+            let verify_resp = client.post("https://chevy.soyspace.cyou/verify")
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://www.ksohls.ru")
+                .header("Referer", "https://www.ksohls.ru/")
+                .json(&verify_body)
+                .send().await
+                .context("verify request failed")?;
+            
+            let status = verify_resp.status();
+            let body = verify_resp.text().await.context("read verify body")?;
+            eprintln!("[dlhd-whitelist] verify: {} {}", status.as_u16(), &body[..body.len().min(200)]);
+            
+            // Output the verify response
+            println!("{}", body);
+        }
         other => {
-            bail!("unknown mode: {}. Use fetch, fetch-bin, megacloud, megaup, kai-encrypt, kai-decrypt, or recaptcha-v3", other);
+            bail!("unknown mode: {}. Use fetch, fetch-bin, megacloud, megaup, kai-encrypt, kai-decrypt, recaptcha-v3, or dlhd-whitelist", other);
         }
     }
 

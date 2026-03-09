@@ -77,51 +77,50 @@ export async function lookupServer(channelId: number): Promise<string | null> {
   
   const channelKey = `premium${channelId}`;
   
-  // Try each lookup domain in order
-  for (const domain of LOOKUP_DOMAINS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
-      const resp = await fetch(
-        `https://chevy.${domain}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://adffdafdsafds.sbs/',
-            'Origin': 'https://adffdafdsafds.sbs',
-          },
-          signal: controller.signal,
-        }
-      );
-      clearTimeout(timeoutId);
-      
-      if (resp.ok) {
-        const data = await resp.json() as { server_key?: string; error?: string };
-        if (data.server_key) {
-          // Cache the result
-          serverLookupCache.set(channelId, { server: data.server_key, expires: Date.now() + LOOKUP_CACHE_TTL_MS });
-          
-          // Evict old cache entries if too large
-          if (serverLookupCache.size > 500) {
-            const now = Date.now();
-            for (const [key, val] of serverLookupCache.entries()) {
-              if (val.expires < now) serverLookupCache.delete(key);
+  // Race all lookup domains in parallel — first valid response wins
+  try {
+    const result = await Promise.any(
+      LOOKUP_DOMAINS.map(async (domain) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        try {
+          const resp = await fetch(
+            `https://chevy.${domain}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`,
+            {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.ksohls.ru/',
+                'Origin': 'https://www.ksohls.ru',
+              },
+              signal: controller.signal,
             }
-          }
-          
-          console.log(`[ServerLookup] ch${channelId} -> ${data.server_key} (via ${domain})`);
-          return data.server_key;
+          );
+          clearTimeout(timeoutId);
+          if (!resp.ok) throw new Error(`${resp.status}`);
+          const data = await resp.json() as { server_key?: string };
+          if (!data.server_key) throw new Error('no server_key');
+          return { server: data.server_key, domain };
+        } catch (e) {
+          clearTimeout(timeoutId);
+          throw e;
         }
+      })
+    );
+    
+    // Cache the result
+    serverLookupCache.set(channelId, { server: result.server, expires: Date.now() + LOOKUP_CACHE_TTL_MS });
+    if (serverLookupCache.size > 500) {
+      const now = Date.now();
+      for (const [key, val] of serverLookupCache.entries()) {
+        if (val.expires < now) serverLookupCache.delete(key);
       }
-    } catch (e) {
-      // Try next domain
-      continue;
     }
+    console.log(`[ServerLookup] ch${channelId} -> ${result.server} (via ${result.domain})`);
+    return result.server;
+  } catch {
+    console.log(`[ServerLookup] API failed for ch${channelId}, falling back to static map`);
+    return null;
   }
-  
-  console.log(`[ServerLookup] API failed for ch${channelId}, falling back to static map`);
-  return null;
 }
 
 // Pre-computed server mappings from discovery scan
@@ -224,12 +223,12 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   const m3u8Url = buildM3U8Url(channelId, server);
 
   // Step 3: Build headers - NO AUTH NEEDED for M3U8!
-  // Updated Mar 2026: Referer changed to adffdafdsafds.sbs (new player domain)
+  // Updated Mar 2026: Referer changed to www.ksohls.ru (current player domain)
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://adffdafdsafds.sbs/',
-    'Origin': 'https://adffdafdsafds.sbs',
+    'Referer': 'https://www.ksohls.ru/',
+    'Origin': 'https://www.ksohls.ru',
   };
 
   const elapsed = Date.now() - startTime;
@@ -238,8 +237,8 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   return {
     m3u8Url,
     headers,
-    referer: 'https://adffdafdsafds.sbs/',
-    origin: 'https://adffdafdsafds.sbs',
+    referer: 'https://www.ksohls.ru/',
+    origin: 'https://www.ksohls.ru',
     quality: undefined,
     isEncrypted: true,
   };
@@ -326,8 +325,8 @@ export async function extractWithFallback(
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://adffdafdsafds.sbs/',
-          'Origin': 'https://adffdafdsafds.sbs',
+          'Referer': 'https://www.ksohls.ru/',
+          'Origin': 'https://www.ksohls.ru',
           'Authorization': `Bearer ${token}`,
         }));
 
@@ -357,12 +356,12 @@ export async function extractWithFallback(
                   headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': '*/*',
-                    'Referer': 'https://adffdafdsafds.sbs/',
-                    'Origin': 'https://adffdafdsafds.sbs',
+                    'Referer': 'https://www.ksohls.ru/',
+                    'Origin': 'https://www.ksohls.ru',
                     'Authorization': `Bearer ${token}`,
                   },
-                  referer: 'https://adffdafdsafds.sbs/',
-                  origin: 'https://adffdafdsafds.sbs',
+                  referer: 'https://www.ksohls.ru/',
+                  origin: 'https://www.ksohls.ru',
                   quality: undefined,
                   isEncrypted: true,
                 },
@@ -465,7 +464,7 @@ export async function generateJWT(channelId: string): Promise<{ token: string; c
   const chNum = parseInt(channelId, 10);
   const channelKey = `premium${chNum}`;
   
-  // Fetch auth data from player page (adffdafdsafds.sbs primary, www.ksohls.ru fallback)
+  // Fetch auth data from player page (www.ksohls.ru primary, www.ksohls.ru fallback)
   const authData = await fetchAuthData(channelId);
   
   if (authData && authData.authToken) {

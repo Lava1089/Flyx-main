@@ -335,6 +335,7 @@ const PROXY_ALLOWED_DOMAINS = [
   'adffdafdsafds.sbs', // Current player domain (Mar 2026)
   'go.ai-chatx.site', // reCAPTCHA verify + key server (Mar 2026)
   'ai-chatx.site', // reCAPTCHA verify domain (Mar 2026)
+  'vmvmv.shop', // New key server domain (Mar 9 2026, from SSL cert)
   'lefttoplay.xyz', // Dead but kept for reference
   'hitsplay.fun', // Dead but kept for reference
   'codepcplay.fun', // Dead but kept for reference
@@ -1224,8 +1225,8 @@ function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOr
   
   // DLHD CDN REQUIRES Referer, Origin, AND Authorization headers for M3U8
   if (isDlhdCdn) {
-    headers['Referer'] = customReferer || 'https://adffdafdsafds.sbs/';
-    headers['Origin'] = customOrigin || 'https://adffdafdsafds.sbs';
+    headers['Referer'] = customReferer || 'https://www.ksohls.ru/';
+    headers['Origin'] = customOrigin || 'https://www.ksohls.ru';
     // Add Authorization header if provided (required for M3U8 requests)
     if (customAuth) {
       headers['Authorization'] = customAuth;
@@ -1490,8 +1491,8 @@ function proxyDlhdStream(targetUrl, customUserAgent, customReferer, customOrigin
     'Accept': '*/*',
     'Accept-Encoding': 'identity',
     'Connection': 'keep-alive',
-    'Referer': customReferer || 'https://adffdafdsafds.sbs/',
-    'Origin': customOrigin || 'https://adffdafdsafds.sbs',
+    'Referer': customReferer || 'https://www.ksohls.ru/',
+    'Origin': customOrigin || 'https://www.ksohls.ru',
   };
   if (customAuth) {
     headers['Authorization'] = customAuth;
@@ -2100,112 +2101,306 @@ async function cdnLiveFetchAndExtract(name, code) {
 }
 
 // ============================================================================
-// DLHD reCAPTCHA v3 IP Whitelist — keeps RPI whitelisted for key access
+// DLHD reCAPTCHA v3 IP Whitelist — ON-DEMAND per-channel whitelisting
+// 
+// CRITICAL CONSTRAINT (discovered Mar 9 2026):
+//   DLHD limits to 13 unique channels per 30 minutes per IP.
+//   Exceeding this returns: {"error":"channel_limit_exceeded"}
+//
+// Strategy:
+//   - NO background daemon (wastes slots)
+//   - Whitelist ONLY on-demand when a key request gets a poison key
+//   - Track channel budget with a 30-min sliding window
+//   - Per-channel cooldown: don't re-whitelist same channel within 25 min
 // ============================================================================
+const WHITELIST_BUDGET = 13;          // max unique channels per window
+const WHITELIST_WINDOW_MS = 30 * 60 * 1000;  // 30 minutes
+const WHITELIST_CHANNEL_COOLDOWN_MS = 25 * 60 * 1000; // 25 min per-channel cooldown
+
 const dlhdWhitelistState = {
   lastSuccess: 0,
   lastAttempt: 0,
   lastError: null,
   consecutiveFailures: 0,
   isWhitelisted: false,
+  // Sliding window: array of { channel, timestamp }
+  recentWhitelists: [],
+  // Per-channel last success: channel -> timestamp
+  perChannelSuccess: {},
 };
 
-async function whitelistRPIViaRecaptcha() {
+/**
+ * Get how many budget slots are available in the current 30-min window
+ */
+function getWhitelistBudget() {
+  const now = Date.now();
+  // Prune expired entries
+  dlhdWhitelistState.recentWhitelists = dlhdWhitelistState.recentWhitelists.filter(
+    e => (now - e.timestamp) < WHITELIST_WINDOW_MS
+  );
+  // Count unique channels in window
+  const uniqueChannels = new Set(dlhdWhitelistState.recentWhitelists.map(e => e.channel));
+  return {
+    used: uniqueChannels.size,
+    remaining: Math.max(0, WHITELIST_BUDGET - uniqueChannels.size),
+    channels: [...uniqueChannels],
+    oldestExpiry: dlhdWhitelistState.recentWhitelists.length > 0
+      ? Math.round((WHITELIST_WINDOW_MS - (now - dlhdWhitelistState.recentWhitelists[0].timestamp)) / 1000)
+      : null,
+  };
+}
+
+/**
+ * Check if a channel is already whitelisted (within cooldown period)
+ */
+function isChannelWhitelisted(channel) {
+  const lastSuccess = dlhdWhitelistState.perChannelSuccess[channel];
+  if (!lastSuccess) return false;
+  return (Date.now() - lastSuccess) < WHITELIST_CHANNEL_COOLDOWN_MS;
+}
+
+/**
+ * Record a successful whitelist
+ */
+function recordWhitelistSuccess(channel) {
+  const now = Date.now();
+  dlhdWhitelistState.perChannelSuccess[channel] = now;
+  dlhdWhitelistState.recentWhitelists.push({ channel, timestamp: now });
+  dlhdWhitelistState.lastSuccess = now;
+  dlhdWhitelistState.isWhitelisted = true;
+  dlhdWhitelistState.consecutiveFailures = 0;
+  dlhdWhitelistState.lastError = null;
+}
+
+// ============================================================================
+// DLHD Key Cache — cache real (non-poison) keys to avoid burning whitelist slots
+//
+// Key numbers stay the same for minutes at a time. Caching a valid key means
+// unlimited clients can watch the same channel without each needing a whitelist.
+// Only 1 whitelist slot is burned per channel per key rotation (~every few min).
+// ============================================================================
+const KEY_CACHE_TTL_V6 = 5 * 60 * 1000; // 5 minutes
+const dlhdKeyCache = new Map(); // "premium{ch}/{keyNum}" -> { key: Buffer, expires: number }
+
+function getCachedKey(keyPath) {
+  const cached = dlhdKeyCache.get(keyPath);
+  if (cached && cached.expires > Date.now()) return cached.key;
+  if (cached) dlhdKeyCache.delete(keyPath);
+  return null;
+}
+
+function setCachedKey(keyPath, keyBuf) {
+  dlhdKeyCache.set(keyPath, { key: keyBuf, expires: Date.now() + KEY_CACHE_TTL_V6 });
+  // Evict old entries if cache grows too large
+  if (dlhdKeyCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of dlhdKeyCache.entries()) {
+      if (v.expires < now) dlhdKeyCache.delete(k);
+    }
+  }
+}
+
+function getKeyCacheStats() {
+  const now = Date.now();
+  let active = 0;
+  for (const v of dlhdKeyCache.values()) {
+    if (v.expires > now) active++;
+  }
+  return { total: dlhdKeyCache.size, active };
+}
+
+async function whitelistRPIViaRecaptcha(channel = 'premium44') {
   dlhdWhitelistState.lastAttempt = Date.now();
   
   try {
-    // Step 1: Get reCAPTCHA v3 token via rust-fetch HTTP-only bypass
-    console.log(`[DLHD-Whitelist] Solving reCAPTCHA v3 via rust-fetch...`);
+    // =========================================================================
+    // Puppeteer-based reCAPTCHA v3 (gets score 0.9 — actually whitelists IP)
+    // The HTTP-only rust-fetch bypass gets score 0.1-0.3 which does NOT whitelist.
+    // =========================================================================
+    let puppeteer;
+    try { puppeteer = require('puppeteer-core'); } catch {
+      try { puppeteer = require('puppeteer'); } catch { puppeteer = null; }
+    }
     
-    const token = await new Promise((resolve, reject) => {
-      const args = [
-        '--mode', 'recaptcha-v3',
-        '--url', 'https://adffdafdsafds.sbs/',
-        '--site-key', '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj',
-        '--action', 'player_access',
-        '--timeout', '30',
-      ];
-      
-      const rust = spawn('rust-fetch', args);
-      let stdout = '';
-      let stderr = '';
-      
-      rust.stdout.on('data', (data) => { stdout += data.toString(); });
-      rust.stderr.on('data', (data) => { stderr += data.toString(); });
-      
-      rust.on('error', (err) => reject(new Error(`spawn error: ${err.message}`)));
-      rust.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(`rust-fetch exit ${code}: ${stderr.substring(0, 500)}`));
-          return;
-        }
-        const trimmed = stdout.trim();
-        if (!trimmed || trimmed.length < 20) {
-          reject(new Error(`Invalid token (${trimmed.length} chars): ${trimmed.substring(0, 100)}`));
-          return;
-        }
-        resolve(trimmed);
-      });
+    if (!puppeteer) {
+      console.log(`[DLHD-Whitelist] ⚠️ Puppeteer not installed — falling back to rust-fetch (LOW score, may not whitelist)`);
+      return await whitelistViaRustFetch(channel);
+    }
+
+    console.log(`[DLHD-Whitelist] Solving reCAPTCHA v3 via Puppeteer (real browser)...`);
+    
+    const SITE_KEY = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
+    const chromePaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/google-chrome'];
+    let chromePath = null;
+    for (const p of chromePaths) {
+      try { require('fs').accessSync(p); chromePath = p; break; } catch {}
+    }
+    
+    if (!chromePath) {
+      console.log(`[DLHD-Whitelist] ⚠️ No Chromium found — falling back to rust-fetch`);
+      return await whitelistViaRustFetch();
+    }
+
+    const browser = await puppeteer.launch({
+      headless: 'new',
+      executablePath: chromePath,
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+        '--disable-gpu', '--no-first-run', '--no-zygote', '--single-process',
+        '--disable-extensions', '--disable-blink-features=AutomationControlled',
+      ],
     });
 
-    console.log(`[DLHD-Whitelist] Got reCAPTCHA token (${token.length} chars)`);
-
-    // Step 2: POST token to DLHD verify endpoint to whitelist our IP
-    const verifyResult = await new Promise((resolve, reject) => {
-      const postData = JSON.stringify({
-        'recaptcha-token': token,
-        'channel_id': 'premium44',
+    try {
+      const page = await browser.newPage();
+      await page.setUserAgent('Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36');
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
       });
-      
-      const verifyUrl = new URL('https://go.ai-chatx.site/verify');
-      const verifyReq = require('https').request({
-        hostname: verifyUrl.hostname,
-        path: verifyUrl.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData),
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-          'Origin': 'https://adffdafdsafds.sbs',
-          'Referer': 'https://adffdafdsafds.sbs/',
-        },
-        timeout: 15000,
-      }, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            resolve(json);
-          } catch {
-            reject(new Error(`Verify response not JSON: ${data.substring(0, 200)}`));
-          }
+
+      // Intercept navigation — serve minimal HTML that loads reCAPTCHA
+      // (The real player page has window===window.top redirect that blocks headless)
+      await page.setRequestInterception(true);
+      let intercepted = false;
+      page.on('request', req => {
+        if (!intercepted && req.isNavigationRequest()) {
+          intercepted = true;
+          req.respond({
+            status: 200,
+            contentType: 'text/html',
+            body: `<!DOCTYPE html><html><head>
+              <script src="https://www.google.com/recaptcha/api.js?render=${SITE_KEY}"></script>
+            </head><body><script>
+              window.__recaptchaReady = false;
+              (function check() {
+                if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.execute === 'function') {
+                  window.__recaptchaReady = true; return;
+                }
+                setTimeout(check, 200);
+              })();
+            </script></body></html>`,
+          });
+        } else {
+          req.continue();
+        }
+      });
+
+      const channelNum = channel.replace('premium', '');
+      await page.goto(`https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channelNum}`, {
+        waitUntil: 'networkidle2', timeout: 30000,
+      });
+
+      await page.waitForFunction(() => window.__recaptchaReady === true, { timeout: 20000 });
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Execute reCAPTCHA v3
+      const token = await page.evaluate((sk) => {
+        return new Promise((resolve, reject) => {
+          grecaptcha.ready(() => {
+            grecaptcha.execute(sk, { action: 'player_access' }).then(resolve).catch(reject);
+          });
         });
-      });
-      
-      verifyReq.on('error', (err) => reject(new Error(`Verify request error: ${err.message}`)));
-      verifyReq.on('timeout', () => { verifyReq.destroy(); reject(new Error('Verify request timeout')); });
-      verifyReq.write(postData);
-      verifyReq.end();
-    });
+      }, SITE_KEY);
 
-    console.log(`[DLHD-Whitelist] Verify response:`, verifyResult);
+      console.log(`[DLHD-Whitelist] Puppeteer token: ${token.length} chars`);
 
-    if (verifyResult.success) {
-      dlhdWhitelistState.lastSuccess = Date.now();
-      dlhdWhitelistState.isWhitelisted = true;
-      dlhdWhitelistState.consecutiveFailures = 0;
-      dlhdWhitelistState.lastError = null;
-      console.log(`[DLHD-Whitelist] ✅ IP whitelisted! Score: ${verifyResult.score || 'N/A'} — valid for ~30 min`);
-    } else {
-      dlhdWhitelistState.consecutiveFailures++;
-      dlhdWhitelistState.lastError = `Verify returned success=false: ${JSON.stringify(verifyResult)}`;
-      console.log(`[DLHD-Whitelist] ❌ Verify failed:`, verifyResult);
+      // POST to verify from browser context (same IP)
+      const verifyResult = await page.evaluate(async (url, tok, ch) => {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 'recaptcha-token': tok, 'channel_id': ch }),
+        });
+        return r.json();
+      }, 'https://chevy.soyspace.cyou/verify', token, channel);
+
+      console.log(`[DLHD-Whitelist] Verify response:`, verifyResult);
+
+      if (verifyResult.success) {
+        recordWhitelistSuccess(channel);
+        dlhdWhitelistState.lastScore = verifyResult.score || null;
+        dlhdWhitelistState.lastVerifyResponse = verifyResult;
+        console.log(`[DLHD-Whitelist] ✅ IP whitelisted via Puppeteer for ${channel}! Score: ${verifyResult.score || 'N/A'}`);
+      } else {
+        dlhdWhitelistState.consecutiveFailures++;
+        dlhdWhitelistState.lastError = `Verify failed: ${JSON.stringify(verifyResult)}`;
+        dlhdWhitelistState.lastScore = verifyResult.score || null;
+        dlhdWhitelistState.lastVerifyResponse = verifyResult;
+        console.log(`[DLHD-Whitelist] ❌ Verify failed for ${channel}:`, verifyResult);
+      }
+    } finally {
+      await browser.close();
     }
   } catch (err) {
     dlhdWhitelistState.consecutiveFailures++;
     dlhdWhitelistState.lastError = err.message;
-    console.error(`[DLHD-Whitelist] ❌ Error: ${err.message}`);
+    console.error(`[DLHD-Whitelist] ❌ Puppeteer error: ${err.message}`);
+    // Fallback to rust-fetch on Puppeteer failure
+    console.log(`[DLHD-Whitelist] Falling back to rust-fetch...`);
+    try { await whitelistViaRustFetch(channel); } catch (e2) {
+      console.error(`[DLHD-Whitelist] ❌ rust-fetch fallback also failed: ${e2.message}`);
+    }
+  }
+}
+
+// Legacy rust-fetch based whitelist (LOW score — usually doesn't actually whitelist)
+async function whitelistViaRustFetch(channel = 'premium44') {
+  console.log(`[DLHD-Whitelist] Solving reCAPTCHA v3 via rust-fetch for ${channel}...`);
+  const token = await new Promise((resolve, reject) => {
+    const args = [
+      '--mode', 'recaptcha-v3',
+      '--url', 'https://www.ksohls.ru/',
+      '--site-key', '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj',
+      '--action', 'player_access',
+      '--timeout', '30',
+    ];
+    const rust = spawn('rust-fetch', args);
+    let stdout = '', stderr = '';
+    rust.stdout.on('data', (d) => { stdout += d.toString(); });
+    rust.stderr.on('data', (d) => { stderr += d.toString(); });
+    rust.on('error', (err) => reject(new Error(`spawn error: ${err.message}`)));
+    rust.on('close', (code) => {
+      if (code !== 0) { reject(new Error(`rust-fetch exit ${code}: ${stderr.substring(0, 500)}`)); return; }
+      const trimmed = stdout.trim();
+      if (!trimmed || trimmed.length < 20) { reject(new Error(`Invalid token: ${trimmed.substring(0, 100)}`)); return; }
+      resolve(trimmed);
+    });
+  });
+
+  console.log(`[DLHD-Whitelist] rust-fetch token: ${token.length} chars`);
+
+  const verifyResult = await new Promise((resolve, reject) => {
+    const postData = JSON.stringify({ 'recaptcha-token': token, 'channel_id': channel });
+    const verifyReq = require('https').request({
+      hostname: 'chevy.soyspace.cyou', path: '/verify', method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData),
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+        'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/',
+      },
+      timeout: 15000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error(`Not JSON: ${data.substring(0, 200)}`)); } });
+    });
+    verifyReq.on('error', (err) => reject(new Error(`Verify error: ${err.message}`)));
+    verifyReq.on('timeout', () => { verifyReq.destroy(); reject(new Error('Verify timeout')); });
+    verifyReq.write(postData);
+    verifyReq.end();
+  });
+
+  console.log(`[DLHD-Whitelist] rust-fetch verify:`, verifyResult);
+  if (verifyResult.success) {
+    recordWhitelistSuccess(channel);
+    dlhdWhitelistState.lastScore = verifyResult.score || null;
+    dlhdWhitelistState.lastVerifyResponse = verifyResult;
+    console.log(`[DLHD-Whitelist] ✅ rust-fetch whitelist done for ${channel}. Score: ${verifyResult.score || 'N/A'}`);
+  } else {
+    dlhdWhitelistState.consecutiveFailures++;
+    dlhdWhitelistState.lastError = `rust-fetch verify failed: ${JSON.stringify(verifyResult)}`;
+    dlhdWhitelistState.lastScore = verifyResult.score || null;
+    dlhdWhitelistState.lastVerifyResponse = verifyResult;
   }
 }
 
@@ -2243,19 +2438,22 @@ const server = http.createServer(async (req, res) => {
   // Whitelist status - no auth required (informational)
   if (reqUrl.pathname === '/whitelist-status') {
     const now = Date.now();
-    const minutesSinceSuccess = dlhdWhitelistState.lastSuccess 
-      ? Math.round((now - dlhdWhitelistState.lastSuccess) / 60000) 
-      : null;
-    const isLikelyValid = dlhdWhitelistState.isWhitelisted && minutesSinceSuccess !== null && minutesSinceSuccess < 30;
+    const budget = getWhitelistBudget();
     
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     return res.end(JSON.stringify({
-      whitelisted: isLikelyValid,
+      whitelisted: dlhdWhitelistState.isWhitelisted,
       lastSuccess: dlhdWhitelistState.lastSuccess || null,
-      minutesSinceSuccess,
       lastAttempt: dlhdWhitelistState.lastAttempt || null,
       consecutiveFailures: dlhdWhitelistState.consecutiveFailures,
       lastError: dlhdWhitelistState.lastError,
+      lastScore: dlhdWhitelistState.lastScore || null,
+      lastVerifyResponse: dlhdWhitelistState.lastVerifyResponse || null,
+      budget,
+      whitelistedChannels: Object.entries(dlhdWhitelistState.perChannelSuccess)
+        .filter(([_, ts]) => (now - ts) < WHITELIST_CHANNEL_COOLDOWN_MS)
+        .map(([ch, ts]) => ({ channel: ch, expiresInSecs: Math.round((WHITELIST_CHANNEL_COOLDOWN_MS - (now - ts)) / 1000) })),
+      keyCache: getKeyCacheStats(),
     }));
   }
 
@@ -2771,8 +2969,12 @@ const server = http.createServer(async (req, res) => {
       }
       // Use Node.js built-in fetch() instead of https.request()
       // fetch() handles TLS/HTTP2 negotiation better and matches browser behavior
-      // IMPORTANT: Force IPv4 via custom agent to avoid IPv6 poison-pill keys
-      console.log(`[Fetch] Using Node.js https.request (IPv4 forced) for ${u.hostname}`);
+      // For DLHD key servers, use IPv6 (reCAPTCHA whitelist is per-IPv6 address)
+      // For other domains, force IPv4 to avoid Cloudflare IPv6 issues
+      const dlhdKeyDomains = ['go.ai-chatx.site', 'ai-chatx.site', 'chevy.vovlacosa.sbs', 'chevy.soyspace.cyou', 'arbitrageai.cc', 'vovlacosa.sbs', 'soyspace.cyou'];
+      const isDlhdKey = dlhdKeyDomains.some(d => u.hostname === d || u.hostname.endsWith('.' + d));
+      const ipFamily = isDlhdKey ? 6 : 4;
+      console.log(`[Fetch] Using Node.js https.request (IPv${ipFamily}) for ${u.hostname}${isDlhdKey ? ' (DLHD key server — IPv6 whitelisted)' : ''}`);
       const proxyReq = https.request({
         hostname: u.hostname,
         port: u.port || 443,
@@ -2783,7 +2985,7 @@ const server = http.createServer(async (req, res) => {
           'Accept': '*/*',
           ...customHeaders,
         },
-        family: 4, // Force IPv4 — IPv6 gets poison-pill keys from Cloudflare
+        family: ipFamily, // IPv6 for DLHD key servers (whitelist is IPv6), IPv4 for others
         timeout: 15000,
         rejectUnauthorized: false,
       }, (proxyRes) => {
@@ -3451,7 +3653,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`[DLHD-Key-V4] ts=${timestamp} nonce=${nonce}`);
     
     // Simple fetch with the provided auth headers
-    // CRITICAL: Use adffdafdsafds.sbs as Origin/Referer (new player domain Mar 2026)
+    // CRITICAL: Use www.ksohls.ru as Origin/Referer (new player domain Mar 2026)
     const url = new URL(targetUrl);
     const options = {
       hostname: url.hostname,
@@ -3460,8 +3662,8 @@ const server = http.createServer(async (req, res) => {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
-        'Origin': 'https://adffdafdsafds.sbs',
-        'Referer': 'https://adffdafdsafds.sbs/',
+        'Origin': 'https://www.ksohls.ru',
+        'Referer': 'https://www.ksohls.ru/',
         'Authorization': `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp,
         'X-Key-Nonce': nonce,
@@ -3570,6 +3772,68 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ============================================================================
+  // /whitelist-refresh — Trigger immediate reCAPTCHA v3 IP whitelist refresh
+  // Called by CF worker when all key servers return fake keys.
+  // ============================================================================
+  if (reqUrl.pathname === '/whitelist-refresh' || reqUrl.pathname === '/dlhd-whitelist') {
+    const channel = reqUrl.searchParams.get('channel') || 'premium44';
+    
+    // Check if channel is already whitelisted (within cooldown)
+    if (isChannelWhitelisted(channel)) {
+      const lastSuccess = dlhdWhitelistState.perChannelSuccess[channel];
+      const secsAgo = Math.round((Date.now() - lastSuccess) / 1000);
+      console.log(`[Whitelist-Refresh] Skipped ${channel} — already whitelisted ${secsAgo}s ago`);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ 
+        success: true,
+        status: 'already-whitelisted',
+        channel,
+        lastSuccessSecsAgo: secsAgo,
+        budget: getWhitelistBudget(),
+      }));
+    }
+    
+    // Check budget — don't exceed 13 channels / 30 min
+    const budget = getWhitelistBudget();
+    if (budget.remaining <= 0) {
+      console.log(`[Whitelist-Refresh] BUDGET EXHAUSTED for ${channel} — ${budget.used}/${WHITELIST_BUDGET} channels used. Next slot in ${budget.oldestExpiry}s`);
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ 
+        success: false,
+        status: 'budget-exhausted',
+        channel,
+        error: `Channel whitelist budget exhausted (${budget.used}/${WHITELIST_BUDGET}). Next slot in ${budget.oldestExpiry}s`,
+        budget,
+      }));
+    }
+    
+    console.log(`[Whitelist-Refresh] Triggered for ${channel} — budget: ${budget.remaining}/${WHITELIST_BUDGET} remaining`);
+    
+    try {
+      dlhdWhitelistState.lastAttempt = Date.now();
+      await whitelistRPIViaRecaptcha(channel);
+      console.log(`[Whitelist-Refresh] Completed ${channel}. isWhitelisted=${dlhdWhitelistState.isWhitelisted}`);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ 
+        success: dlhdWhitelistState.isWhitelisted,
+        channel,
+        score: dlhdWhitelistState.lastScore,
+        verifyResponse: dlhdWhitelistState.lastVerifyResponse,
+        budget: getWhitelistBudget(),
+      }));
+    } catch (err) {
+      console.error(`[Whitelist-Refresh] Error for ${channel}: ${err.message}`);
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ 
+        success: false,
+        channel,
+        error: err.message,
+        budget: getWhitelistBudget(),
+      }));
+    }
+  }
+
+  // ============================================================================
   // /dlhd-key-v6 — Server-side key fetching via rust-fetch (residential IP)
   // 
   // March 2026: DLHD switched to reCAPTCHA v3 IP whitelist for key access.
@@ -3607,14 +3871,40 @@ const server = http.createServer(async (req, res) => {
     const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
     const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
     
+    // Check key cache FIRST — serves unlimited clients without burning whitelist slots
+    const cachedKey = getCachedKey(keyPath);
+    if (cachedKey) {
+      console.log(`[DLHD-Key-V6] ✅ Cache HIT: ${keyPath} → ${cachedKey.toString('hex')}`);
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': cachedKey.length,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'X-Fetched-By': 'rpi-v6-cache',
+        'X-Key-Hex': cachedKey.toString('hex'),
+        'X-Cache': 'HIT',
+      });
+      res.end(cachedKey);
+      return;
+    }
+    
     const keyServers = [
       decoded, // Original URL first
-      `https://go.ai-chatx.site${keyPath}`,
+      `https://chevy.vmvmv.shop${keyPath}`,
       `https://chevy.vovlacosa.sbs${keyPath}`,
       `https://chevy.soyspace.cyou${keyPath}`,
+      // go.ai-chatx.site removed — SSL cert invalid (ERR_TLS_CERT_ALTNAME_INVALID)
     ];
     // Deduplicate
     const uniqueServers = [...new Set(keyServers)];
+
+    // Known fake key patterns — skip immediately
+    const FAKE_KEYS_V6 = new Set([
+      '45db13cfa0ed393fdb7da4dfe9b5ac81',
+      '455806f8bc592fdacb6ed5e071a517b1',
+      '4542956ed8680eaccb615f7faad4da8f',
+    ]);
 
     let validKey = null;
     
@@ -3629,8 +3919,8 @@ const server = http.createServer(async (req, res) => {
             '--timeout', '10',
             '--mode', 'fetch-bin',
             '--headers', JSON.stringify({
-              'Referer': 'https://adffdafdsafds.sbs/',
-              'Origin': 'https://adffdafdsafds.sbs',
+              'Referer': 'https://www.ksohls.ru/',
+              'Origin': 'https://www.ksohls.ru',
             }),
           ];
           
@@ -3661,14 +3951,14 @@ const server = http.createServer(async (req, res) => {
         const keyHex = keyBuf.toString('hex');
         console.log(`[DLHD-Key-V6] Got 16-byte key: ${keyHex}`);
         
-        // Known fake key pattern — skip immediately
-        if (keyHex === '45db13cfa0ed393fdb7da4dfe9b5ac81') {
-          console.log(`[DLHD-Key-V6] ❌ Known fake key, skipping`);
+        if (FAKE_KEYS_V6.has(keyHex)) {
+          console.log(`[DLHD-Key-V6] ❌ Known fake key (${keyHex.substring(0,8)}...), skipping`);
           continue;
         }
 
         validKey = keyBuf;
-        console.log(`[DLHD-Key-V6] ✅ Key accepted: ${keyHex}`);
+        setCachedKey(keyPath, keyBuf);
+        console.log(`[DLHD-Key-V6] ✅ Key accepted + cached: ${keyHex} (path: ${keyPath})`);
         break;
       } catch (e) {
         console.log(`[DLHD-Key-V6] Error from ${keyUrl.substring(0, 60)}: ${e.message}`);
@@ -3688,11 +3978,86 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(validKey);
     } else {
-      console.log(`[DLHD-Key-V6] ❌ All key servers returned fake/invalid keys`);
+      console.log(`[DLHD-Key-V6] ❌ All key servers returned fake/invalid keys — checking whitelist budget`);
+      // Auto-trigger whitelist refresh when all keys are fake
+      // Extract channel from key path for per-channel whitelist
+      const channelMatch = keyPath.match(/\/(premium\d+)\//);
+      const whitelistChannel = channelMatch ? channelMatch[1] : 'premium44';
+      
+      // Check if already whitelisted recently (no point retrying)
+      if (isChannelWhitelisted(whitelistChannel)) {
+        console.log(`[DLHD-Key-V6] ${whitelistChannel} already whitelisted recently — key server may be returning stale poison keys`);
+      } else {
+        // Check budget before attempting whitelist
+        const budget = getWhitelistBudget();
+        if (budget.remaining > 0) {
+          console.log(`[DLHD-Key-V6] Whitelisting ${whitelistChannel} on-demand (budget: ${budget.remaining}/${WHITELIST_BUDGET} remaining)`);
+          try {
+            await whitelistRPIViaRecaptcha(whitelistChannel);
+            
+            // If whitelist succeeded, retry key fetch immediately
+            if (isChannelWhitelisted(whitelistChannel)) {
+              console.log(`[DLHD-Key-V6] Whitelist OK — retrying key fetch for ${whitelistChannel}...`);
+              for (const keyUrl of uniqueServers) {
+                try {
+                  const retryBuf = await new Promise((resolve, reject) => {
+                    const args = [
+                      '--url', keyUrl, '--timeout', '10', '--mode', 'fetch-bin',
+                      '--headers', JSON.stringify({ 'Referer': 'https://www.ksohls.ru/', 'Origin': 'https://www.ksohls.ru' }),
+                    ];
+                    const rust = spawn('rust-fetch', args);
+                    const chunks = [];
+                    let stderr = '';
+                    rust.stdout.on('data', (chunk) => chunks.push(chunk));
+                    rust.stderr.on('data', (data) => { stderr += data.toString(); });
+                    rust.on('error', (err) => reject(err));
+                    rust.on('close', (code) => {
+                      if (code !== 0) { reject(new Error(`rust-fetch exit ${code}: ${stderr}`)); return; }
+                      resolve(Buffer.concat(chunks));
+                    });
+                  });
+                  if (retryBuf && retryBuf.length === 16) {
+                    const retryHex = retryBuf.toString('hex');
+                    if (!FAKE_KEYS_V6.has(retryHex)) {
+                      console.log(`[DLHD-Key-V6] ✅ Got real key after whitelist + cached: ${retryHex}`);
+                      setCachedKey(keyPath, retryBuf);
+                      res.writeHead(200, {
+                        'Content-Type': 'application/octet-stream',
+                        'Content-Length': retryBuf.length,
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': '*',
+                        'X-Fetched-By': 'rpi-v6-after-whitelist',
+                        'X-Key-Hex': retryHex,
+                      });
+                      res.end(retryBuf);
+                      return;
+                    }
+                  }
+                } catch (e) {
+                  console.log(`[DLHD-Key-V6] Retry error: ${e.message}`);
+                }
+              }
+            }
+          } catch (e) {
+            console.error(`[DLHD-Key-V6] Whitelist error: ${e.message}`);
+          }
+        } else {
+          console.log(`[DLHD-Key-V6] Budget exhausted (${budget.used}/${WHITELIST_BUDGET}) — cannot whitelist ${whitelistChannel}. Next slot in ${budget.oldestExpiry}s`);
+        }
+      }
       res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ 
-        error: 'All key servers returned fake keys — RPI IP may not be whitelisted',
-        hint: 'reCAPTCHA v3 whitelist required. Run key-fetcher to whitelist RPI IP.',
+        error: 'All key servers returned fake keys — RPI IP may not be whitelisted for this channel',
+        hint: 'Channel whitelist is on-demand. Budget: 13 unique channels per 30 min.',
+        channel: whitelistChannel,
+        budget: getWhitelistBudget(),
+        whitelistState: {
+          isWhitelisted: isChannelWhitelisted(whitelistChannel),
+          lastSuccess: dlhdWhitelistState.perChannelSuccess[whitelistChannel] 
+            ? new Date(dlhdWhitelistState.perChannelSuccess[whitelistChannel]).toISOString() 
+            : null,
+        },
       }));
     }
     return;
@@ -5491,14 +5856,9 @@ server.listen(PORT, () => {
   }, PROXY_POOL_CONFIG.refreshIntervalMs);
 
   // ============================================================================
-  // DLHD reCAPTCHA v3 IP Whitelist Daemon
-  // Runs on startup + every 20 minutes to keep RPI IP whitelisted for key access.
-  // Uses rust-fetch --mode recaptcha-v3 (HTTP-only, no browser) to get tokens.
+  // DLHD reCAPTCHA v3 IP Whitelist — ON-DEMAND ONLY
+  // NO background daemon — whitelist budget is limited to 13 channels / 30 min.
+  // Whitelisting happens on-demand in /dlhd-key-v6 when poison keys are detected.
   // ============================================================================
-  console.log(`[DLHD-Whitelist] Starting reCAPTCHA v3 IP whitelist daemon...`);
-  whitelistRPIViaRecaptcha();
-  setInterval(() => {
-    console.log(`[DLHD-Whitelist] Scheduled re-whitelist (every 20 min)...`);
-    whitelistRPIViaRecaptcha();
-  }, 20 * 60 * 1000); // 20 minutes
+  console.log(`[DLHD-Whitelist] On-demand whitelist mode (no background daemon). Budget: ${WHITELIST_BUDGET} channels / 30 min`);
 });

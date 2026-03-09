@@ -987,6 +987,219 @@ interface MoveonjoyResult {
 
 
 // ============================================================================
+// CLIENT-SIDE WHITELIST — reCAPTCHA v3 HTTP-only solve
+// ============================================================================
+// Two-step flow that whitelists the USER's IP without loading any Google
+// scripts, tracking pixels, or DLHD page content in their browser.
+//
+// Step 1: GET /whitelist/token?channel=premium51
+//   → CF worker solves reCAPTCHA v3 via HTTP-only anchor/reload flow
+//   → Returns { token, channel_id } to the client
+//
+// Step 2: POST /whitelist/verify  (body: { token, channel_id })
+//   → CF worker proxies the verify POST to chevy.soyspace.cyou/verify
+//     using the CLIENT's real IP (cf-connecting-ip) as the connecting IP
+//   → The upstream whitelists the client's IP for ~30 minutes
+//
+// After whitelist, the client's browser can fetch keys directly from
+// chevy.soyspace.cyou/key/... or go.ai-chatx.site/key/... — no RPI needed.
+// ============================================================================
+
+const RECAPTCHA_SITE_KEY = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
+
+/** Extract reCAPTCHA JS version string from the API loader */
+async function getRecaptchaVersion(): Promise<string> {
+  const resp = await fetch('https://www.google.com/recaptcha/api.js?render=explicit', {
+    headers: { 'Referer': `https://${PLAYER_DOMAIN}/` },
+  });
+  const body = await resp.text();
+  const idx = body.indexOf('releases/');
+  if (idx !== -1) {
+    const rest = body.substring(idx + 9);
+    const end = rest.search(/[/"']/);
+    if (end > 0) return rest.substring(0, end);
+  }
+  throw new Error('Could not extract reCAPTCHA version');
+}
+
+/** Solve reCAPTCHA v3 via HTTP-only anchor/reload — no browser needed */
+async function solveRecaptchaV3(pageUrl: string, action: string): Promise<string> {
+  const version = await getRecaptchaVersion();
+
+  const origin = new URL(pageUrl).origin;
+  const originWithPort = origin.includes(':443') ? origin : `${origin}:443`;
+  const co = btoa(originWithPort).replace(/=+$/, '') + '.';
+
+  const cb = `cb_${Date.now()}`;
+  const anchorUrl = `https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RECAPTCHA_SITE_KEY}&co=${co}&hl=en&v=${version}&size=invisible&cb=${cb}`;
+
+  const anchorResp = await fetch(anchorUrl, {
+    headers: { 'User-Agent': USER_AGENT, 'Referer': pageUrl },
+  });
+  const anchorHtml = await anchorResp.text();
+
+  const tokenMatch = anchorHtml.match(/id="recaptcha-token"\s+value="([^"]+)"/);
+  if (!tokenMatch) throw new Error('No recaptcha-token in anchor page');
+
+  const reloadUrl = `https://www.google.com/recaptcha/api2/reload?k=${RECAPTCHA_SITE_KEY}`;
+  const formBody = new URLSearchParams([
+    ['v', version], ['reason', 'q'], ['k', RECAPTCHA_SITE_KEY],
+    ['c', tokenMatch[1]], ['sa', action], ['co', co],
+  ]);
+
+  const reloadResp = await fetch(reloadUrl, {
+    method: 'POST',
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Referer': anchorUrl,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: formBody.toString(),
+  });
+  const reloadBody = await reloadResp.text();
+
+  const rrespMatch = reloadBody.match(/\["rresp","([^"]+)"/);
+  if (!rrespMatch) throw new Error('No rresp in reload response');
+
+  return rrespMatch[1];
+}
+
+/**
+ * GET /whitelist/token?channel=premium51
+ * Solves reCAPTCHA v3 server-side and returns the token to the client.
+ * No Google scripts or tracking ever reach the user's browser.
+ */
+async function handleWhitelistToken(
+  url: URL, logger: any, origin: string | null
+): Promise<Response> {
+  const channel = url.searchParams.get('channel');
+  if (!channel || !/^premium\d+$/.test(channel)) {
+    return jsonResponse({ error: 'Missing or invalid channel (e.g. premium51)' }, 400, origin);
+  }
+
+  const channelNum = channel.replace('premium', '');
+  const pageUrl = `https://${PLAYER_DOMAIN}/premiumtv/daddyhd.php?id=${channelNum}`;
+
+  try {
+    logger.info('Solving reCAPTCHA for client whitelist', { channel });
+    const token = await solveRecaptchaV3(pageUrl, 'player_access');
+    logger.info('reCAPTCHA solved', { channel, tokenLen: token.length });
+
+    return jsonResponse({
+      success: true,
+      token,
+      channel_id: channel,
+      verify_url: `https://chevy.${CDN_DOMAIN}/verify`,
+    }, 200, origin);
+  } catch (err) {
+    logger.error('reCAPTCHA solve failed', { channel, error: (err as Error).message });
+    return jsonResponse({
+      success: false,
+      error: 'reCAPTCHA solve failed',
+      details: (err as Error).message,
+    }, 502, origin);
+  }
+}
+
+/**
+ * POST /whitelist/verify
+ * Proxies the verify request to chevy.soyspace.cyou/verify so the CLIENT's
+ * IP gets whitelisted. The CF worker forwards the request using the client's
+ * real IP (from cf-connecting-ip).
+ *
+ * Body: { token: string, channel_id: string }
+ *
+ * Why proxy instead of letting the browser POST directly?
+ * → CORS. chevy.soyspace.cyou doesn't set Access-Control-Allow-Origin for
+ *   our domain, so the browser would block the response. By proxying through
+ *   our worker, we add proper CORS headers.
+ *
+ * The upstream whitelists based on the IP in the request. Since CF workers
+ * connect from CF edge IPs (not the user's IP), we need the upstream to
+ * see the user's real IP. We pass it via X-Forwarded-For. If the upstream
+ * ignores that header and uses the connecting IP, this won't work and we'd
+ * need the browser to POST directly (which requires the upstream to have CORS).
+ */
+async function handleWhitelistVerify(
+  request: Request, logger: any, origin: string | null
+): Promise<Response> {
+  let body: { token?: string; channel_id?: string };
+  try {
+    body = await request.json() as { token?: string; channel_id?: string };
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, origin);
+  }
+
+  if (!body.token || !body.channel_id) {
+    return jsonResponse({ error: 'Missing token or channel_id' }, 400, origin);
+  }
+
+  const clientIP = request.headers.get('cf-connecting-ip')
+    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown';
+
+  logger.info('Proxying whitelist verify', {
+    channel: body.channel_id,
+    clientIP,
+    tokenLen: body.token.length,
+  });
+
+  try {
+    const verifyResp = await fetch(`https://chevy.${CDN_DOMAIN}/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': `https://${PLAYER_DOMAIN}`,
+        'Referer': `https://${PLAYER_DOMAIN}/`,
+        'User-Agent': USER_AGENT,
+        'X-Forwarded-For': clientIP,
+      },
+      body: JSON.stringify({
+        'recaptcha-token': body.token,
+        'channel_id': body.channel_id,
+      }),
+    });
+
+    const verifyBody = await verifyResp.text();
+    logger.info('Verify response', {
+      status: verifyResp.status,
+      body: verifyBody.substring(0, 200),
+      clientIP,
+    });
+
+    // Parse to check if the whitelisted IP matches the client
+    let parsed: any = {};
+    try { parsed = JSON.parse(verifyBody); } catch {}
+
+    // If the upstream whitelisted the CF worker IP instead of the client IP,
+    // log a warning — the client will need to POST directly
+    if (parsed.ip && parsed.ip !== clientIP) {
+      logger.warn('Whitelist IP mismatch — upstream used connecting IP, not X-Forwarded-For', {
+        whitelistedIP: parsed.ip,
+        clientIP,
+        hint: 'Client may need to POST to /verify directly',
+      });
+    }
+
+    return new Response(verifyBody, {
+      status: verifyResp.status,
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders(origin),
+      },
+    });
+  } catch (err) {
+    logger.error('Verify proxy failed', { error: (err as Error).message });
+    return jsonResponse({
+      success: false,
+      error: 'Verify request failed',
+      details: (err as Error).message,
+    }, 502, origin);
+  }
+}
+
+
+// ============================================================================
 // MAIN HANDLER
 // ============================================================================
 export default {
@@ -1009,6 +1222,16 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 200, headers: corsHeaders(origin) });
     }
+
+    // Allow POST for whitelist verify proxy, GET/HEAD for everything else
+    if (path === '/whitelist/verify' && request.method === 'POST') {
+      // Origin check still applies
+      if (!isAllowedOrigin(origin, referer)) {
+        return jsonResponse({ error: 'Access denied' }, 403, origin);
+      }
+      return handleWhitelistVerify(request, logger, origin);
+    }
+
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return jsonResponse({ error: 'Method not allowed' }, 405, origin);
     }
@@ -1030,6 +1253,7 @@ export default {
       if (path === '/health' || path === '/' && !url.searchParams.has('channel')) {
         return jsonResponse({ status: 'healthy', domain: CDN_DOMAIN, method: 'pow-auth' }, 200, origin);
       }
+      if (path === '/whitelist/token') return handleWhitelistToken(url, logger, origin);
       if (path === '/key') return handleKeyProxy(url, logger, origin, env);
       if (path === '/segment') {
         // Pass client IP for rate limiting
@@ -1210,8 +1434,8 @@ async function tryCdnLiveBackend(
  * Returns the content if successful, null otherwise
  * 
  * CRITICAL: DLHD CDN requires:
- * - Origin: https://adffdafdsafds.sbs
- * - Referer: https://adffdafdsafds.sbs/
+ * - Origin: https://www.ksohls.ru
+ * - Referer: https://www.ksohls.ru/
  * - Authorization: Bearer <JWT> (optional - not always needed)
  */
 async function tryDvalnaServer(
@@ -1227,9 +1451,9 @@ async function tryDvalnaServer(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    // Use RPI proxy with adffdafdsafds.sbs referer - JWT is optional
+    // Use RPI proxy with www.ksohls.ru referer - JWT is optional
     let rpiUrl = env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY
-      ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://adffdafdsafds.sbs/')}`
+      ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`
       : null;
     
     if (!rpiUrl) {
@@ -1882,9 +2106,9 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
       referer = 'https://tv-bu1.blogspot.com/';
       requestOrigin = 'https://tv-bu1.blogspot.com';
     } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('go.ai-chatx.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
-      // DLHD CDN requires adffdafdsafds.sbs referer (updated Mar 2026)
-      referer = 'https://adffdafdsafds.sbs/';
-      requestOrigin = 'https://adffdafdsafds.sbs';
+      // DLHD CDN requires www.ksohls.ru referer (updated Mar 2026)
+      referer = 'https://www.ksohls.ru/';
+      requestOrigin = 'https://www.ksohls.ru';
     }
   } catch {}
   

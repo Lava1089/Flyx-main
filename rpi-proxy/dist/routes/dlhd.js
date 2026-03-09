@@ -6,6 +6,39 @@
  * /heartbeat — establishes heartbeat session
  * Requirements: 3.1, 3.2, 3.3, 3.4
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -13,6 +46,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.handleDLHDKeyV4 = handleDLHDKeyV4;
 exports.handleDLHDKey = handleDLHDKey;
 exports.handleHeartbeat = handleHeartbeat;
+exports.handleDLHDWhitelist = handleDLHDWhitelist;
+exports.handleDLHDKeyV6 = handleDLHDKeyV6;
 const https_1 = __importDefault(require("https"));
 const utils_1 = require("../utils");
 const domain_allowlist_1 = require("../services/domain-allowlist");
@@ -166,7 +201,7 @@ async function handleHeartbeat(req, res) {
 }
 function fetchAuthToken(channel) {
     return new Promise((resolve) => {
-        const url = `https://epicplayplay.cfd/premiumtv/daddyhd.php?id=${channel}`;
+        const url = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`;
         https_1.default.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -204,8 +239,8 @@ function establishHeartbeatSession(channel, server, domain, authToken, country, 
             headers: {
                 'User-Agent': userAgent,
                 Accept: '*/*',
-                Origin: 'https://epicplayplay.cfd',
-                Referer: 'https://epicplayplay.cfd/',
+                Origin: 'https://www.ksohls.ru',
+                Referer: 'https://www.ksohls.ru/',
                 Authorization: `Bearer ${authToken}`,
                 'X-Channel-Key': channelKey,
                 'X-Client-Token': clientToken,
@@ -238,5 +273,210 @@ function establishHeartbeatSession(channel, server, domain, authToken, country, 
         hbReq.on('error', (err) => resolve({ success: false, error: err.message }));
         hbReq.on('timeout', () => { hbReq.destroy(); resolve({ success: false, error: 'Timeout' }); });
     });
+}
+/**
+ * /dlhd-whitelist — Trigger reCAPTCHA v3 whitelist refresh via rust-fetch.
+ *
+ * March 2026: DLHD key servers require IP whitelisting via reCAPTCHA v3.
+ * This endpoint runs rust-fetch --mode dlhd-whitelist from the RPI's residential IP
+ * to solve reCAPTCHA and POST to chevy.soyspace.cyou/verify.
+ *
+ * The whitelist lasts ~30 minutes. The CF worker should call this before key fetches.
+ */
+async function handleDLHDWhitelist(req, res) {
+    const channel = req.url.searchParams.get('channel') ?? 'premium44';
+    console.log(`[DLHD-Whitelist] Refreshing whitelist for ${channel}...`);
+    const { execFile } = await Promise.resolve().then(() => __importStar(require('child_process')));
+    const { promisify } = await Promise.resolve().then(() => __importStar(require('util')));
+    const execFileAsync = promisify(execFile);
+    try {
+        const { stdout, stderr } = await execFileAsync('rust-fetch', [
+            '--mode', 'dlhd-whitelist',
+            '--url', channel,
+            '--timeout', '20',
+        ], { timeout: 25000, windowsHide: true });
+        console.log(`[DLHD-Whitelist] stderr: ${stderr.substring(0, 200)}`);
+        let result;
+        try {
+            result = JSON.parse(stdout.trim());
+        }
+        catch {
+            result = { raw: stdout.trim().substring(0, 500) };
+        }
+        const success = result.success === true;
+        console.log(`[DLHD-Whitelist] ${success ? '✅' : '❌'} result:`, JSON.stringify(result));
+        (0, utils_1.sendJson)(res, success ? 200 : 502, {
+            ...result,
+            channel,
+            timestamp: Date.now(),
+        });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[DLHD-Whitelist] Error: ${message}`);
+        (0, utils_1.sendJsonError)(res, 502, {
+            error: 'Whitelist refresh failed',
+            details: message,
+            channel,
+            timestamp: Date.now(),
+        });
+    }
+}
+/**
+ * /dlhd-key-v6 — Server-side key fetching via rust-fetch (residential IP + Chrome TLS).
+ *
+ * March 2026: DLHD uses reCAPTCHA v3 IP whitelist. Without whitelist, key servers
+ * return fake 16-byte keys. This endpoint:
+ * 1. Triggers reCAPTCHA whitelist refresh via rust-fetch (if needed)
+ * 2. Fetches the key from multiple servers
+ * 3. Returns the first valid (non-fake) 16-byte key
+ */
+async function handleDLHDKeyV6(req, res) {
+    const targetUrl = req.url.searchParams.get('url');
+    if (!targetUrl) {
+        (0, utils_1.sendJsonError)(res, 400, {
+            error: 'Missing url parameter',
+            details: '/dlhd-key-v6?url=<key_url>',
+            timestamp: Date.now(),
+        });
+        return;
+    }
+    const decoded = decodeURIComponent(targetUrl);
+    if (!(0, domain_allowlist_1.isAllowedProxyDomain)(decoded)) {
+        (0, utils_1.sendJsonError)(res, 403, { error: 'Domain not allowed', timestamp: Date.now() });
+        return;
+    }
+    console.log(`[DLHD-Key-V6] Fetching key: ${decoded.substring(0, 80)}...`);
+    // Extract key path for trying multiple servers
+    const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
+    const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
+    const keyServers = [
+        decoded,
+        `https://go.ai-chatx.site${keyPath}`,
+        `https://chevy.vovlacosa.sbs${keyPath}`,
+        `https://chevy.soyspace.cyou${keyPath}`,
+    ];
+    const uniqueServers = [...new Set(keyServers)];
+    // Known fake keys that key servers return to non-whitelisted IPs
+    const FAKE_KEYS = new Set([
+        '45db13cfa0ed393fdb7da4dfe9b5ac81',
+        '455806f8bc592fdacb6ed5e071a517b1',
+        '4542956ed8680eaccb615f7faad4da8f',
+    ]);
+    const { spawn } = await Promise.resolve().then(() => __importStar(require('child_process')));
+    let validKey = null;
+    let gotFakeKey = false;
+    for (const keyUrl of uniqueServers) {
+        try {
+            console.log(`[DLHD-Key-V6] Trying: ${keyUrl.substring(0, 80)}`);
+            const keyBuf = await new Promise((resolve, reject) => {
+                const args = [
+                    '--url', keyUrl,
+                    '--timeout', '10',
+                    '--mode', 'fetch-bin',
+                    '--headers', JSON.stringify({
+                        Referer: 'https://www.ksohls.ru/',
+                        Origin: 'https://www.ksohls.ru',
+                    }),
+                ];
+                const proc = spawn('rust-fetch', args);
+                const chunks = [];
+                let stderr = '';
+                proc.stdout.on('data', (chunk) => chunks.push(chunk));
+                proc.stderr.on('data', (data) => { stderr += data.toString(); });
+                proc.on('error', (err) => reject(err));
+                proc.on('close', (code) => {
+                    if (code !== 0) {
+                        reject(new Error(`rust-fetch exit ${code}: ${stderr}`));
+                        return;
+                    }
+                    resolve(Buffer.concat(chunks));
+                });
+            });
+            if (keyBuf.length !== 16) {
+                console.log(`[DLHD-Key-V6] ❌ Not 16 bytes (${keyBuf.length})`);
+                continue;
+            }
+            const keyHex = keyBuf.toString('hex');
+            console.log(`[DLHD-Key-V6] Got 16-byte key: ${keyHex}`);
+            if (FAKE_KEYS.has(keyHex)) {
+                console.log(`[DLHD-Key-V6] ❌ Known fake key, skipping`);
+                gotFakeKey = true;
+                continue;
+            }
+            validKey = keyBuf;
+            console.log(`[DLHD-Key-V6] ✅ Key accepted: ${keyHex}`);
+            break;
+        }
+        catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.log(`[DLHD-Key-V6] Error: ${msg}`);
+            continue;
+        }
+    }
+    // If all keys were fake, trigger whitelist refresh and retry once
+    if (!validKey && gotFakeKey) {
+        console.log(`[DLHD-Key-V6] All keys fake — triggering whitelist refresh...`);
+        try {
+            const { execFile } = await Promise.resolve().then(() => __importStar(require('child_process')));
+            const { promisify } = await Promise.resolve().then(() => __importStar(require('util')));
+            const execFileAsync = promisify(execFile);
+            // Extract channel from key path (e.g., /key/premium44/123 → premium44)
+            const channelMatch = keyPath.match(/\/(premium\d+)\//);
+            const channel = channelMatch ? channelMatch[1] : 'premium44';
+            const { stdout } = await execFileAsync('rust-fetch', [
+                '--mode', 'dlhd-whitelist',
+                '--url', channel,
+                '--timeout', '20',
+            ], { timeout: 25000, windowsHide: true });
+            console.log(`[DLHD-Key-V6] Whitelist result: ${stdout.trim().substring(0, 200)}`);
+            // Retry key fetch after whitelist
+            const retryUrl = uniqueServers[0];
+            console.log(`[DLHD-Key-V6] Retrying key after whitelist: ${retryUrl.substring(0, 80)}`);
+            const retryBuf = await new Promise((resolve, reject) => {
+                const proc = spawn('rust-fetch', [
+                    '--url', retryUrl,
+                    '--timeout', '10',
+                    '--mode', 'fetch-bin',
+                    '--headers', JSON.stringify({
+                        Referer: 'https://www.ksohls.ru/',
+                        Origin: 'https://www.ksohls.ru',
+                    }),
+                ]);
+                const chunks = [];
+                proc.stdout.on('data', (chunk) => chunks.push(chunk));
+                proc.on('error', reject);
+                proc.on('close', () => resolve(Buffer.concat(chunks)));
+            });
+            if (retryBuf.length === 16) {
+                const retryHex = retryBuf.toString('hex');
+                if (!FAKE_KEYS.has(retryHex)) {
+                    validKey = retryBuf;
+                    console.log(`[DLHD-Key-V6] ✅ Key after whitelist: ${retryHex}`);
+                }
+            }
+        }
+        catch (e) {
+            console.log(`[DLHD-Key-V6] Whitelist refresh failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+    if (validKey) {
+        res.writeHead(200, {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': validKey.length,
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': '*',
+            'X-Fetched-By': 'rpi-v6-rustfetch',
+        });
+        res.end(validKey);
+    }
+    else {
+        (0, utils_1.sendJsonError)(res, 502, {
+            error: 'All key servers returned fake keys — RPI IP may not be whitelisted',
+            hint: 'reCAPTCHA v3 whitelist required',
+            timestamp: Date.now(),
+        });
+    }
 }
 //# sourceMappingURL=dlhd.js.map

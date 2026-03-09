@@ -21,7 +21,7 @@ const PUBLIC_ROUTES = ['/health', '/', '/dlhdprivate', '/play', '/backends', '/k
 /**
  * Routes that support query param auth (for VLC/media players that can't send headers)
  */
-const QUERY_AUTH_ROUTES = ['/live/', '/play/', '/dlhdprivate'];
+const QUERY_AUTH_ROUTES = ['/live/', '/play/', '/dlhdprivate', '/debug/'];
 
 /**
  * Request Router with middleware support
