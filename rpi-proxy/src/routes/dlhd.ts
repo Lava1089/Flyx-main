@@ -352,9 +352,10 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
   const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
   const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
 
+  // UPDATED Mar 10 2026: Removed go.ai-chatx.site — SSL cert broken (ERR_TLS_CERT_ALTNAME_INVALID)
   const keyServers = [
     decoded,
-    `https://go.ai-chatx.site${keyPath}`,
+    `https://chevy.vmvmv.shop${keyPath}`,
     `https://chevy.vovlacosa.sbs${keyPath}`,
     `https://chevy.soyspace.cyou${keyPath}`,
   ];

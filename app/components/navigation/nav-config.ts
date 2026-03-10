@@ -27,7 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'movies', label: 'Movies', path: '/movies', icon: Film, section: 'primary', showInBottomTab: true },
   { id: 'series', label: 'Series', path: '/series', icon: Tv, section: 'primary', showInBottomTab: true },
   { id: 'anime', label: 'Anime', path: '/anime', icon: Star, section: 'primary', showInBottomTab: true },
-  { id: 'livetv', label: 'Live TV', path: '/livetv', icon: Radio, section: 'primary', showInBottomTab: false },
+  { id: 'livetv', label: 'Live TV', path: '/livetv', icon: Radio, section: 'primary', showInBottomTab: true },
   { id: 'watchlist', label: 'Watchlist', path: '/watchlist', icon: Bookmark, section: 'primary', showInBottomTab: false },
   { id: 'browse', label: 'Browse', path: '/browse', icon: LayoutGrid, section: 'primary', showInBottomTab: false },
   { id: 'search', label: 'Search', path: '/search', icon: Search, section: 'primary', showInBottomTab: true },

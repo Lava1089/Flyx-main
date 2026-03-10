@@ -1898,13 +1898,18 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
     data = await rpiRes.arrayBuffer();
 
     if (data.byteLength === 16) {
-      // Check for known fake error key
+      // Check for known fake/poison keys that DLHD returns to non-whitelisted IPs
       const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
-      if (hex === '455806f8bc592fdacb6ed5e071a517b1') {
-        logger.warn('Got fake error key (455806...) - auth failed');
+      const FAKE_KEYS = new Set([
+        '455806f8bc592fdacb6ed5e071a517b1',
+        '45db13cfa0ed393fdb7da4dfe9b5ac81',
+        '4542956ed8680eaccb615f7faad4da8f', // Discovered Mar 7 2026
+      ]);
+      if (FAKE_KEYS.has(hex)) {
+        logger.warn(`Got fake/poison key (${hex.substring(0, 8)}...) - IP not whitelisted`);
         return jsonResponse({ 
-          error: 'Key auth failed - got error response disguised as 16-byte key',
-          hint: 'RPI /dlhd-key-v6 returned fake key - reCAPTCHA whitelist may have expired',
+          error: 'Key auth failed - got poison key (IP not whitelisted)',
+          hint: 'reCAPTCHA whitelist may have expired — client should re-whitelist',
           channelKey,
           keyNumber,
         }, 502, origin);

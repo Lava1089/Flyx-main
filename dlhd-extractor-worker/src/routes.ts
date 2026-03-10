@@ -74,10 +74,11 @@ function cleanExpiredKeys() {
 /**
  * Rewrite M3U8 content for the /play endpoint
  * 
- * UPDATED March 2026: Server-side key proxying via this worker's /key endpoint
- * - Keys: rewritten to this worker's /key endpoint which proxies to RPI server-side
- *   → Browser NEVER sees the RPI URL
- *   → RPI is whitelisted via reCAPTCHA, fetches real AES-128 keys
+ * UPDATED March 10, 2026: Client-side key fetching via direct CDN URLs
+ * - Keys: resolved to absolute CDN URLs — browser fetches directly
+ *   → User's IP is whitelisted via DLHDWhitelist (reCAPTCHA v3 client-side flow)
+ *   → CORS is * on chevy.soyspace.cyou so browser can fetch keys cross-origin
+ *   → Eliminates slow RPI round-trip for key fetching
  * - Segments: already absolute URLs pointing to public CDNs — left as-is
  *   → Cloudflare R2, Google Cloud Storage, iuimg.com, etc. — all CORS *
  */
@@ -99,35 +100,30 @@ async function rewriteM3u8ForPlayEndpoint(
   for (const line of lines) {
     const trimmed = line.trim();
     
-    // Rewrite EXT-X-KEY line — point key URI to THIS worker's /key endpoint
-    // The /key endpoint proxies to RPI server-side — browser never sees RPI URL
+    // Resolve key URIs to absolute CDN URLs — browser fetches keys DIRECTLY
+    // User's IP is whitelisted via DLHDWhitelist client-side reCAPTCHA flow
+    // CORS is * on all key servers so cross-origin fetch works from any origin
     if (trimmed.startsWith('#EXT-X-KEY') && trimmed.includes('URI="')) {
       const uriMatch = trimmed.match(/URI="([^"]+)"/);
       if (uriMatch) {
         const uri = uriMatch[1];
         
-        // Build absolute key URL on the original key server
-        let originalKeyUrl: string;
+        let absoluteKeyUrl: string;
         if (uri.startsWith('http')) {
-          originalKeyUrl = uri;
+          absoluteKeyUrl = uri;
         } else {
-          // Relative URI — resolve against the M3U8's base URL
-          // e.g., if M3U8 is from go.ai-chatx.site, key URI /key/premium44/123
-          //   → https://go.ai-chatx.site/key/premium44/123
+          // Relative URI — resolve against the M3U8's base URL origin
           try {
             const baseOrigin = new URL(baseUrl).origin;
-            originalKeyUrl = `${baseOrigin}${uri.startsWith('/') ? '' : '/'}${uri}`;
+            absoluteKeyUrl = `${baseOrigin}${uri.startsWith('/') ? '' : '/'}${uri}`;
           } catch {
-            // Fallback to go.ai-chatx.site (primary key server as of Mar 2026)
-            originalKeyUrl = `https://go.ai-chatx.site${uri.startsWith('/') ? '' : '/'}${uri}`;
+            absoluteKeyUrl = `https://chevy.soyspace.cyou${uri.startsWith('/') ? '' : '/'}${uri}`;
           }
         }
         
-        // Route through THIS worker's /key endpoint — it proxies to RPI server-side
-        const rewrittenKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(originalKeyUrl)}`;
-        
-        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${rewrittenKeyUrl}"`);
-        console.log(`[rewriteM3u8] Key URL → ${rewrittenKeyUrl.substring(0, 100)}...`);
+        // Leave as direct CDN URL — browser fetches with its own whitelisted IP
+        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${absoluteKeyUrl}"`);
+        console.log(`[rewriteM3u8] Key URL (direct CDN) → ${absoluteKeyUrl.substring(0, 100)}...`);
         rewrittenLines.push(newLine);
         continue;
       }
@@ -1201,16 +1197,14 @@ export function createRoutes(router: Router): void {
         });
       }
       
-      // Step 4: Rewrite M3U8 URLs — keys routed through RPI proxy (server-side key fetching)
+      // Step 4: Rewrite M3U8 URLs — keys left as direct CDN URLs (client-side whitelist flow)
       const rewriteStart = Date.now();
       // Build the actual M3U8 URL that was fetched — needed for resolving relative key URIs
-      // go.ai-chatx.site uses: https://go.ai-chatx.site/proxy/{server}/{channelKey}/mono.css (no chevy. prefix)
-      // soyspace.cyou etc use: https://chevy.{domain}/proxy/{server}/{channelKey}/mono.css
       const m3u8Url = workingDomain === 'go.ai-chatx.site'
         ? `https://go.ai-chatx.site/proxy/${workingServer}/${channelKey}/mono.css`
         : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
       
-      // Rewrite the M3U8 content — keys routed through RPI, segments left as-is
+      // Rewrite the M3U8 content — keys as direct CDN URLs (browser fetches with whitelisted IP), segments left as-is
       const rewrittenM3u8 = await rewriteM3u8ForPlayEndpoint(
         m3u8Content, 
         m3u8Url, 
