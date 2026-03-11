@@ -25,7 +25,7 @@ Primary extraction endpoint. Runs on `media-proxy.vynx.workers.dev`.
 | Route | Purpose |
 |-------|---------|
 | `GET /flixer/extract` | Single server extraction |
-| `GET /flixer/extract-all` | Parallel 26-server extraction |
+| `GET /flixer/extract-all` | Batched multi-server extraction |
 | `GET /flixer/health` | Health check + diagnostics |
 | `GET /flixer/debug` | Raw decrypted data inspection |
 | `GET /flixer/stream` | HLS playlist/segment proxy |
@@ -33,7 +33,8 @@ Primary extraction endpoint. Runs on `media-proxy.vynx.workers.dev`.
 **Key features:**
 - WASM bundled at build time (wrangler `import` syntax)
 - Cached WASM instance reused across requests (30-min TTL)
-- Warm-up request deduplication (30s TTL)
+- Warm-up response decrypted to discover available servers
+- Server time re-synced every 5 minutes
 - WASM init lock prevents parallel initialization
 - Auto-reset after 5 consecutive failures
 - Direct fetch to hexa.su (no RPI needed for API calls)
@@ -84,18 +85,18 @@ Raspberry Pi running on a residential IP. Used as fallback when CF Worker IPs ar
 1. Frontend calls: GET /flixer/extract-all?tmdbId=550&type=movie
 2. CF Worker receives request
 3. Initialize WASM (if not cached)
-   a. Sync server time
+   a. Sync server time (re-sync if >5 min since last)
    b. Instantiate WASM with browser mocks
    c. Generate API key via get_img_key()
-4. Warm-up request to hexa.su (deduplicated)
+4. Warm-up + server discovery
    a. GET /api/tmdb/movie/550/images with bW90aGFmYWth:1
-5. Race 26 servers in parallel
+   b. Decrypt response to get list of available servers
+5. Batched server extraction (4 at a time, 150ms between batches)
    a. For each server: GET /api/tmdb/movie/550/images with X-Server:<name>
    b. Decrypt response via processImgData()
    c. Extract URL from decrypted JSON
-6. Promise.any() resolves on first success
-7. Wait 1.5s grace period for more sources
-8. Return JSON with all collected sources
+   d. Stop early if 6+ sources collected
+6. Return JSON with all collected sources
 ```
 
 ## Codebase Issues Found During Validation (All Fixed ✅)

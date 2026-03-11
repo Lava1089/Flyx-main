@@ -41,7 +41,7 @@ Note: Our codebase now correctly uses `india: "Isis"` matching the live backend.
 
 The live client (`tmdb-image-enhancer.js`) iterates servers **sequentially** in priority order, stopping at the first success. It enforces a 200ms delay between calls and a 50-call session limit.
 
-Our server-side implementation races all 26 servers in parallel, which is much faster but makes more API calls per extraction.
+Our server-side implementation queries servers in small parallel batches (4 at a time) with 150ms delays between batches. This is a compromise between the browser's sequential approach and full parallel — fast enough for good UX while avoiding API rate-limiting. Extraction stops early once 6+ sources are collected.
 
 ## CDN Domains
 
@@ -70,17 +70,19 @@ CDN subdomains are behind Cloudflare and may block requests from CF Worker IPs (
 Request a specific server by name. Used for targeted extraction or retry.
 
 ### All Servers (`/flixer/extract-all`)
-Race all 26 servers in parallel:
-1. Fire all 26 requests simultaneously
-2. `Promise.any()` — resolve as soon as the first source arrives
-3. Wait up to 1.5s grace period for additional sources to trickle in
-4. Return all collected sources
+Batched extraction with warm-up-based server discovery:
+1. Decrypt the warm-up response to discover which servers are currently available
+2. Order servers by priority (alpha → zulu NATO order)
+3. Process in batches of 4 with 150ms delay between batches
+4. Stop early once 6+ sources are collected
+5. Return all collected sources
 
-This typically yields 3–8 working sources in 2–4 seconds.
+This typically yields 3–8 working sources while avoiding API rate-limiting.
 
 ## Failure Handling
 
 - After 5 consecutive failures across all servers, the WASM state is force-reset
 - WASM is re-initialized every 30 minutes regardless of success
+- Server time is re-synced if more than 5 minutes have elapsed since last init
 - Individual server failures are logged but don't block other servers
-- The warm-up request is deduplicated across concurrent requests (30s TTL)
+- The warm-up response is decrypted to determine available servers (falls back to all 26 if decryption fails)

@@ -138,7 +138,7 @@ export async function extractFlixerStreams(
     // Single batch request — CF Worker fans out to all servers internally
     // Use cfFetch: on CF Pages, direct fetch to same-account CF Workers returns 404
     const extractAllUrl = getFlixerExtractAllUrl(tmdbId, type, season, episode);
-    const response = await cfFetch(extractAllUrl, { signal: AbortSignal.timeout(12000) });
+    const response = await cfFetch(extractAllUrl, { signal: AbortSignal.timeout(30000) });
 
     if (!response.ok) {
       console.log(`[Hexa] extract-all returned ${response.status}`);

@@ -38,33 +38,6 @@ export interface Env {
 // with NO JS challenge — direct API access works from datacenter IPs.
 const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
 
-// Global env reference for RPI proxy
-let globalEnv: Env | null = null;
-
-/**
- * Fetch through RPI proxy if configured, otherwise direct
- */
-async function fetchWithRpi(url: string, options: RequestInit = {}): Promise<Response> {
-  if (globalEnv?.RPI_PROXY_URL && globalEnv?.RPI_PROXY_KEY) {
-    // Strip trailing slash to avoid double-slash in URL path
-    const rpiBaseUrl = globalEnv.RPI_PROXY_URL.replace(/\/+$/, '');
-    const proxyUrl = `${rpiBaseUrl}/proxy?url=${encodeURIComponent(url)}`;
-    const headers = new Headers(options.headers);
-    headers.set('X-API-Key', globalEnv.RPI_PROXY_KEY);
-    
-    console.log(`[Flixer] Routing through RPI: ${url.substring(0, 60)}...`);
-    
-    return fetch(proxyUrl, {
-      method: 'GET',
-      headers,
-      signal: options.signal,
-    });
-  }
-  
-  // Direct fetch
-  return fetch(url, options);
-}
-
 // CORS headers
 function corsHeaders(): Record<string, string> {
   return {
@@ -580,29 +553,6 @@ async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): P
   return wasmInitPromise;
 }
 
-// Warm-up cache: deduplicates warm-up requests for the same content
-// When 4 parallel /flixer/extract requests arrive, only the first one does the warm-up.
-let warmupCache: { key: string; promise: Promise<void>; timestamp: number } | null = null;
-const WARMUP_TTL = 30_000; // 30s — warm-up is valid for a short window
-
-function getOrCreateWarmup(apiKey: string, warmupPath: string): Promise<void> {
-  const now = Date.now();
-  if (warmupCache && warmupCache.key === warmupPath && (now - warmupCache.timestamp) < WARMUP_TTL) {
-    return warmupCache.promise;
-  }
-  console.log(`[Flixer] Warm-up request: ${warmupPath}`);
-  // bW90aGFmYWth header is REQUIRED on the initial server-list fetch.
-  // hexa.su flipped the logic — without it, the API returns plain TMDB data
-  // instead of the encrypted stream server list.
-  const promise = makeFlixerRequest(apiKey, warmupPath, { 'bW90aGFmYWth': '1' }).then(() => {
-    console.log(`[Flixer] Warm-up OK`);
-  }).catch((e) => {
-    console.log(`[Flixer] Warm-up failed: ${e instanceof Error ? e.message : String(e)}`);
-  });
-  warmupCache = { key: warmupPath, promise, timestamp: now };
-  return promise;
-}
-
 /**
  * Sync with Flixer server time
  */
@@ -839,6 +789,52 @@ async function getSourceFromServer(
  * Extract ALL servers in parallel. Returns as soon as at least one source is found,
  * with a short grace period to collect more. Doesn't wait for all 12 to finish.
  */
+/**
+ * Extract the server list from the warm-up response.
+ * The warm-up (with bW90aGFmYWth header) returns encrypted data containing
+ * which servers are available. We decrypt it to get the list.
+ */
+async function getAvailableServers(
+  loader: FlixerWasmLoader,
+  apiKey: string,
+  warmupPath: string,
+  logger: ReturnType<typeof createLogger>,
+): Promise<string[]> {
+  try {
+    const encrypted = await makeFlixerRequest(apiKey, warmupPath, { 'bW90aGFmYWth': '1' });
+    const decrypted = await loader.processImgData(encrypted, apiKey);
+    const data = JSON.parse(decrypted);
+
+    let servers: string[] = [];
+
+    // Extract server list from various response formats
+    if (data?.sources && Array.isArray(data.sources)) {
+      for (const s of data.sources) {
+        if (s?.server) servers.push(s.server);
+      }
+      // Also check data.servers object
+      if (data?.servers && Object.keys(data.servers).length > 0) {
+        servers = Object.keys(data.servers);
+      }
+    } else if (data?.servers) {
+      servers = Object.keys(data.servers);
+    }
+
+    logger.info(`Warm-up returned ${servers.length} available servers: [${servers.slice(0, 8).join(',')}${servers.length > 8 ? '...' : ''}]`);
+    return servers;
+  } catch (e) {
+    logger.warn(`Warm-up decrypt failed: ${e instanceof Error ? e.message : String(e)}, falling back to all servers`);
+    // Fall back to all known servers
+    return Object.keys(SERVER_NAMES);
+  }
+}
+
+/**
+ * Extract ALL servers with rate-limiting to avoid API throttling.
+ * Hexa.su's browser client queries servers sequentially with 200ms delays.
+ * We use small parallel batches (4 at a time) as a compromise between
+ * speed and not getting rate-limited.
+ */
 async function extractAllServers(
   tmdbId: string,
   type: string,
@@ -852,77 +848,111 @@ async function extractAllServers(
     // Initialize WASM if not cached (deduplicated across parallel requests)
     await ensureWasmInitialized(logger);
 
-    const allServers = Object.keys(SERVER_NAMES);
+    // Re-sync server time if it's been a while (browser client re-syncs every 5 min)
+    const timeSinceInit = Date.now() - wasmInitTime;
+    if (timeSinceInit > 5 * 60 * 1000) {
+      try {
+        await syncServerTime();
+        logger.info('Re-synced server time', { offset: serverTimeOffset });
+      } catch { /* use existing offset */ }
+    }
+
     const apiKey = cachedApiKey!;
     const loader = cachedWasmLoader!;
 
-    // Single warm-up request (shared/deduplicated across concurrent requests)
     const warmupPath = type === 'movie'
       ? `/api/tmdb/movie/${tmdbId}/images`
       : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
-    await getOrCreateWarmup(apiKey, warmupPath);
 
-    logger.info(`Racing ${allServers.length} servers for ${type}/${tmdbId}`);
+    // Get available servers from warm-up (decrypts the response)
+    const availableServers = await getAvailableServers(loader, apiKey, warmupPath, logger);
 
-    // Collect sources as they resolve
+    if (availableServers.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: 'No servers returned from warm-up',
+        elapsed_ms: Date.now() - startTime,
+      }, 404);
+    }
+
+    // Prioritize known good servers first
+    const priorityOrder = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',
+      'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
+      'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'xray', 'yankee', 'zulu'];
+    const orderedServers = priorityOrder
+      .filter(s => availableServers.includes(s))
+      .concat(availableServers.filter(s => !priorityOrder.includes(s)));
+
+    logger.info(`Querying ${orderedServers.length} servers for ${type}/${tmdbId}`);
+
+    // Process in batches of 4 with 150ms delay between batches
+    // This mimics the browser's sequential approach but faster
+    const BATCH_SIZE = 4;
+    const BATCH_DELAY = 150;
     const sources: any[] = [];
-    let firstSourceTime = 0;
+    const errors: string[] = [];
 
-    // Create individual promises that push to sources array on success
-    const serverPromises = allServers.map(async (server) => {
-      try {
-        const result = await getSourceFromServer(
-          loader, apiKey, type, tmdbId, server,
-          season || undefined, episode || undefined,
-        );
-        if (result.url) {
-          const source = {
-            quality: 'auto',
-            title: `Flixer ${SERVER_NAMES[server] || server}`,
-            url: result.url,
-            type: 'hls',
-            referer: 'https://hexa.su/',
-            requiresSegmentProxy: true,
-            status: 'working',
-            language: 'en',
-            server,
-          };
-          sources.push(source);
-          if (!firstSourceTime) firstSourceTime = Date.now();
-          return source;
+    for (let i = 0; i < orderedServers.length; i += BATCH_SIZE) {
+      const batch = orderedServers.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (server) => {
+          const result = await getSourceFromServer(
+            loader, apiKey, type, tmdbId, server,
+            season || undefined, episode || undefined,
+          );
+          if (result.url) {
+            return {
+              quality: 'auto',
+              title: `Flixer ${SERVER_NAMES[server] || server}`,
+              url: result.url,
+              type: 'hls',
+              referer: 'https://hexa.su/',
+              requiresSegmentProxy: true,
+              status: 'working',
+              language: 'en',
+              server,
+            };
+          }
+          return null;
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          sources.push(result.value);
+        } else if (result.status === 'rejected') {
+          errors.push(result.reason?.message || 'unknown');
         }
-      } catch (_) {}
-      return null;
-    });
+      }
 
-    // Wait for first source, then give 1.5s grace period for more
-    const firstResult = await Promise.any(serverPromises).catch(() => null);
+      // If we already have enough sources, stop early
+      if (sources.length >= 6) {
+        logger.info(`Got ${sources.length} sources after ${i + BATCH_SIZE} servers, stopping early`);
+        break;
+      }
 
-    if (firstResult) {
-      // Got at least one — wait up to 1.5s more for others to trickle in
-      await Promise.race([
-        Promise.allSettled(serverPromises),
-        new Promise(r => setTimeout(r, 1500)),
-      ]);
-    } else {
-      // None resolved via Promise.any — wait for all to settle
-      await Promise.allSettled(serverPromises);
+      // Delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < orderedServers.length) {
+        await new Promise(r => setTimeout(r, BATCH_DELAY));
+      }
     }
 
     const elapsed = Date.now() - startTime;
-    logger.info(`extract-all: ${sources.length}/${allServers.length} sources in ${elapsed}ms`);
+    logger.info(`extract-all: ${sources.length}/${orderedServers.length} sources in ${elapsed}ms${errors.length > 0 ? `, ${errors.length} errors` : ''}`);
 
     if (sources.length > 0) {
       consecutiveFailures = 0;
       lastSuccessTime = Date.now();
     } else {
       consecutiveFailures++;
+      logger.warn(`extract-all: 0 sources. Errors: ${errors.slice(0, 5).join('; ')}`);
     }
 
     return jsonResponse({
       success: sources.length > 0,
       sources,
-      serverCount: allServers.length,
+      serverCount: orderedServers.length,
       successCount: sources.length,
       elapsed_ms: elapsed,
       timestamp: new Date().toISOString(),
@@ -948,9 +978,6 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
   const path = url.pathname;
   const logLevel = (env.LOG_LEVEL || 'info') as LogLevel;
   const logger = createLogger(request, logLevel);
-
-  // Store env for RPI proxy access
-  globalEnv = env;
 
   // CORS preflight
   if (request.method === 'OPTIONS') {
@@ -988,8 +1015,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
         ? `/api/tmdb/movie/${tmdbId}/images`
         : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
 
-      // Warm-up
-      await getOrCreateWarmup(apiKey, apiPath);
+      // Warm-up (proper — decrypt to register session)
+      await getAvailableServers(loader, apiKey, apiPath, logger);
 
       // Fetch encrypted
       const encrypted = await makeFlixerRequest(apiKey, apiPath, {
@@ -1070,11 +1097,11 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       // Initialize WASM if not cached (deduplicated across parallel requests)
       await ensureWasmInitialized(logger);
 
-      // Shared warm-up — deduplicated across parallel requests for same content
+      // Proper warm-up — decrypt response to register session with API
       const warmupPath = type === 'movie'
         ? `/api/tmdb/movie/${tmdbId}/images`
         : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
-      await getOrCreateWarmup(cachedApiKey, warmupPath);
+      await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath, logger);
 
       // Get source from server
       const result = await getSourceFromServer(
