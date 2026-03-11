@@ -150,7 +150,85 @@ async function extractFromApi(
   return { success: true, m3u8_url: data.m3u8_url, source: data.source };
 }
 
-async function proxyStream(url: string): Promise<Response> {
+/**
+ * Rewrite m3u8 playlist URLs to route through /vidsrc/stream
+ */
+function rewriteVidSrcPlaylist(manifest: string, originalUrl: string): string {
+  // Rewrite absolute URLs from 2embed.stream and cloudnestra CDN domains
+  manifest = manifest.replace(
+    /https:\/\/(?:v1\.2embed\.stream|[^\/\s]*cloudnestra\.[a-z]+|[^\/\s]*shadowlandschronicles\.[a-z]+|[^\/\s]*embedsito\.com)\/[^\s\n]+/g,
+    (match) => `/vidsrc/stream?url=${encodeURIComponent(match)}`
+  );
+  
+  // Rewrite #EXT-X-KEY URI values (encryption keys need proxying too)
+  manifest = manifest.replace(
+    /URI="(https?:\/\/[^"]+)"/g,
+    (_match, keyUrl) => `URI="/vidsrc/stream?url=${encodeURIComponent(keyUrl)}"`
+  );
+  
+  // Rewrite relative URLs (lines that don't start with # and aren't already proxied)
+  const baseUrl = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
+  const lines = manifest.split('\n');
+  manifest = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('/vidsrc/')) return line;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (trimmed.includes('.ts') || trimmed.includes('.m3u8') || trimmed.includes('/key') || trimmed.includes('.key')) {
+        return `/vidsrc/stream?url=${encodeURIComponent(trimmed)}`;
+      }
+      return line;
+    }
+    const absoluteUrl = new URL(trimmed, baseUrl).toString();
+    return `/vidsrc/stream?url=${encodeURIComponent(absoluteUrl)}`;
+  }).join('\n');
+  
+  return manifest;
+}
+
+/**
+ * Handle a successful VidSrc CDN response — rewrite m3u8 playlists, pass through segments.
+ */
+function handleVidSrcStreamResponse(
+  body: ArrayBuffer,
+  contentType: string,
+  originalUrl: string,
+  via: string,
+): Response {
+  if (contentType.includes('mpegurl') || originalUrl.includes('.m3u8')) {
+    let manifest = new TextDecoder().decode(body);
+    manifest = rewriteVidSrcPlaylist(manifest, originalUrl);
+    return new Response(manifest, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'X-Proxied-Via': via,
+        ...corsHeaders(),
+      },
+    });
+  }
+
+  // Segment — detect content type from bytes
+  const firstBytes = new Uint8Array(body.slice(0, 4));
+  const isMpegTs = firstBytes[0] === 0x47;
+  const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
+  let actualContentType = contentType;
+  if (isMpegTs) actualContentType = 'video/mp2t';
+  else if (isFmp4) actualContentType = 'video/mp4';
+  else if (!actualContentType) actualContentType = 'application/octet-stream';
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': actualContentType,
+      'Content-Length': body.byteLength.toString(),
+      'Cache-Control': 'public, max-age=3600',
+      'X-Proxied-Via': via,
+      ...corsHeaders(),
+    },
+  });
+}
+
+async function proxyStream(url: string, env: Env): Promise<Response> {
   console.log('[VidSrc] Proxying stream:', url.substring(0, 80) + '...');
   
   // Determine correct referer based on the stream domain
@@ -161,63 +239,90 @@ async function proxyStream(url: string): Promise<Response> {
       referer = `https://${streamHost}/`;
     }
   } catch {}
-  
-  const response = await fetchWithHeaders(url, referer);
-  
-  if (!response.ok) {
-    return new Response(`Upstream error: ${response.status}`, { 
-      status: response.status, 
-      headers: corsHeaders() 
+
+  const cdnHeaders: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json, text/html, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': referer,
+  };
+
+  // Strategy 1: CF direct fetch (fastest — intra-Cloudflare network)
+  try {
+    const response = await fetch(url, {
+      headers: cdnHeaders,
+      signal: AbortSignal.timeout(10000),
     });
+
+    if (response.ok) {
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      const body = await response.arrayBuffer();
+      return handleVidSrcStreamResponse(body, contentType, url, 'cf-direct');
+    }
+    console.log(`[VidSrc] CF direct failed: ${response.status}`);
+  } catch (e) {
+    console.log(`[VidSrc] CF direct error: ${e instanceof Error ? e.message : String(e)}`);
   }
-  
-  const contentType = response.headers.get('content-type') || 'application/octet-stream';
-  const body = await response.arrayBuffer();
-  
-  if (contentType.includes('mpegurl') || url.includes('.m3u8')) {
-    let manifest = new TextDecoder().decode(body);
-    
-    // Rewrite absolute URLs from 2embed.stream and cloudnestra CDN domains
-    manifest = manifest.replace(
-      /https:\/\/(?:v1\.2embed\.stream|[^\/\s]*cloudnestra\.[a-z]+|[^\/\s]*shadowlandschronicles\.[a-z]+|[^\/\s]*embedsito\.com)\/[^\s\n]+/g,
-      (match) => `/vidsrc/stream?url=${encodeURIComponent(match)}`
-    );
-    
-    // Rewrite #EXT-X-KEY URI values (encryption keys need proxying too)
-    manifest = manifest.replace(
-      /URI="(https?:\/\/[^"]+)"/g,
-      (_match, keyUrl) => `URI="/vidsrc/stream?url=${encodeURIComponent(keyUrl)}"`
-    );
-    
-    // Rewrite relative URLs (lines that don't start with # and aren't already proxied)
-    const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-    const lines = manifest.split('\n');
-    manifest = lines.map(line => {
-      const trimmed = line.trim();
-      // Skip empty lines, comments, and already-proxied URLs
-      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('/vidsrc/')) return line;
-      // Skip absolute URLs that aren't from known domains
-      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-        // Proxy any absolute URL that's a segment or key
-        if (trimmed.includes('.ts') || trimmed.includes('.m3u8') || trimmed.includes('/key') || trimmed.includes('.key')) {
-          return `/vidsrc/stream?url=${encodeURIComponent(trimmed)}`;
-        }
-        return line;
+
+  // Strategy 2: RPI /fetch-rust (Chrome TLS fingerprint from residential IP)
+  if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+    try {
+      let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+      if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+      const rustParams = new URLSearchParams({
+        url,
+        headers: JSON.stringify(cdnHeaders),
+        timeout: '30',
+      });
+      const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+      console.log(`[VidSrc] Trying RPI rust-fetch: ${url.substring(0, 60)}...`);
+
+      const rustRes = await fetch(rustUrl, {
+        headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (rustRes.ok) {
+        console.log('[VidSrc] RPI rust-fetch OK');
+        const contentType = rustRes.headers.get('content-type') || 'application/octet-stream';
+        const body = await rustRes.arrayBuffer();
+        return handleVidSrcStreamResponse(body, contentType, url, 'rpi-rust');
       }
-      // Relative URL - resolve against base URL and proxy
-      const absoluteUrl = new URL(trimmed, baseUrl).toString();
-      return `/vidsrc/stream?url=${encodeURIComponent(absoluteUrl)}`;
-    }).join('\n');
-    
-    return new Response(manifest, {
-      status: 200,
-      headers: { 'Content-Type': 'application/vnd.apple.mpegurl', ...corsHeaders() }
-    });
+      console.log(`[VidSrc] RPI rust-fetch failed: ${rustRes.status}`);
+    } catch (e) {
+      console.log(`[VidSrc] RPI rust-fetch error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // Strategy 3: RPI /vidsrc/stream legacy fallback (Node.js https)
+    try {
+      let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+      if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+      const rpiParams = new URLSearchParams({
+        url,
+        key: env.RPI_PROXY_KEY,
+        referer,
+      });
+      const rpiUrl = `${rpiBase}/vidsrc/stream?${rpiParams.toString()}`;
+      console.log(`[VidSrc] Trying RPI legacy: ${url.substring(0, 60)}...`);
+
+      const rpiRes = await fetch(rpiUrl, { signal: AbortSignal.timeout(15000) });
+      if (rpiRes.ok) {
+        console.log('[VidSrc] RPI legacy OK');
+        const contentType = rpiRes.headers.get('content-type') || 'application/octet-stream';
+        const body = await rpiRes.arrayBuffer();
+        return handleVidSrcStreamResponse(body, contentType, url, 'rpi-legacy');
+      }
+      console.log(`[VidSrc] RPI legacy failed: ${rpiRes.status}`);
+    } catch (e) {
+      console.log(`[VidSrc] RPI legacy error: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
-  
-  return new Response(body, { 
-    status: 200, 
-    headers: { 'Content-Type': contentType, ...corsHeaders() } 
+
+  return new Response(JSON.stringify({ error: 'All proxy strategies failed for VidSrc CDN' }), {
+    status: 502,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders() },
   });
 }
 
@@ -329,7 +434,7 @@ export async function handleVidSrcRequest(request: Request, env: Env): Promise<R
     }
     logger.info('VidSrc stream proxy', { url: streamUrl.substring(0, 60) + '...' });
     try {
-      return await proxyStream(streamUrl);
+      return await proxyStream(streamUrl, env);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('VidSrc stream proxy error', error as Error);

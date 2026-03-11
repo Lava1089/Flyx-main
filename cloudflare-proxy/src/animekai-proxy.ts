@@ -318,7 +318,57 @@ export async function handleAnimeKaiRequest(request: Request, env: Env): Promise
   
   logger.debug('CF direct failed', { status: directResult.status });
 
-  // STRATEGY 2: Try RPI residential proxy
+  // STRATEGY 2: RPI /fetch-rust (Chrome TLS fingerprint from residential IP)
+  if (hasRpi) {
+    try {
+      let rpiBase = env.RPI_PROXY_URL!.replace(/\/+$/, '');
+      if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+      const rustHeaders: Record<string, string> = {
+        'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'identity',
+      };
+      // MegaUp CDN blocks Referer — don't include it
+      const isMegaUpDomain = decodedUrl.includes('megaup') || 
+                             decodedUrl.includes('hub26link') || 
+                             decodedUrl.includes('app28base') ||
+                             decodedUrl.includes('dev23app') ||
+                             decodedUrl.includes('net22lab') ||
+                             decodedUrl.includes('pro25zone') ||
+                             decodedUrl.includes('tech20hub') ||
+                             decodedUrl.includes('code29wave') ||
+                             decodedUrl.includes('4spromax');
+      if (!isMegaUpDomain && customReferer) {
+        rustHeaders['Referer'] = customReferer;
+      }
+
+      const rustParams = new URLSearchParams({
+        url: decodedUrl,
+        headers: JSON.stringify(rustHeaders),
+        timeout: '30',
+      });
+      const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+      logger.debug('Trying RPI rust-fetch...', { url: decodedUrl.substring(0, 80) });
+
+      const rustRes = await fetch(rustUrl, {
+        headers: { 'X-API-Key': env.RPI_PROXY_KEY! },
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (rustRes.ok) {
+        logger.info('RPI rust-fetch succeeded!');
+        const body = await rustRes.arrayBuffer();
+        const contentType = rustRes.headers.get('content-type') || '';
+        return handleSuccessResponse({ success: true, body, contentType }, decodedUrl, url.origin, 'rpi-rust');
+      }
+      logger.debug('RPI rust-fetch failed', { status: rustRes.status });
+    } catch (e) {
+      logger.debug('RPI rust-fetch error', { error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  // STRATEGY 3: RPI residential proxy (legacy Node.js https)
   if (hasRpi) {
     logger.debug('Trying RPI residential proxy...');
     return await fetchViaRpiProxy(decodedUrl, customUserAgent, customReferer, env, logger, url.origin);

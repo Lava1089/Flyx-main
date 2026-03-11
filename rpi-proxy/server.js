@@ -1358,17 +1358,75 @@ function proxyAnimeKaiStream(targetUrl, customUserAgent, customReferer, customOr
  */
 function proxyFlixerStream(targetUrl, customUserAgent, res) {
   const url = new URL(targetUrl);
-  const client = url.protocol === 'https:' ? https : http;
-  const headers = {
-    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  const { spawn } = require('child_process');
+
+  // Build headers JSON for rust-fetch
+  const hdrs = {
+    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Encoding': 'identity',
-    'Connection': 'keep-alive',
     'Referer': 'https://hexa.su/',
     'Origin': 'https://hexa.su',
   };
-  console.log(`[Flixer] ${targetUrl.substring(0, 100)}...`);
-  _proxyWithHeaders(client, url, headers, targetUrl, customUserAgent, 'https://hexa.su/', 'https://hexa.su', null, res, 'Flixer');
+
+  console.log(`[Flixer] rust-fetch → ${targetUrl.substring(0, 100)}...`);
+
+  const args = ['--url', targetUrl, '--timeout', '30', '--mode', 'fetch-bin', '--headers', JSON.stringify(hdrs)];
+  const rust = spawn('rust-fetch', args);
+  const chunks = [];
+  let stderr = '';
+  let spawned = true;
+
+  rust.stdout.on('data', (chunk) => { chunks.push(chunk); });
+  rust.stderr.on('data', (data) => { stderr += data.toString(); });
+
+  rust.on('error', (err) => {
+    spawned = false;
+    console.warn(`[Flixer] rust-fetch not available (${err.message}), falling back to Node https`);
+    // Fallback to Node.js https (original behavior)
+    const client = url.protocol === 'https:' ? https : http;
+    _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, 'https://hexa.su/', 'https://hexa.su', null, res, 'Flixer');
+  });
+
+  rust.on('close', (code) => {
+    if (!spawned) return; // Already handled by error fallback
+    if (code !== 0) {
+      console.warn(`[Flixer] rust-fetch exit ${code}, falling back to Node https`);
+      if (!res.headersSent) {
+        const client = url.protocol === 'https:' ? https : http;
+        _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, 'https://hexa.su/', 'https://hexa.su', null, res, 'Flixer');
+      }
+      return;
+    }
+
+    const body = Buffer.concat(chunks);
+    console.log(`[Flixer] rust-fetch ← ${body.length}b`);
+
+    // Detect content type from response data
+    let contentType = 'application/octet-stream';
+    const preview = body.toString('utf8', 0, Math.min(200, body.length));
+    if (targetUrl.includes('.m3u8') || preview.includes('#EXTM3U')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (body[0] === 0x47) { // MPEG-TS sync byte
+      contentType = 'video/mp2t';
+    } else if (body.length >= 4 && body[0] === 0x00 && body[1] === 0x00 && body[2] === 0x00) {
+      contentType = 'video/mp4'; // fMP4
+    }
+
+    if (!res.headersSent) {
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': body.length,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
+        'X-Proxied-By': 'rpi-flixer-rust',
+        'Cache-Control': contentType.includes('mpegurl') ? 'public, max-age=5' : 'public, max-age=3600',
+      });
+      res.end(body);
+    }
+  });
+
+  res.on('close', () => { rust.kill(); });
 }
 
 /**
@@ -1451,12 +1509,12 @@ function proxyHiAnimeStream(targetUrl, customUserAgent, res) {
  */
 function proxyVidLinkStream(targetUrl, customUserAgent, res) {
   const url = new URL(targetUrl);
-  const client = url.protocol === 'https:' ? https : http;
-  const headers = {
-    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  const { spawn } = require('child_process');
+
+  const hdrs = {
+    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Encoding': 'identity',
-    'Connection': 'keep-alive',
   };
 
   // VidLink CDN embeds headers as query params
@@ -1464,19 +1522,74 @@ function proxyVidLinkStream(targetUrl, customUserAgent, res) {
   if (headersParam) {
     try {
       const parsed = JSON.parse(headersParam);
-      if (parsed.referer) headers['Referer'] = parsed.referer;
-      if (parsed.origin) headers['Origin'] = parsed.origin;
-      console.log(`[VidLink] Using embedded headers: Referer=${headers['Referer']}, Origin=${headers['Origin']}`);
+      if (parsed.referer) hdrs['Referer'] = parsed.referer;
+      if (parsed.origin) hdrs['Origin'] = parsed.origin;
+      console.log(`[VidLink] Using embedded headers: Referer=${hdrs['Referer']}, Origin=${hdrs['Origin']}`);
     } catch {
-      headers['Referer'] = 'https://videostr.net/';
-      headers['Origin'] = 'https://videostr.net';
+      hdrs['Referer'] = 'https://videostr.net/';
+      hdrs['Origin'] = 'https://videostr.net';
     }
   } else {
-    headers['Referer'] = 'https://videostr.net/';
-    headers['Origin'] = 'https://videostr.net';
+    hdrs['Referer'] = 'https://videostr.net/';
+    hdrs['Origin'] = 'https://videostr.net';
   }
-  console.log(`[VidLink] ${targetUrl.substring(0, 100)}...`);
-  _proxyWithHeaders(client, url, headers, targetUrl, customUserAgent, headers['Referer'], headers['Origin'], null, res, 'VidLink');
+
+  console.log(`[VidLink] rust-fetch → ${targetUrl.substring(0, 100)}...`);
+
+  const args = ['--url', targetUrl, '--timeout', '30', '--mode', 'fetch-bin', '--headers', JSON.stringify(hdrs)];
+  const rust = spawn('rust-fetch', args);
+  const chunks = [];
+  let stderr = '';
+  let spawned = true;
+
+  rust.stdout.on('data', (chunk) => { chunks.push(chunk); });
+  rust.stderr.on('data', (data) => { stderr += data.toString(); });
+
+  rust.on('error', (err) => {
+    spawned = false;
+    console.warn(`[VidLink] rust-fetch not available (${err.message}), falling back to Node https`);
+    const client = url.protocol === 'https:' ? https : http;
+    _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, hdrs['Referer'], hdrs['Origin'], null, res, 'VidLink');
+  });
+
+  rust.on('close', (code) => {
+    if (!spawned) return;
+    if (code !== 0) {
+      console.warn(`[VidLink] rust-fetch exit ${code}, falling back to Node https`);
+      if (!res.headersSent) {
+        const client = url.protocol === 'https:' ? https : http;
+        _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, hdrs['Referer'], hdrs['Origin'], null, res, 'VidLink');
+      }
+      return;
+    }
+
+    const body = Buffer.concat(chunks);
+    console.log(`[VidLink] rust-fetch ← ${body.length}b`);
+
+    let contentType = 'application/octet-stream';
+    const preview = body.toString('utf8', 0, Math.min(200, body.length));
+    if (targetUrl.includes('.m3u8') || preview.includes('#EXTM3U')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (body[0] === 0x47) {
+      contentType = 'video/mp2t';
+    } else if (body.length >= 4 && body[0] === 0x00 && body[1] === 0x00 && body[2] === 0x00) {
+      contentType = 'video/mp4';
+    }
+
+    if (!res.headersSent) {
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': body.length,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
+        'X-Proxied-By': 'rpi-vidlink-rust',
+        'Cache-Control': contentType.includes('mpegurl') ? 'public, max-age=5' : 'public, max-age=3600',
+      });
+      res.end(body);
+    }
+  });
+
+  res.on('close', () => { rust.kill(); });
 }
 
 /**
@@ -1508,18 +1621,73 @@ function proxyDlhdStream(targetUrl, customUserAgent, customReferer, customOrigin
  */
 function proxyVidSrcStream(targetUrl, customUserAgent, customReferer, res) {
   const url = new URL(targetUrl);
-  const client = url.protocol === 'https:' ? https : http;
-  const headers = {
-    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  const { spawn } = require('child_process');
+
+  const hdrs = {
+    'User-Agent': customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Encoding': 'identity',
-    'Connection': 'keep-alive',
   };
   if (customReferer) {
-    headers['Referer'] = customReferer;
+    hdrs['Referer'] = customReferer;
   }
-  console.log(`[VidSrc] ${targetUrl.substring(0, 100)}...`);
-  _proxyWithHeaders(client, url, headers, targetUrl, customUserAgent, customReferer, null, null, res, 'VidSrc');
+
+  console.log(`[VidSrc] rust-fetch → ${targetUrl.substring(0, 100)}...`);
+
+  const args = ['--url', targetUrl, '--timeout', '30', '--mode', 'fetch-bin', '--headers', JSON.stringify(hdrs)];
+  const rust = spawn('rust-fetch', args);
+  const chunks = [];
+  let stderr = '';
+  let spawned = true;
+
+  rust.stdout.on('data', (chunk) => { chunks.push(chunk); });
+  rust.stderr.on('data', (data) => { stderr += data.toString(); });
+
+  rust.on('error', (err) => {
+    spawned = false;
+    console.warn(`[VidSrc] rust-fetch not available (${err.message}), falling back to Node https`);
+    const client = url.protocol === 'https:' ? https : http;
+    _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, customReferer, null, null, res, 'VidSrc');
+  });
+
+  rust.on('close', (code) => {
+    if (!spawned) return;
+    if (code !== 0) {
+      console.warn(`[VidSrc] rust-fetch exit ${code}, falling back to Node https`);
+      if (!res.headersSent) {
+        const client = url.protocol === 'https:' ? https : http;
+        _proxyWithHeaders(client, url, hdrs, targetUrl, customUserAgent, customReferer, null, null, res, 'VidSrc');
+      }
+      return;
+    }
+
+    const body = Buffer.concat(chunks);
+    console.log(`[VidSrc] rust-fetch ← ${body.length}b`);
+
+    let contentType = 'application/octet-stream';
+    const preview = body.toString('utf8', 0, Math.min(200, body.length));
+    if (targetUrl.includes('.m3u8') || preview.includes('#EXTM3U')) {
+      contentType = 'application/vnd.apple.mpegurl';
+    } else if (body[0] === 0x47) {
+      contentType = 'video/mp2t';
+    } else if (body.length >= 4 && body[0] === 0x00 && body[1] === 0x00 && body[2] === 0x00) {
+      contentType = 'video/mp4';
+    }
+
+    if (!res.headersSent) {
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': body.length,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
+        'X-Proxied-By': 'rpi-vidsrc-rust',
+        'Cache-Control': contentType.includes('mpegurl') ? 'public, max-age=5' : 'public, max-age=3600',
+      });
+      res.end(body);
+    }
+  });
+
+  res.on('close', () => { rust.kill(); });
 }
 
 /**

@@ -3,7 +3,13 @@
  * 
  * When running on Cloudflare Workers, many sites block datacenter IPs.
  * This utility detects if we're on Cloudflare and routes requests through
- * the RPI residential proxy to bypass these blocks.
+ * the RPI proxy to bypass these blocks.
+ * 
+ * Proxy strategy (in order):
+ *   1. /fetch-rust — Chrome-like TLS fingerprint via rust-fetch binary.
+ *      Bypasses Cloudflare bot detection that blocks Node.js https.
+ *   2. /proxy      — Standard Node.js https proxy (fallback).
+ *   3. Direct fetch — Last resort, may fail from datacenter IPs.
  * 
  * Usage:
  *   import { cfFetch } from '@/app/lib/utils/cf-fetch';
@@ -129,6 +135,11 @@ function getRpiConfig(): { url: string | undefined; key: string | undefined } {
  *    CF Workers on the same account cannot directly fetch each other (404/hang).
  * 3. isCloudflareWorker() AND target is external → proxy (datacenter IP blocking)
  * 4. Otherwise → direct fetch
+ * 
+ * Proxy strategy (when proxying):
+ *   1. Try /fetch-rust first — Chrome-like TLS fingerprint, bypasses bot detection
+ *   2. Fall back to /proxy — standard Node.js https (if rust-fetch fails or is unavailable)
+ *   3. Last resort: direct fetch
  */
 export async function cfFetch(
   url: string,
@@ -149,12 +160,39 @@ export async function cfFetch(
     (isCfWorkerUrl && isCfWorker);
   
   if (useProxy && RPI_PROXY_URL && RPI_PROXY_KEY) {
-    const proxyUrl = `${RPI_PROXY_URL}/proxy?url=${encodeURIComponent(url)}`;
-    
     const headers = new Headers(options.headers);
     headers.set('X-API-Key', RPI_PROXY_KEY);
-    
+
+    // ── Strategy 1: /fetch-rust (Chrome TLS fingerprint) ──
+    // Prefer rust-fetch for external URLs — it mimics Chrome's exact TLS
+    // handshake which bypasses Cloudflare bot detection that blocks Node.js https.
+    // Skip for CF Worker URLs — those just need residential IP, not TLS mimicry.
+    if (!isCfWorkerUrl) {
+      try {
+        const rustUrl = `${RPI_PROXY_URL}/fetch-rust?url=${encodeURIComponent(url)}`;
+        const rustResponse = await fetch(rustUrl, {
+          method: 'GET',
+          headers,
+          signal: options.signal || AbortSignal.timeout(20_000),
+        });
+
+        if (rustResponse.ok || (rustResponse.status >= 200 && rustResponse.status < 500)) {
+          // Any non-server-error means rust-fetch handled it (even 4xx from upstream)
+          console.log(`[cfFetch] rust-fetch OK (${rustResponse.status}) for: ${url.substring(0, 60)}`);
+          return rustResponse;
+        }
+
+        // 502/503/504 = rust-fetch binary issue or not installed — fall through to /proxy
+        console.warn(`[cfFetch] rust-fetch ${rustResponse.status} for: ${url.substring(0, 60)}, falling back to /proxy`);
+      } catch (rustError) {
+        console.warn(`[cfFetch] rust-fetch error for ${url.substring(0, 60)}:`, rustError instanceof Error ? rustError.message : rustError);
+        // Fall through to /proxy
+      }
+    }
+
+    // ── Strategy 2: /proxy (standard Node.js https) ──
     try {
+      const proxyUrl = `${RPI_PROXY_URL}/proxy?url=${encodeURIComponent(url)}`;
       const response = await fetch(proxyUrl, {
         method: options.method || 'GET',
         headers,
@@ -163,15 +201,18 @@ export async function cfFetch(
       });
       
       if (response.status === 429) {
-        console.warn(`[cfFetch] RPI proxy rate limited (429) for: ${url.substring(0, 60)}...`);
+        console.warn(`[cfFetch] RPI /proxy rate limited (429) for: ${url.substring(0, 60)}...`);
       }
       
       return response;
     } catch (error) {
-      console.error(`[cfFetch] RPI proxy error for ${url.substring(0, 60)}:`, error instanceof Error ? error.message : error);
-      // Fallback to direct fetch — may fail but worth trying
-      return fetch(url, options);
+      console.error(`[cfFetch] RPI /proxy error for ${url.substring(0, 60)}:`, error instanceof Error ? error.message : error);
+      // Fall through to direct fetch
     }
+
+    // ── Strategy 3: direct fetch (last resort) ──
+    console.warn(`[cfFetch] Both RPI routes failed, trying direct fetch: ${url.substring(0, 60)}`);
+    return fetch(url, options);
   }
   
   // Not on CF Workers or RPI not configured — log a warning in production

@@ -132,7 +132,11 @@ Strategy 1: Direct CF Worker fetch → CDN
   ├── Success → rewrite playlist URLs, return
   └── Fail (403/blocked) → Strategy 2
 
-Strategy 2: RPI residential proxy → CDN
+Strategy 2: RPI /fetch-rust (Chrome TLS fingerprint from residential IP)
+  ├── Success → rewrite playlist URLs, return
+  └── Fail → Strategy 3
+
+Strategy 3: RPI /flixer/stream legacy (Node.js https)
   ├── Success → rewrite playlist URLs, return
   └── Fail → 502 error
 ```
@@ -154,7 +158,7 @@ https://media-proxy.vynx.workers.dev/flixer/stream?url=https%3A%2F%2Fcdn.frostco
 
 Each `.ts` segment request follows the same proxy chain:
 ```
-Player → /flixer/stream?url=<segment_url> → CF direct or RPI → CDN → .ts data
+Player → /flixer/stream?url=<segment_url> → CF direct or RPI rust-fetch or RPI legacy → CDN → .ts data
 ```
 
 Segments are cached with `Cache-Control: public, max-age=3600`.

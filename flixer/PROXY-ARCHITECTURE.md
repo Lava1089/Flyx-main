@@ -40,8 +40,9 @@ Primary extraction endpoint. Runs on `media-proxy.vynx.workers.dev`.
 
 **Stream proxy strategy:**
 1. Try direct CF Worker fetch to CDN
-2. Fallback to RPI residential proxy
-3. Rewrite m3u8 playlist URLs to route through `/flixer/stream`
+2. RPI `/fetch-rust` — Chrome-like TLS fingerprint from residential IP
+3. RPI `/flixer/stream` legacy fallback — standard Node.js https
+4. Rewrite m3u8 playlist URLs to route through `/flixer/stream`
 
 ## Component 2: Docker Proxy (`docker/proxy/routes/flixer.ts`)
 

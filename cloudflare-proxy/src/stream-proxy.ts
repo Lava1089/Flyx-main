@@ -12,6 +12,8 @@ import { Logger, createLogger, type LogLevel } from './logger';
 export interface Env {
   API_KEY?: string;
   LOG_LEVEL?: string;
+  RPI_PROXY_URL?: string;
+  RPI_PROXY_KEY?: string;
 }
 
 export default {
@@ -153,6 +155,37 @@ export default {
         });
       } catch (fetchError) {
         logger.fetchError(decodedUrl, fetchError as Error);
+
+        // Strategy 2: RPI /fetch-rust fallback on fetch failure
+        if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+          logger.info('Direct fetch failed, trying RPI rust-fetch...');
+          try {
+            let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+            if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+            const rustHeaders: Record<string, string> = { ...headers };
+            const rustParams = new URLSearchParams({
+              url: decodedUrl,
+              headers: JSON.stringify(rustHeaders),
+              timeout: '30',
+            });
+            const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+
+            const rustRes = await fetch(rustUrl, {
+              headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+              signal: AbortSignal.timeout(20000),
+            });
+
+            if (rustRes.ok) {
+              logger.info('RPI rust-fetch succeeded after direct failure');
+              return handleStreamResponse(rustRes, decodedUrl, source, upstreamReferer, url.origin, logger, requestOrigin, effectiveSkipReferer);
+            }
+            logger.warn('RPI rust-fetch also failed', { status: rustRes.status });
+          } catch (rustError) {
+            logger.warn('RPI rust-fetch error', { error: rustError instanceof Error ? rustError.message : String(rustError) });
+          }
+        }
+
         return jsonResponse({ 
           error: 'Upstream fetch failed',
           details: fetchError instanceof Error ? fetchError.message : String(fetchError),
@@ -193,6 +226,37 @@ export default {
           statusText: response.statusText,
           headers: Object.fromEntries(response.headers),
         });
+
+        // Strategy 2: RPI /fetch-rust fallback (Chrome TLS fingerprint from residential IP)
+        if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+          logger.info('Trying RPI rust-fetch fallback...');
+          try {
+            let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+            if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+            const rustHeaders: Record<string, string> = { ...headers };
+            const rustParams = new URLSearchParams({
+              url: decodedUrl,
+              headers: JSON.stringify(rustHeaders),
+              timeout: '30',
+            });
+            const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+
+            const rustRes = await fetch(rustUrl, {
+              headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+              signal: AbortSignal.timeout(20000),
+            });
+
+            if (rustRes.ok) {
+              logger.info('RPI rust-fetch succeeded');
+              return handleStreamResponse(rustRes, decodedUrl, source, upstreamReferer, url.origin, logger, requestOrigin, effectiveSkipReferer);
+            }
+            logger.warn('RPI rust-fetch failed', { status: rustRes.status });
+          } catch (rustError) {
+            logger.warn('RPI rust-fetch error', { error: rustError instanceof Error ? rustError.message : String(rustError) });
+          }
+        }
+
         return jsonResponse({ error: `Upstream error: ${response.status}` }, response.status, logger, requestOrigin);
       }
 

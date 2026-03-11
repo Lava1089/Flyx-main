@@ -1136,7 +1136,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
   // /flixer/stream — Proxy Flixer CDN m3u8 playlists and segments
   // This is the DEDICATED route for Flixer playback. Do NOT use /animekai.
   // Flixer CDN (p.XXXXX.workers.dev) blocks CF Worker IPs, so we route
-  // through RPI residential proxy. The referer must be correct for each CDN.
+  // through RPI /fetch-rust which has Chrome-like TLS fingerprinting.
+  // The CF Worker stays the transparent proxy (edge-close to user).
   // =========================================================================
   if (path === '/flixer/stream') {
     const targetUrl = url.searchParams.get('url');
@@ -1153,16 +1154,18 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       cdnReferer = 'https://hexa.su/';
     }
 
+    const cdnHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity',
+      'Referer': cdnReferer,
+      'Origin': 'https://hexa.su',
+    };
+
     // Strategy 1: Try direct fetch from CF Worker (some CDN subdomains allow it)
     try {
       const directRes = await fetch(decodedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'Accept-Encoding': 'identity',
-          'Referer': cdnReferer,
-          'Origin': 'https://hexa.su',
-        },
+        headers: cdnHeaders,
         signal: AbortSignal.timeout(8000),
       });
 
@@ -1175,7 +1178,37 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       logger.debug('Flixer stream: CF direct error', { error: e instanceof Error ? e.message : String(e) });
     }
 
-    // Strategy 2: RPI residential proxy
+    // Strategy 2: RPI /fetch-rust (Chrome TLS fingerprint from residential IP)
+    // CF Worker stays the transparent proxy — rust-fetch only does the upstream fetch.
+    if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+      try {
+        let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+        if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+
+        const rustParams = new URLSearchParams({
+          url: decodedUrl,
+          headers: JSON.stringify(cdnHeaders),
+          timeout: '30',
+        });
+        const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+        logger.debug('Flixer stream: trying RPI rust-fetch', { url: decodedUrl.substring(0, 80) });
+
+        const rustRes = await fetch(rustUrl, {
+          headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (rustRes.ok) {
+          logger.info('Flixer stream: RPI rust-fetch OK');
+          return handleFlixerStreamResponse(rustRes, decodedUrl, url.origin, 'rpi-rust', logger);
+        }
+        logger.warn('Flixer stream: RPI rust-fetch failed', { status: rustRes.status });
+      } catch (e) {
+        logger.error('Flixer stream: RPI rust-fetch error', { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    // Strategy 3: RPI /flixer/stream fallback (Node.js https — legacy)
     if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
       try {
         let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
@@ -1188,16 +1221,16 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
           origin: 'https://hexa.su',
         });
         const rpiUrl = `${rpiBase}/flixer/stream?${rpiParams.toString()}`;
-        logger.debug('Flixer stream: trying RPI', { rpiUrl: rpiUrl.substring(0, 80) });
+        logger.debug('Flixer stream: trying RPI legacy', { rpiUrl: rpiUrl.substring(0, 80) });
 
         const rpiRes = await fetch(rpiUrl, { signal: AbortSignal.timeout(15000) });
         if (rpiRes.ok) {
-          logger.info('Flixer stream: RPI OK');
-          return handleFlixerStreamResponse(rpiRes, decodedUrl, url.origin, 'rpi', logger);
+          logger.info('Flixer stream: RPI legacy OK');
+          return handleFlixerStreamResponse(rpiRes, decodedUrl, url.origin, 'rpi-legacy', logger);
         }
-        logger.warn('Flixer stream: RPI failed', { status: rpiRes.status });
+        logger.warn('Flixer stream: RPI legacy failed', { status: rpiRes.status });
       } catch (e) {
-        logger.error('Flixer stream: RPI error', { error: e instanceof Error ? e.message : String(e) });
+        logger.error('Flixer stream: RPI legacy error', { error: e instanceof Error ? e.message : String(e) });
       }
     }
 
