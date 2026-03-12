@@ -3494,6 +3494,7 @@ const server = http.createServer(async (req, res) => {
       const args = [
         '--url', decoded,
         '--timeout', timeout,
+        '--mode', 'fetch-bin',
       ];
       
       if (!solveChallenges) {

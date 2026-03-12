@@ -55,7 +55,8 @@ export default {
         return jsonResponse({ error: 'Missing url parameter' }, 400, logger, requestOrigin);
       }
 
-      const decodedUrl = decodeURIComponent(targetUrl);
+      // searchParams.get() already decodes the URL — do NOT double-decode
+      const decodedUrl = targetUrl;
       
       // ANTI-LEECH: Check if request is from allowed origin
       if (!isAllowedOrigin(requestOrigin, requestReferer)) {

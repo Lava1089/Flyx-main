@@ -643,9 +643,10 @@ async function extractWithFallback(
           console.log(`[EXTRACT] ✓ ${provider.name}: ${workingSources.length} working sources`);
           return { sources: result.sources, provider: provider.name };
         }
-        // If sources exist but none are "working", still return them
-        // (normalizeSource strips status, so most sources will pass the filter above)
-        console.log(`[EXTRACT] ${provider.name}: ${result.sources.length} sources but 0 working, continuing...`);
+        // Sources exist but none are "working" yet (all unknown/down) — still return them
+        // so the player can show them in the server menu for lazy-fetching on click
+        console.log(`[EXTRACT] ${provider.name}: ${result.sources.length} sources (0 working, returning for lazy-fetch)`);
+        return { sources: result.sources, provider: provider.name };
       }
 
       const errorMsg = result.error || 'No working sources';

@@ -28,6 +28,7 @@ Primary extraction endpoint. Runs on `media-proxy.vynx.workers.dev`.
 | `GET /flixer/extract-all` | Batched multi-server extraction |
 | `GET /flixer/health` | Health check + diagnostics |
 | `GET /flixer/debug` | Raw decrypted data inspection |
+| `GET /flixer/stream-debug` | Diagnostic endpoint for stream proxy strategies |
 | `GET /flixer/stream` | HLS playlist/segment proxy |
 
 **Key features:**

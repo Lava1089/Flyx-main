@@ -295,7 +295,8 @@ export async function handleAnimeKaiRequest(request: Request, env: Env): Promise
     return jsonResponse({ error: 'Missing url parameter' }, 400);
   }
 
-  const decodedUrl = decodeURIComponent(targetUrl);
+  // searchParams.get() already decodes the URL — do NOT double-decode
+  const decodedUrl = targetUrl;
   const customUserAgent = url.searchParams.get('ua');
   const customReferer = url.searchParams.get('referer');
   

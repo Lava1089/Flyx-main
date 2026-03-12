@@ -143,14 +143,18 @@ class FlixerWasmLoader {
   }
 
   private getUint8ArrayMemory0(): Uint8Array {
-    if (!this.cachedUint8ArrayMemory0 || this.cachedUint8ArrayMemory0.byteLength === 0) {
+    if (!this.cachedUint8ArrayMemory0 || this.cachedUint8ArrayMemory0.byteLength === 0
+        || this.cachedUint8ArrayMemory0.buffer !== this.wasm.memory.buffer) {
       this.cachedUint8ArrayMemory0 = new Uint8Array(this.wasm.memory.buffer);
     }
     return this.cachedUint8ArrayMemory0;
   }
 
   private getDataViewMemory0(): DataView {
-    if (!this.cachedDataViewMemory0 || this.cachedDataViewMemory0.buffer !== this.wasm.memory.buffer) {
+    if (!this.cachedDataViewMemory0
+        || (this.cachedDataViewMemory0 as any).buffer?.detached === true
+        || ((this.cachedDataViewMemory0 as any).buffer?.detached === undefined
+            && this.cachedDataViewMemory0.buffer !== this.wasm.memory.buffer)) {
       this.cachedDataViewMemory0 = new DataView(this.wasm.memory.buffer);
     }
     return this.cachedDataViewMemory0;
@@ -160,11 +164,56 @@ class FlixerWasmLoader {
     return this.cachedTextDecoder.decode(this.getUint8ArrayMemory0().subarray(ptr >>> 0, (ptr >>> 0) + len));
   }
 
-  private passStringToWasm0(arg: string, malloc: (len: number, align: number) => number): number {
+  // Matches the live img_data.js passStringToWasm0 exactly — supports realloc
+  // for strings with non-ASCII characters (encrypted API responses).
+  private encodeString(arg: string, view: Uint8Array): { read: number; written: number } {
+    if (typeof this.cachedTextEncoder.encodeInto === 'function') {
+      return this.cachedTextEncoder.encodeInto(arg, view);
+    }
     const buf = this.cachedTextEncoder.encode(arg);
-    const ptr = malloc(buf.length, 1) >>> 0;
-    this.getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
-    this.WASM_VECTOR_LEN = buf.length;
+    view.set(buf);
+    return { read: arg.length, written: buf.length };
+  }
+
+  private passStringToWasm0(
+    arg: string,
+    malloc: (len: number, align: number) => number,
+    realloc?: (ptr: number, oldLen: number, newLen: number, align: number) => number,
+  ): number {
+    if (realloc === undefined) {
+      const buf = this.cachedTextEncoder.encode(arg);
+      const ptr = malloc(buf.length, 1) >>> 0;
+      this.getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+      this.WASM_VECTOR_LEN = buf.length;
+      return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = this.getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+      const code = arg.charCodeAt(offset);
+      if (code > 0x7F) break;
+      mem[ptr + offset] = code;
+    }
+
+    if (offset !== len) {
+      if (offset !== 0) {
+        arg = arg.slice(offset);
+      }
+      ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+      const view = this.getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+      const ret = this.encodeString(arg, view);
+
+      offset += ret.written;
+      ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    this.WASM_VECTOR_LEN = offset;
     return ptr;
   }
 
@@ -280,8 +329,8 @@ class FlixerWasmLoader {
     
     const nav = { platform: this.platform, language: this.language, userAgent: this.userAgent };
     const scr = { width: this.screenWidth, height: this.screenHeight, colorDepth: this.colorDepth };
-    const perf = { now: () => Date.now() - this.timestamp };
-    const win = { document: doc, localStorage: ls, navigator: nav, screen: scr, performance: perf };
+    const perf = { now: () => performance.now() };
+    const win = { document: doc, localStorage: ls, navigator: nav, screen: scr, performance: perf, queueMicrotask: (fn: any) => queueMicrotask(fn) };
     
     const i: any = { wbg: {} };
 
@@ -342,14 +391,20 @@ class FlixerWasmLoader {
     i.wbg.__wbg_toDataURL_eaec332e848fe935 = function() { 
       return self.handleError((a: number, b: number) => { 
         const r = self.getObject(b).toDataURL(); 
-        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1); 
+        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1, self.wasm.__wbindgen_export_2); 
         self.getDataViewMemory0().setInt32(a + 4, self.WASM_VECTOR_LEN, true); 
         self.getDataViewMemory0().setInt32(a, p, true); 
       }, arguments as any);
     };
-    i.wbg.__wbg_instanceof_CanvasRenderingContext2d_df82a4d3437bf1cc = () => 1;
-    i.wbg.__wbg_instanceof_HtmlCanvasElement_2ea67072a7624ac5 = () => 1;
-    i.wbg.__wbg_instanceof_Window_def73ea0955fc569 = () => 1;
+    i.wbg.__wbg_instanceof_CanvasRenderingContext2d_df82a4d3437bf1cc = (a: number) => {
+      let result; try { result = true; } catch (_) { result = false; } return result;
+    };
+    i.wbg.__wbg_instanceof_HtmlCanvasElement_2ea67072a7624ac5 = (a: number) => {
+      let result; try { result = true; } catch (_) { result = false; } return result;
+    };
+    i.wbg.__wbg_instanceof_Window_def73ea0955fc569 = (a: number) => {
+      let result; try { result = true; } catch (_) { result = false; } return result;
+    };
 
     // LocalStorage
     i.wbg.__wbg_localStorage_1406c99c39728187 = function() { 
@@ -362,9 +417,10 @@ class FlixerWasmLoader {
     i.wbg.__wbg_getItem_17f98dee3b43fa7e = function() { 
       return self.handleError((a: number, b: number, c: number, d: number) => { 
         const r = self.getObject(b).getItem(self.getStringFromWasm0(c, d)); 
-        const p = self.isLikeNone(r) ? 0 : self.passStringToWasm0(r, self.wasm.__wbindgen_export_1); 
-        self.getDataViewMemory0().setInt32(a + 4, self.WASM_VECTOR_LEN, true); 
-        self.getDataViewMemory0().setInt32(a, p, true); 
+        const p = self.isLikeNone(r) ? 0 : self.passStringToWasm0(r, self.wasm.__wbindgen_export_1, self.wasm.__wbindgen_export_2); 
+        const len = self.WASM_VECTOR_LEN;
+        self.getDataViewMemory0().setInt32(a + 4 * 1, len, true); 
+        self.getDataViewMemory0().setInt32(a + 4 * 0, p, true); 
       }, arguments as any); 
     };
     i.wbg.__wbg_setItem_212ecc915942ab0a = function() { 
@@ -380,38 +436,46 @@ class FlixerWasmLoader {
     };
     i.wbg.__wbg_language_d871ec78ee8eec62 = (a: number, b: number) => { 
       const r = self.getObject(b).language; 
-      const p = self.isLikeNone(r) ? 0 : self.passStringToWasm0(r, self.wasm.__wbindgen_export_1); 
-      self.getDataViewMemory0().setInt32(a + 4, self.WASM_VECTOR_LEN, true); 
-      self.getDataViewMemory0().setInt32(a, p, true); 
+      const p = self.isLikeNone(r) ? 0 : self.passStringToWasm0(r, self.wasm.__wbindgen_export_1, self.wasm.__wbindgen_export_2); 
+      const len = self.WASM_VECTOR_LEN;
+      self.getDataViewMemory0().setInt32(a + 4 * 1, len, true); 
+      self.getDataViewMemory0().setInt32(a + 4 * 0, p, true); 
     };
     i.wbg.__wbg_platform_faf02c487289f206 = function() { 
       return self.handleError((a: number, b: number) => { 
         const r = self.getObject(b).platform; 
-        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1); 
-        self.getDataViewMemory0().setInt32(a + 4, self.WASM_VECTOR_LEN, true); 
-        self.getDataViewMemory0().setInt32(a, p, true); 
+        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1, self.wasm.__wbindgen_export_2); 
+        const len = self.WASM_VECTOR_LEN;
+        self.getDataViewMemory0().setInt32(a + 4 * 1, len, true); 
+        self.getDataViewMemory0().setInt32(a + 4 * 0, p, true); 
       }, arguments as any); 
     };
     i.wbg.__wbg_userAgent_12e9d8e62297563f = function() { 
       return self.handleError((a: number, b: number) => { 
         const r = self.getObject(b).userAgent; 
-        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1); 
-        self.getDataViewMemory0().setInt32(a + 4, self.WASM_VECTOR_LEN, true); 
-        self.getDataViewMemory0().setInt32(a, p, true); 
+        const p = self.passStringToWasm0(r, self.wasm.__wbindgen_export_1, self.wasm.__wbindgen_export_2); 
+        const len = self.WASM_VECTOR_LEN;
+        self.getDataViewMemory0().setInt32(a + 4 * 1, len, true); 
+        self.getDataViewMemory0().setInt32(a + 4 * 0, p, true); 
       }, arguments as any); 
     };
 
-    // Date/Time
-    i.wbg.__wbg_new0_f788a2397c7ca929 = () => self.addHeapObject(new Date(self.timestamp));
-    i.wbg.__wbg_now_807e54c39636c349 = () => self.timestamp;
-    i.wbg.__wbg_getTimezoneOffset_6b5752021c499c47 = () => self.timezoneOffset;
+    // Date/Time — use REAL values, not fixed. The WASM uses these for key derivation
+    // and the API validates timestamps. Fixed values cause stale/rejected keys.
+    i.wbg.__wbg_new0_f788a2397c7ca929 = () => self.addHeapObject(new Date());
+    i.wbg.__wbg_now_807e54c39636c349 = () => Date.now();
+    i.wbg.__wbg_getTimezoneOffset_6b5752021c499c47 = (a: number) => {
+      const ret = self.getObject(a).getTimezoneOffset();
+      return ret;
+    };
     i.wbg.__wbg_performance_c185c0cdc2766575 = (a: number) => {
       const w = self.getObject(a);
       const p = w ? w.performance : perf;
       return self.isLikeNone(p) ? 0 : self.addHeapObject(p);
     };
     i.wbg.__wbg_now_d18023d54d4e5500 = (a: number) => self.getObject(a).now();
-    i.wbg.__wbg_random_3ad904d98382defe = () => self.randomSeed;
+    // Math.random() — MUST return real random values. Fixed seed breaks WASM crypto.
+    i.wbg.__wbg_random_3ad904d98382defe = () => Math.random();
     
     // Utility
     i.wbg.__wbg_length_347907d14a9ed873 = (a: number) => self.getObject(a).length;
@@ -429,29 +493,60 @@ class FlixerWasmLoader {
     i.wbg.__wbg_resolve_4851785c9c5f573d = (a: number) => self.addHeapObject(Promise.resolve(self.getObject(a)));
     i.wbg.__wbg_reject_b3fcf99063186ff7 = (a: number) => self.addHeapObject(Promise.reject(self.getObject(a)));
     i.wbg.__wbg_then_44b73946d2fb3e7d = (a: number, b: number) => self.addHeapObject(self.getObject(a).then(self.getObject(b)));
-    i.wbg.__wbg_newnoargs_105ed471475aaf50 = (a: number, b: number) => self.addHeapObject(new Function(self.getStringFromWasm0(a, b)));
+    i.wbg.__wbg_newnoargs_105ed471475aaf50 = (a: number, b: number) => {
+      try {
+        const ret = new Function(self.getStringFromWasm0(a, b));
+        return self.addHeapObject(ret);
+      } catch (_) {
+        // new Function() may be blocked in CF Workers — return a no-op
+        return self.addHeapObject(() => {});
+      }
+    };
     
-    // Global accessors
-    i.wbg.__wbg_static_accessor_GLOBAL_88a902d13a557d07 = () => 0;
-    i.wbg.__wbg_static_accessor_GLOBAL_THIS_56578be7e9f832b0 = () => self.addHeapObject(globalThis);
-    i.wbg.__wbg_static_accessor_SELF_37c5d418e4bf5819 = () => self.addHeapObject(win);
-    i.wbg.__wbg_static_accessor_WINDOW_5de37043a91a9c40 = () => self.addHeapObject(win);
+    // Global accessors — match live JS exactly
+    i.wbg.__wbg_static_accessor_GLOBAL_88a902d13a557d07 = () => {
+      try {
+        const ret = (globalThis as any).global;
+        return self.isLikeNone(ret) ? 0 : self.addHeapObject(ret);
+      } catch (_) {
+        return 0;
+      }
+    };
+    i.wbg.__wbg_static_accessor_GLOBAL_THIS_56578be7e9f832b0 = () => {
+      const ret = typeof globalThis === 'undefined' ? null : globalThis;
+      return self.isLikeNone(ret) ? 0 : self.addHeapObject(ret);
+    };
+    i.wbg.__wbg_static_accessor_SELF_37c5d418e4bf5819 = () => {
+      // In CF Workers, `self` is the global scope — return our mock window instead
+      return self.addHeapObject(win);
+    };
+    i.wbg.__wbg_static_accessor_WINDOW_5de37043a91a9c40 = () => {
+      // `window` is undefined in CF Workers — return our mock
+      return self.addHeapObject(win);
+    };
     
     // Microtask
     i.wbg.__wbg_queueMicrotask_97d92b4fcc8a61c5 = (a: number) => queueMicrotask(self.getObject(a));
     i.wbg.__wbg_queueMicrotask_d3219def82552485 = (a: number) => self.addHeapObject(self.getObject(a).queueMicrotask);
     
-    // Wbindgen internals
-    i.wbg.__wbindgen_cb_drop = (a: number) => { const o = self.takeObject(a).original; if (o.cnt-- == 1) { o.a = 0; return true; } return false; };
-    i.wbg.__wbindgen_closure_wrapper982 = (a: number, b: number) => { 
-      const s: any = { a, b, cnt: 1, dtor: 36 }; 
-      const r: any = (...args: any[]) => { 
-        s.cnt++; const t = s.a; s.a = 0; 
-        try { return self.wasm.__wbindgen_export_5(t, s.b, self.addHeapObject(args[0])); } 
-        finally { if (--s.cnt === 0) self.wasm.__wbindgen_export_3.get(s.dtor)(t, s.b); else s.a = t; } 
+    // Wbindgen internals — match live img_data.js exactly
+    i.wbg.__wbindgen_cb_drop = (a: number) => {
+      const obj = self.takeObject(a).original;
+      if (obj.cnt-- == 1) { obj.a = 0; return true; }
+      const ret = false;
+      return ret;
+    };
+    i.wbg.__wbindgen_closure_wrapper982 = (a: number, b: number, _c: number) => { 
+      const state: any = { a, b, cnt: 1, dtor: 36 }; 
+      const real: any = (...args: any[]) => { 
+        state.cnt++;
+        const t = state.a;
+        state.a = 0; 
+        try { return self.wasm.__wbindgen_export_5(t, state.b, self.addHeapObject(args[0])); } 
+        finally { if (--state.cnt === 0) { self.wasm.__wbindgen_export_3.get(state.dtor)(t, state.b); } else { state.a = t; } } 
       }; 
-      r.original = s; 
-      return self.addHeapObject(r); 
+      real.original = state; 
+      return self.addHeapObject(real); 
     };
     i.wbg.__wbindgen_is_function = (a: number) => typeof self.getObject(a) === 'function';
     i.wbg.__wbindgen_is_undefined = (a: number) => self.getObject(a) === undefined;
@@ -491,11 +586,12 @@ class FlixerWasmLoader {
   }
 
   async processImgData(data: string, key: string): Promise<any> {
-    const p0 = this.passStringToWasm0(data, this.wasm.__wbindgen_export_1);
+    const p0 = this.passStringToWasm0(data, this.wasm.__wbindgen_export_1, this.wasm.__wbindgen_export_2);
     const l0 = this.WASM_VECTOR_LEN;
-    const p1 = this.passStringToWasm0(key, this.wasm.__wbindgen_export_1);
+    const p1 = this.passStringToWasm0(key, this.wasm.__wbindgen_export_1, this.wasm.__wbindgen_export_2);
     const l1 = this.WASM_VECTOR_LEN;
-    return this.takeObject(this.wasm.process_img_data(p0, l0, p1, l1));
+    const ret = this.wasm.process_img_data(p0, l0, p1, l1);
+    return this.takeObject(ret);
   }
 }
 
@@ -511,7 +607,7 @@ let wasmInitPromise: Promise<void> | null = null;
 let consecutiveFailures = 0;
 const MAX_CONSECUTIVE_FAILURES = 5;
 let lastSuccessTime = 0;
-const WASM_MAX_AGE = 30 * 60 * 1000; // 30 minutes — force re-init to avoid stale state
+const WASM_MAX_AGE = 10 * 60 * 1000; // 10 minutes — force re-init to avoid stale API key
 let wasmInitTime = 0;
 
 async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): Promise<void> {
@@ -745,7 +841,9 @@ async function getSourceFromServer(
     });
 
     const decrypted = await loader.processImgData(encrypted, apiKey);
-    const data = JSON.parse(decrypted);
+    // processImgData returns a Promise that resolves to either a JSON string or
+    // an already-parsed object, depending on the WASM internals.
+    const data = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
 
     // Extract URL from various possible locations
     let url: string | null = null;
@@ -803,7 +901,7 @@ async function getAvailableServers(
   try {
     const encrypted = await makeFlixerRequest(apiKey, warmupPath, { 'bW90aGFmYWth': '1' });
     const decrypted = await loader.processImgData(encrypted, apiKey);
-    const data = JSON.parse(decrypted);
+    const data = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
 
     let servers: string[] = [];
 
@@ -840,7 +938,8 @@ async function extractAllServers(
   type: string,
   season: string | undefined,
   episode: string | undefined,
-  logger: ReturnType<typeof createLogger>
+  logger: ReturnType<typeof createLogger>,
+  _isRetry: boolean = false,
 ): Promise<Response> {
   const startTime = Date.now();
 
@@ -876,7 +975,7 @@ async function extractAllServers(
     }
 
     // Prioritize known good servers first
-    const priorityOrder = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',
+    const priorityOrder = ['delta', 'alpha', 'bravo', 'charlie', 'echo', 'foxtrot', 'golf',
       'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
       'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'xray', 'yankee', 'zulu'];
     const orderedServers = priorityOrder
@@ -885,18 +984,22 @@ async function extractAllServers(
 
     logger.info(`Querying ${orderedServers.length} servers for ${type}/${tmdbId}`);
 
-    // Process in batches of 4 with 150ms delay between batches
-    // This mimics the browser's sequential approach but faster
-    const BATCH_SIZE = 4;
+    // Process first batch eagerly (4 priority servers) to get working sources fast,
+    // then include ALL remaining servers as "unknown" for lazy-fetch on click.
+    const EAGER_BATCH_SIZE = 4;
     const BATCH_DELAY = 150;
-    const sources: any[] = [];
+    const workingSources: any[] = [];
+    const failedServers = new Set<string>();
+    const queriedServers = new Set<string>();
     const errors: string[] = [];
 
-    for (let i = 0; i < orderedServers.length; i += BATCH_SIZE) {
-      const batch = orderedServers.slice(i, i + BATCH_SIZE);
+    // Eagerly query the first batch of priority servers
+    for (let i = 0; i < orderedServers.length; i += EAGER_BATCH_SIZE) {
+      const batch = orderedServers.slice(i, i + EAGER_BATCH_SIZE);
 
       const batchResults = await Promise.allSettled(
         batch.map(async (server) => {
+          queriedServers.add(server);
           const result = await getSourceFromServer(
             loader, apiKey, type, tmdbId, server,
             season || undefined, episode || undefined,
@@ -914,49 +1017,82 @@ async function extractAllServers(
               server,
             };
           }
-          return null;
+          throw new Error(`${server}: no URL in decrypted response`);
         })
       );
 
       for (const result of batchResults) {
         if (result.status === 'fulfilled' && result.value) {
-          sources.push(result.value);
+          workingSources.push(result.value);
         } else if (result.status === 'rejected') {
           errors.push(result.reason?.message || 'unknown');
+          // Extract server name from error to mark as failed
+          const match = result.reason?.message?.match(/^(\w+):/);
+          if (match) failedServers.add(match[1]);
         }
       }
 
-      // If we already have enough sources, stop early
-      if (sources.length >= 6) {
-        logger.info(`Got ${sources.length} sources after ${i + BATCH_SIZE} servers, stopping early`);
+      // Stop eagerly querying after we have enough working sources
+      // Remaining servers will be included as "unknown" for lazy-fetch
+      if (workingSources.length >= 4) {
+        logger.info(`Got ${workingSources.length} working sources after ${i + EAGER_BATCH_SIZE} servers, rest will be lazy-fetched`);
         break;
       }
 
       // Delay between batches to avoid rate limiting
-      if (i + BATCH_SIZE < orderedServers.length) {
+      if (i + EAGER_BATCH_SIZE < orderedServers.length) {
         await new Promise(r => setTimeout(r, BATCH_DELAY));
       }
     }
 
-    const elapsed = Date.now() - startTime;
-    logger.info(`extract-all: ${sources.length}/${orderedServers.length} sources in ${elapsed}ms${errors.length > 0 ? `, ${errors.length} errors` : ''}`);
+    // Build the full sources list: working sources first, then all un-queried servers as "unknown"
+    const allSources = [...workingSources];
+    for (const server of orderedServers) {
+      if (!queriedServers.has(server) || failedServers.has(server)) {
+        allSources.push({
+          quality: 'auto',
+          title: `Flixer ${SERVER_NAMES[server] || server}`,
+          url: '', // No URL yet — will be fetched on demand
+          type: 'hls',
+          referer: 'https://hexa.su/',
+          requiresSegmentProxy: true,
+          status: failedServers.has(server) ? 'down' : 'unknown',
+          language: 'en',
+          server,
+        });
+      }
+    }
 
-    if (sources.length > 0) {
+    const elapsed = Date.now() - startTime;
+    logger.info(`extract-all: ${workingSources.length} working / ${allSources.length} total servers in ${elapsed}ms${errors.length > 0 ? `, ${errors.length} errors` : ''}`);
+
+    if (workingSources.length > 0) {
       consecutiveFailures = 0;
       lastSuccessTime = Date.now();
     } else {
       consecutiveFailures++;
-      logger.warn(`extract-all: 0 sources. Errors: ${errors.slice(0, 5).join('; ')}`);
+      logger.warn(`extract-all: 0 working sources. Errors: ${errors.slice(0, 5).join('; ')}`);
+
+      // If ALL servers returned no URL and this isn't already a retry,
+      // force WASM re-init and try once more — the API key may have expired
+      if (!_isRetry && errors.length > 0) {
+        logger.warn('extract-all: 0 sources on first attempt — forcing WASM re-init and retrying');
+        cachedWasmLoader = null;
+        cachedApiKey = null;
+        wasmInitPromise = null;
+        consecutiveFailures = 0;
+        return extractAllServers(tmdbId, type, season, episode, logger, true);
+      }
     }
 
     return jsonResponse({
-      success: sources.length > 0,
-      sources,
+      success: workingSources.length > 0 || allSources.length > 0,
+      sources: allSources,
       serverCount: orderedServers.length,
-      successCount: sources.length,
+      successCount: workingSources.length,
       elapsed_ms: elapsed,
       timestamp: new Date().toISOString(),
-    }, sources.length > 0 ? 200 : 404);
+    }, workingSources.length > 0 ? 200 : (allSources.length > 0 ? 200 : 404));
 
   } catch (error) {
     logger.error('extract-all error', error as Error);
@@ -1027,7 +1163,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       // Decrypt
       const decrypted = await loader.processImgData(encrypted, apiKey);
       let parsed: any = null;
-      try { parsed = JSON.parse(decrypted); } catch {}
+      try { parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted; } catch {}
 
       // Extract URL using same logic as getSourceFromServer
       let extractedUrl: string | null = null;
@@ -1044,11 +1180,13 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       return jsonResponse({
         success: !!extractedUrl,
         server,
+        decryptedType: typeof decrypted,
         encryptedLength: encrypted.length,
-        decryptedLength: typeof decrypted === 'string' ? decrypted.length : 0,
+        decryptedLength: typeof decrypted === 'string' ? decrypted.length : JSON.stringify(decrypted).length,
         parsedKeys: parsed ? Object.keys(parsed) : [],
         sourcesType: parsed?.sources ? (Array.isArray(parsed.sources) ? `array[${parsed.sources.length}]` : typeof parsed.sources) : 'missing',
         extractedUrl: extractedUrl ? extractedUrl.substring(0, 120) + '...' : null,
+        rawPreview: parsed ? JSON.stringify(parsed).substring(0, 500) : null,
         timestamp: new Date().toISOString(),
       }, 200);
     } catch (e) {
@@ -1057,6 +1195,202 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       cachedApiKey = null;
       wasmInitPromise = null;
       return jsonResponse({ success: false, error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  }
+
+  // Full pipeline validation — WASM init → key gen → API call → decrypt → URL extract → m3u8 fetch → segment fetch
+  if (path === '/flixer/validate') {
+    const tmdbId = url.searchParams.get('tmdbId') || '550';
+    const type = url.searchParams.get('type') || 'movie';
+    const season = url.searchParams.get('season') || undefined;
+    const episode = url.searchParams.get('episode') || undefined;
+    const server = url.searchParams.get('server') || 'alpha';
+    const steps: Record<string, any> = {};
+
+    try {
+      // Step 1: WASM init
+      const t0 = Date.now();
+      await ensureWasmInitialized(logger);
+      steps.wasmInit = { ok: true, ms: Date.now() - t0, keyPrefix: cachedApiKey!.slice(0, 16), keyLen: cachedApiKey!.length };
+
+      const apiKey = cachedApiKey!;
+      const loader = cachedWasmLoader!;
+      const apiPath = type === 'movie'
+        ? `/api/tmdb/movie/${tmdbId}/images`
+        : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+
+      // Step 2: Warm-up
+      const t1 = Date.now();
+      const servers = await getAvailableServers(loader, apiKey, apiPath, logger);
+      steps.warmup = { ok: servers.length > 0, ms: Date.now() - t1, serverCount: servers.length, servers: servers.slice(0, 8) };
+
+      // Step 3: Fetch + decrypt
+      const t2 = Date.now();
+      const encrypted = await makeFlixerRequest(apiKey, apiPath, { 'X-Only-Sources': '1', 'X-Server': server });
+      steps.apiFetch = { ok: true, ms: Date.now() - t2, encryptedLen: encrypted.length, preview: encrypted.substring(0, 80) };
+
+      const t3 = Date.now();
+      const decrypted = await loader.processImgData(encrypted, apiKey);
+      const parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
+      steps.decrypt = { ok: true, ms: Date.now() - t3, type: typeof decrypted, keys: Object.keys(parsed), preview: JSON.stringify(parsed).substring(0, 300) };
+
+      // Step 4: URL extraction
+      let extractedUrl: string | null = null;
+      if (Array.isArray(parsed.sources)) {
+        const source = parsed.sources.find((s: any) => s.server === server) || parsed.sources[0];
+        extractedUrl = source?.url || source?.file || source?.stream || null;
+      }
+      if (!extractedUrl) {
+        extractedUrl = parsed.sources?.file || parsed.sources?.url || parsed.file || parsed.url || parsed.stream || null;
+      }
+      steps.urlExtract = { ok: !!extractedUrl, url: extractedUrl ? extractedUrl.substring(0, 150) : null };
+
+      // Step 5: Fetch m3u8 master playlist via RPI proxy (same path as /flixer/stream)
+      // Direct fetch from CF Worker gets 403 — CDN blocks datacenter IPs
+      if (extractedUrl) {
+        const cdnHeaders = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Encoding': 'identity',
+          'Referer': 'https://hexa.su/',
+          'Origin': 'https://hexa.su',
+        };
+
+        // Helper: fetch via RPI rust-fetch (same as /flixer/stream strategy 2)
+        const fetchViaCdn = async (targetUrl: string): Promise<Response> => {
+          // Try direct first
+          try {
+            const directRes = await fetch(targetUrl, { headers: cdnHeaders, signal: AbortSignal.timeout(6000) });
+            if (directRes.ok) return directRes;
+          } catch {}
+          // RPI rust-fetch
+          if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+            let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+            if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+            const rustParams = new URLSearchParams({ url: targetUrl, headers: JSON.stringify(cdnHeaders), timeout: '20' });
+            const rustRes = await fetch(`${rpiBase}/fetch-rust?${rustParams.toString()}`, {
+              headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+              signal: AbortSignal.timeout(20000),
+            });
+            if (rustRes.ok) return rustRes;
+            throw new Error(`RPI rust-fetch returned ${rustRes.status}`);
+          }
+          throw new Error('No proxy available (RPI not configured)');
+        };
+
+        const t4 = Date.now();
+        try {
+          const m3u8Res = await fetchViaCdn(extractedUrl);
+          const m3u8Text = await m3u8Res.text();
+          const hasStreams = m3u8Text.includes('#EXT-X-STREAM-INF') || m3u8Text.includes('#EXTINF');
+          const hasKey = m3u8Text.includes('#EXT-X-KEY');
+          steps.m3u8Fetch = {
+            ok: hasStreams,
+            ms: Date.now() - t4,
+            length: m3u8Text.length,
+            hasStreams,
+            hasKey,
+            preview: m3u8Text.substring(0, 400),
+          };
+
+          // Step 6: If master playlist, fetch first variant
+          if (hasStreams && m3u8Text.includes('#EXT-X-STREAM-INF')) {
+            const variantLines = m3u8Text.split('\n').filter(l => !l.startsWith('#') && l.trim().length > 0);
+            if (variantLines.length > 0) {
+              let variantUrl = variantLines[0].trim();
+              if (!variantUrl.startsWith('http')) {
+                const base = new URL(extractedUrl);
+                const basePath = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
+                variantUrl = variantUrl.startsWith('/') ? `${base.origin}${variantUrl}` : `${base.origin}${basePath}${variantUrl}`;
+              }
+              const t5 = Date.now();
+              try {
+                const varRes = await fetchViaCdn(variantUrl);
+                const varText = await varRes.text();
+                const hasSegments = varText.includes('#EXTINF');
+                const varHasKey = varText.includes('#EXT-X-KEY');
+                steps.variantFetch = {
+                  ok: hasSegments,
+                  ms: Date.now() - t5,
+                  length: varText.length,
+                  hasSegments,
+                  hasKey: varHasKey,
+                  preview: varText.substring(0, 400),
+                };
+
+                // Step 7: Fetch AES-128 key (if encrypted)
+                if (varHasKey) {
+                  const keyMatch = varText.match(/URI="([^"]+)"/);
+                  if (keyMatch) {
+                    let keyUrl = keyMatch[1];
+                    if (!keyUrl.startsWith('http')) {
+                      const base = new URL(variantUrl);
+                      const basePath = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
+                      keyUrl = keyUrl.startsWith('/') ? `${base.origin}${keyUrl}` : `${base.origin}${basePath}${keyUrl}`;
+                    }
+                    const t6 = Date.now();
+                    try {
+                      const keyRes = await fetchViaCdn(keyUrl);
+                      const keyBuf = await keyRes.arrayBuffer();
+                      steps.keyFetch = { ok: keyBuf.byteLength === 16, ms: Date.now() - t6, bytes: keyBuf.byteLength };
+                    } catch (e) {
+                      steps.keyFetch = { ok: false, ms: Date.now() - t6, error: e instanceof Error ? e.message : String(e) };
+                    }
+                  }
+                }
+
+                // Step 8: Fetch first segment
+                if (hasSegments) {
+                  const segLines = varText.split('\n');
+                  let segUrl: string | null = null;
+                  for (let i = 0; i < segLines.length; i++) {
+                    if (segLines[i].startsWith('#EXTINF') && i + 1 < segLines.length) {
+                      segUrl = segLines[i + 1].trim();
+                      break;
+                    }
+                  }
+                  if (segUrl) {
+                    if (!segUrl.startsWith('http')) {
+                      const base = new URL(variantUrl);
+                      const basePath = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
+                      segUrl = segUrl.startsWith('/') ? `${base.origin}${segUrl}` : `${base.origin}${basePath}${segUrl}`;
+                    }
+                    const t7 = Date.now();
+                    try {
+                      const segRes = await fetchViaCdn(segUrl);
+                      const segBuf = await segRes.arrayBuffer();
+                      const segBytes = new Uint8Array(segBuf);
+                      steps.segmentFetch = {
+                        ok: segBuf.byteLength > 100,
+                        ms: Date.now() - t7,
+                        bytes: segBuf.byteLength,
+                        firstByte: `0x${segBytes[0]?.toString(16).padStart(2, '0')}`,
+                        isMpegTs: segBytes[0] === 0x47,
+                        isEncrypted: segBytes[0] !== 0x47, // If not MPEG-TS sync byte, likely AES encrypted
+                      };
+                    } catch (e) {
+                      steps.segmentFetch = { ok: false, ms: Date.now() - t7, error: e instanceof Error ? e.message : String(e) };
+                    }
+                  }
+                }
+              } catch (e) {
+                steps.variantFetch = { ok: false, ms: Date.now() - t5, error: e instanceof Error ? e.message : String(e) };
+              }
+            }
+          }
+        } catch (e) {
+          steps.m3u8Fetch = { ok: false, ms: Date.now() - t4, error: e instanceof Error ? e.message : String(e) };
+        }
+      }
+
+      const allOk = steps.wasmInit?.ok && steps.warmup?.ok && steps.decrypt?.ok && steps.urlExtract?.ok
+        && steps.m3u8Fetch?.ok && (steps.variantFetch?.ok ?? true) && (steps.keyFetch?.ok ?? true) && (steps.segmentFetch?.ok ?? true);
+      return jsonResponse({ success: allOk, steps, totalMs: Date.now() - t0 }, allOk ? 200 : 500);
+    } catch (e) {
+      cachedWasmLoader = null;
+      cachedApiKey = null;
+      wasmInitPromise = null;
+      return jsonResponse({ success: false, error: e instanceof Error ? e.message : String(e), steps }, 500);
     }
   }
 
@@ -1105,8 +1439,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
 
       // Get source from server
       const result = await getSourceFromServer(
-        cachedWasmLoader,
-        cachedApiKey,
+        cachedWasmLoader!,
+        cachedApiKey!,
         type,
         tmdbId,
         server,
@@ -1116,6 +1450,48 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
 
       if (!result.url) {
         consecutiveFailures++;
+        
+        // Force WASM re-init and retry once — API key may have expired
+        if (consecutiveFailures <= 2) {
+          logger.warn(`Single extract: no URL for ${server}, forcing WASM re-init and retrying`);
+          cachedWasmLoader = null;
+          cachedApiKey = null;
+          wasmInitPromise = null;
+          
+          await ensureWasmInitialized(logger);
+          const warmupPath2 = type === 'movie'
+            ? `/api/tmdb/movie/${tmdbId}/images`
+            : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+          await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath2, logger);
+          
+          const retryResult = await getSourceFromServer(
+            cachedWasmLoader!, cachedApiKey!, type, tmdbId, server,
+            season || undefined, episode || undefined
+          );
+          
+          if (retryResult.url) {
+            const displayName = SERVER_NAMES[server] || server;
+            consecutiveFailures = 0;
+            lastSuccessTime = Date.now();
+            return jsonResponse({
+              success: true,
+              sources: [{
+                quality: 'auto',
+                title: `Flixer ${displayName}`,
+                url: retryResult.url,
+                type: 'hls',
+                referer: 'https://hexa.su/',
+                requiresSegmentProxy: true,
+                status: 'working',
+                language: 'en',
+                server,
+              }],
+              server,
+              timestamp: new Date().toISOString(),
+            }, 200);
+          }
+        }
+        
         return jsonResponse({
           success: false,
           error: 'No stream URL found',
@@ -1160,6 +1536,68 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
   }
 
   // =========================================================================
+  // /flixer/stream-debug — Diagnostic endpoint for stream proxy strategies
+  // =========================================================================
+  if (path === '/flixer/stream-debug') {
+    const targetUrl = url.searchParams.get('url');
+    if (!targetUrl) return jsonResponse({ error: 'Missing url parameter' }, 400);
+
+    const results: Record<string, any> = {
+      targetUrl: targetUrl.substring(0, 120),
+      hasRpiUrl: !!env.RPI_PROXY_URL,
+      hasRpiKey: !!env.RPI_PROXY_KEY,
+      rpiUrlPrefix: env.RPI_PROXY_URL ? env.RPI_PROXY_URL.substring(0, 40) + '...' : null,
+    };
+
+    const cdnHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity',
+      'Referer': 'https://hexa.su/',
+      'Origin': 'https://hexa.su',
+    };
+
+    // Test Strategy 1: Direct
+    try {
+      const t0 = Date.now();
+      const directRes = await fetch(targetUrl, { headers: cdnHeaders, signal: AbortSignal.timeout(8000) });
+      const body = await directRes.text();
+      results.direct = { status: directRes.status, ms: Date.now() - t0, bodyLen: body.length, bodyPreview: body.substring(0, 100), contentType: directRes.headers.get('content-type') };
+    } catch (e) { results.direct = { error: e instanceof Error ? e.message : String(e) }; }
+
+    // Test Strategy 2: RPI rust-fetch
+    if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
+      try {
+        let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+        if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+        const rustParams = new URLSearchParams({ url: targetUrl, headers: JSON.stringify(cdnHeaders), timeout: '30' });
+        const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
+        const t0 = Date.now();
+        const rustRes = await fetch(rustUrl, { headers: { 'X-API-Key': env.RPI_PROXY_KEY }, signal: AbortSignal.timeout(20000) });
+        const body = await rustRes.text();
+        results.rpiRust = { status: rustRes.status, ms: Date.now() - t0, bodyLen: body.length, bodyPreview: body.substring(0, 200), contentType: rustRes.headers.get('content-type') };
+      } catch (e) { results.rpiRust = { error: e instanceof Error ? e.message : String(e) }; }
+
+      // Test Strategy 3: RPI legacy
+      try {
+        let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+        if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+        const rpiParams = new URLSearchParams({ url: targetUrl, key: env.RPI_PROXY_KEY, referer: 'https://hexa.su/', origin: 'https://hexa.su' });
+        const rpiUrl = `${rpiBase}/flixer/stream?${rpiParams.toString()}`;
+        const t0 = Date.now();
+        const rpiRes = await fetch(rpiUrl, { signal: AbortSignal.timeout(15000) });
+        const body = await rpiRes.text();
+        results.rpiLegacy = { status: rpiRes.status, ms: Date.now() - t0, bodyLen: body.length, bodyPreview: body.substring(0, 200), contentType: rpiRes.headers.get('content-type') };
+      } catch (e) { results.rpiLegacy = { error: e instanceof Error ? e.message : String(e) }; }
+    } else {
+      results.rpiRust = { skipped: 'RPI_PROXY_URL or RPI_PROXY_KEY not set' };
+      results.rpiLegacy = { skipped: 'RPI_PROXY_URL or RPI_PROXY_KEY not set' };
+    }
+
+    return jsonResponse(results, 200);
+  }
+
+  // =========================================================================
   // /flixer/stream — Proxy Flixer CDN m3u8 playlists and segments
   // This is the DEDICATED route for Flixer playback. Do NOT use /animekai.
   // Flixer CDN (p.XXXXX.workers.dev) blocks CF Worker IPs, so we route
@@ -1172,7 +1610,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       return jsonResponse({ error: 'Missing url parameter' }, 400);
     }
 
-    const decodedUrl = decodeURIComponent(targetUrl);
+    // searchParams.get() already decodes the URL — do NOT double-decode
+    const decodedUrl = targetUrl;
     logger.info('Flixer stream proxy', { url: decodedUrl.substring(0, 100) });
 
     // Determine correct referer for the CDN
@@ -1295,15 +1734,39 @@ function handleFlixerStreamResponse(
     });
   }
 
-  // Segment — pass through with correct content type
+  // ALWAYS read as binary first — Flixer CDN uses fake content-types
+  // (text/html for keys, text/css for encrypted segments) as anti-scraping.
+  // Reading as .text() corrupts binary data via UTF-8 decoding.
   return response.arrayBuffer().then(body => {
-    const firstBytes = new Uint8Array(body.slice(0, 4));
-    const isMpegTs = firstBytes[0] === 0x47;
-    const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-    let actualContentType = contentType;
+    const bytes = new Uint8Array(body);
+
+    // Check if it's actually an m3u8 with wrong content-type
+    // #EXTM3U = 23 45 58 54 4D 33 55 38
+    if (bytes.length > 7 && bytes[0] === 0x23 && bytes[1] === 0x45 &&
+        bytes[2] === 0x58 && bytes[3] === 0x54 && bytes[4] === 0x4D &&
+        bytes[5] === 0x33 && bytes[6] === 0x55) {
+      const text = new TextDecoder().decode(bytes);
+      logger.info('Flixer stream: detected m3u8 with wrong content-type', { contentType });
+      const rewritten = rewriteFlixerPlaylist(text, originalUrl, proxyOrigin);
+      return new Response(rewritten, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Cache-Control': 'public, max-age=5',
+          'X-Proxied-Via': via,
+          ...corsHeaders(),
+        },
+      });
+    }
+
+    // Binary data — segment, key, init segment, etc.
+    // Detect actual content type from magic bytes
+    const isMpegTs = bytes[0] === 0x47;
+    const isFmp4 = bytes.length > 3 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x00;
+    let actualContentType: string;
     if (isMpegTs) actualContentType = 'video/mp2t';
     else if (isFmp4) actualContentType = 'video/mp4';
-    else if (!actualContentType) actualContentType = 'application/octet-stream';
+    else actualContentType = 'application/octet-stream';
 
     return new Response(body, {
       status: 200,
@@ -1337,18 +1800,19 @@ function rewriteFlixerPlaylist(playlist: string, baseUrl: string, proxyOrigin: s
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (line.startsWith('#EXT-X-MEDIA:') || line.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) {
-      const uriMatch = line.match(/URI="([^"]+)"/);
-      if (uriMatch) {
-        rewritten.push(line.replace(`URI="${uriMatch[1]}"`, `URI="${proxyUrl(uriMatch[1])}"`));
-      } else {
-        rewritten.push(line);
-      }
-    } else if (line.startsWith('#') || trimmed === '') {
+    if (trimmed === '' || (trimmed.startsWith('#') && !trimmed.includes('URI="'))) {
+      // Comment/tag without URI, or blank line — pass through
       rewritten.push(line);
-    } else {
+    } else if (trimmed.includes('URI="')) {
+      // Any tag with URI= attribute: EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA,
+      // EXT-X-I-FRAME-STREAM-INF, etc. — rewrite ALL of them through proxy
+      rewritten.push(line.replace(/URI="([^"]+)"/g, (_, uri) => `URI="${proxyUrl(uri)}"`));
+    } else if (!trimmed.startsWith('#')) {
+      // Non-comment line = segment or playlist URL
       try { rewritten.push(proxyUrl(trimmed)); }
       catch { rewritten.push(line); }
+    } else {
+      rewritten.push(line);
     }
   }
   return rewritten.join('\n');

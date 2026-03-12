@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
+import { getFlixerStreamProxyUrl, getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import { useAnalytics } from '../analytics/AnalyticsProvider';
 import { useWatchProgress } from '@/lib/hooks/useWatchProgress';
 import { trackWatchStart, trackWatchProgress, trackWatchPause, trackWatchComplete } from '@/lib/utils/live-activity';
@@ -95,6 +96,36 @@ interface VideoPlayerProps {
   autoplay?: boolean; // Auto-start playback (used when navigating from previous episode)
   malId?: number; // MyAnimeList ID for anime (used for accurate episode mapping)
   malTitle?: string; // MAL title for the specific season/entry
+}
+
+/**
+ * Wrap a raw CDN source URL through the appropriate CF Worker stream proxy.
+ * Flixer/VidSrc/etc CDN URLs need to be proxied because:
+ *   1. CORS blocks direct browser access to CDN domains
+ *   2. CDN requires specific headers (Referer, Origin) that browsers can't set cross-origin
+ *   3. The proxy rewrites m3u8 playlists so all sub-requests also go through the proxy
+ */
+function applyStreamProxy(sourceUrl: string, providerName: string, requiresProxy?: boolean): string {
+  if (!sourceUrl) return sourceUrl;
+  // Already proxied — don't double-wrap
+  if (sourceUrl.includes('/flixer/stream') || sourceUrl.includes('/animekai/') ||
+      sourceUrl.includes('/hianime/') || sourceUrl.includes('/vidsrc/') ||
+      sourceUrl.includes('/api/stream-proxy') || sourceUrl.includes('/stream/')) {
+    return sourceUrl;
+  }
+  // Only proxy if the source says it needs it (or it's a known CDN URL)
+  const needsProxy = requiresProxy ||
+    sourceUrl.includes('.workers.dev') ||
+    sourceUrl.includes('frostcomet') ||
+    sourceUrl.includes('thunderleaf') ||
+    sourceUrl.includes('skyember');
+  if (!needsProxy) return sourceUrl;
+
+  if (providerName === 'flixer') return getFlixerStreamProxyUrl(sourceUrl);
+  if (providerName === 'hianime') return getHiAnimeStreamProxyUrl(sourceUrl);
+  if (providerName === 'animekai') return getAnimeKaiProxyUrl(sourceUrl);
+  // For other providers, return as-is (they handle their own proxying)
+  return sourceUrl;
 }
 
 export default function VideoPlayer({ tmdbId, mediaType, season, episode, title, nextEpisode, onNextEpisode, onBack, autoplay = false, malId, malTitle }: VideoPlayerProps) {
@@ -1034,9 +1065,10 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
 
         const { providerName, sources } = winner;
 
-        // Pick best source
-        let selectedSource = sources[0];
-        let selectedIndex = 0;
+        // Pick best source — must have a URL (skip "unknown" status sources)
+        const workingIdx = sources.findIndex((s: any) => s.url && s.status !== 'unknown');
+        let selectedSource = sources[workingIdx >= 0 ? workingIdx : 0];
+        let selectedIndex = workingIdx >= 0 ? workingIdx : 0;
 
         if (isAnime && (providerName === 'animekai' || providerName === 'hianime')) {
           const audioPref = userProviderSettings.animeAudioPreference || 'sub';
@@ -1067,7 +1099,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           if (actualPref !== savedPref) setAnimeAudioPref(actualPref as AnimeAudioPreference);
         }
 
-        setStreamUrl(selectedSource.url);
+        setStreamUrl(applyStreamProxy(selectedSource.url, providerName, selectedSource.requiresSegmentProxy));
         setIsLoading(false);
 
         // Collect remaining sources in background (for source picker)
@@ -1149,12 +1181,15 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           return updated;
         });
         
-        // Try next source in the same provider's list
-        const nextIdx = currentSourceIndex + 1;
+        // Try next source in the same provider's list (skip sources without URLs)
+        let nextIdx = currentSourceIndex + 1;
+        while (nextIdx < availableSources.length && !availableSources[nextIdx]?.url) {
+          nextIdx++;
+        }
         if (nextIdx < availableSources.length && availableSources[nextIdx]?.url) {
           console.log(`[VideoPlayer] Auto-advancing to source ${nextIdx}: ${availableSources[nextIdx].title}`);
           setCurrentSourceIndex(nextIdx);
-          setStreamUrl(availableSources[nextIdx].url);
+          setStreamUrl(applyStreamProxy(availableSources[nextIdx].url, provider, availableSources[nextIdx].requiresSegmentProxy));
         } else {
           console.log('[VideoPlayer] No more sources in current provider, exhausted');
           // Let the existing error handling / provider fallback take over
@@ -1408,7 +1443,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     if (nextSource.url && nextSource.url !== '') {
                       console.log(`[VideoPlayer] Trying source ${i}: ${nextSource.title} (has URL)`);
                       setCurrentSourceIndex(i);
-                      setStreamUrl(nextSource.url);
+                      setStreamUrl(applyStreamProxy(nextSource.url, provider, nextSource.requiresSegmentProxy));
                       // Sync toggle if switching to a different sub/dub source
                       // NOTE: Don't save to persistent storage — this is an automatic fallback,
                       // not a user choice. The user's saved preference should be preserved.
@@ -1456,7 +1491,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                           });
                           
                           setCurrentSourceIndex(i);
-                          setStreamUrl(data.sources[0].url);
+                          setStreamUrl(applyStreamProxy(data.sources[0].url, provider, data.sources[0].requiresSegmentProxy));
                           return true;
                         } else {
                           console.log(`[VideoPlayer] ✗ ${sourceName} failed, trying next...`);
@@ -1503,7 +1538,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                       setSourcesCache(prev => ({ ...prev, [fallbackProvider]: result.sources }));
                       setAvailableSources(result.sources);
                       setCurrentSourceIndex(0);
-                      setStreamUrl(result.sources[0].url);
+                      setStreamUrl(applyStreamProxy(result.sources[0].url, fallbackProvider, result.sources[0].requiresSegmentProxy));
                       // Sync toggle to match what's actually playing after fallback
                       // NOTE: Don't save to persistent storage — this is an automatic fallback,
                       // not a user choice. The user's saved preference should be preserved.
@@ -3121,7 +3156,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       if (sources && sources.length > 0 && sources[0]?.url) {
         setAvailableSources(sources);
         setCurrentSourceIndex(0);
-        setStreamUrl(sources[0].url);
+        setStreamUrl(applyStreamProxy(sources[0].url, provider, sources[0].requiresSegmentProxy));
       } else {
         setError('No valid sources found');
         setIsLoading(false);
@@ -4542,7 +4577,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                       if (data.success && data.sources?.[0]?.url) {
                         const newIndex = sources.findIndex((s: any) => s.title === matchingSource.title);
                         setCurrentSourceIndex(newIndex >= 0 ? newIndex : 0);
-                        setStreamUrl(data.sources[0].url);
+                        setStreamUrl(applyStreamProxy(data.sources[0].url, currentAnimeProvider, data.sources[0].requiresSegmentProxy));
                         setProvider(currentAnimeProvider);
                         setPreferredAnimeKaiServer(sourceName);
                       }
@@ -4556,7 +4591,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     // Source already has URL, switch directly
                     const newIndex = sources.findIndex((s: any) => s.title === matchingSource.title);
                     setCurrentSourceIndex(newIndex >= 0 ? newIndex : 0);
-                    setStreamUrl(matchingSource.url);
+                    setStreamUrl(applyStreamProxy(matchingSource.url, currentAnimeProvider, matchingSource.requiresSegmentProxy));
                     setProvider(currentAnimeProvider);
                     const serverName = matchingSource.title?.split(' (')[0];
                     if (serverName) setPreferredAnimeKaiServer(serverName);
@@ -4763,7 +4798,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                           
                           // If source has "unknown" or "down" status (not yet fetched, or previously failed), fetch it
                           // "down" sources should be re-fetchable — the user explicitly clicked it, so give it another shot
-                          if ((source.status === 'unknown' || source.status === 'down') && (menuProvider === 'vidlink' || menuProvider === 'animekai' || menuProvider === 'hianime')) {
+                          if ((source.status === 'unknown' || source.status === 'down') && (menuProvider === 'vidlink' || menuProvider === 'animekai' || menuProvider === 'hianime' || menuProvider === 'flixer')) {
                             console.log(`[VideoPlayer] Fetching unknown source: ${source.title} from ${menuProvider}`);
                             setIsLoading(true);
                             setShowServerMenu(false);
@@ -4800,7 +4835,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                                 }
                                 
                                 // Set the stream URL
-                                setStreamUrl(fetchedSource.url);
+                                setStreamUrl(applyStreamProxy(fetchedSource.url, menuProvider, fetchedSource.requiresSegmentProxy));
                                 setCurrentSourceIndex(origIdx);
                                 setProvider(menuProvider);
                                 // Sync toggle to match what's actually playing
@@ -4844,7 +4879,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                           
                           // Set the stream URL directly
                           if (source.url) {
-                            setStreamUrl(source.url);
+                            setStreamUrl(applyStreamProxy(source.url, menuProvider, source.requiresSegmentProxy));
                             setCurrentSourceIndex(origIdx);
                             setShowServerMenu(false);
                             // Sync toggle to match what's actually playing

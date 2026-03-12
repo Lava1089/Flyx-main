@@ -103,6 +103,7 @@ async function fetchViaRpiProxy(url: string): Promise<Response> {
 | Endpoint | Description |
 |----------|-------------|
 | `GET /proxy?url=<encoded_url>` | Proxy a request through the Pi |
+| `GET /fetch-rust?url=<encoded_url>&headers=<json>&timeout=<secs>` | Chrome-like TLS fetch via rust-fetch binary (binary mode) |
 | `GET /health` | Health check |
 
 ### DLHD Endpoints

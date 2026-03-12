@@ -125,6 +125,8 @@ https://cdn.frostcomet.com/v/abc123/master.m3u8
 
 This CDN may block CF Worker IPs, so it's proxied:
 
+> **Debugging:** Use `GET /flixer/stream-debug?url=<cdn_url>` to test all three strategies against a given URL and compare status codes, latency, and response previews.
+
 ```
 GET /flixer/stream?url=https%3A%2F%2Fcdn.frostcomet.com%2Fv%2Fabc123%2Fmaster.m3u8
 

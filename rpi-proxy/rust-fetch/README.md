@@ -42,6 +42,23 @@ rust-fetch --url "https://example.com" --solve-challenges false
 rust-fetch --url "https://slow-site.com" --timeout 60
 ```
 
+### Binary fetch mode (raw bytes for AES keys, segments)
+```bash
+rust-fetch --url "https://cdn.example.com/key" --mode fetch-bin
+```
+
+### Available modes
+| Mode | Description |
+|------|-------------|
+| `fetch` | Plain fetch, outputs text to stdout (default) |
+| `fetch-bin` | Binary fetch, outputs raw bytes to stdout (for AES keys, segments) |
+| `megacloud` | Fetch MegaCloud embed, decrypt, output sources JSON |
+| `megaup` | Fetch MegaUp /media/, decrypt via API, output sources JSON |
+| `kai-encrypt` | AnimeKai encrypt (`--url` is the plaintext) |
+| `kai-decrypt` | AnimeKai decrypt (`--url` is the ciphertext) |
+| `recaptcha-v3` | Solve reCAPTCHA v3 via HTTP-only (no browser) |
+| `dlhd-whitelist` | Full DLHD flow: reCAPTCHA → verify → whitelist IP |
+
 ## Integration with RPI Proxy
 
 Add endpoint to `server.js`:

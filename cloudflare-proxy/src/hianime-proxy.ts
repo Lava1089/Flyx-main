@@ -811,7 +811,8 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
       return jsonResponse({ error: 'Missing url parameter' }, 400);
     }
 
-    const decodedUrl = decodeURIComponent(targetUrl);
+    // searchParams.get() already decodes the URL — do NOT double-decode
+    const decodedUrl = targetUrl;
     logger.debug('HiAnime stream proxy', { url: decodedUrl.substring(0, 100) });
 
     const hasRpi = !!(env.RPI_PROXY_URL && env.RPI_PROXY_KEY);

@@ -156,19 +156,25 @@ export async function extractFlixerStreams(
     const sources: StreamSource[] = data.sources.map((s: any) => ({
       quality: s.quality || 'auto',
       title: s.title || 'Hexa',
-      url: s.url,
+      url: s.url || '',
       type: (s.type || 'hls') as 'hls' | 'mp4',
       referer: s.referer || 'https://hexa.su/',
       requiresSegmentProxy: s.requiresSegmentProxy ?? true,
-      status: 'working' as const,
+      status: (s.status || 'working') as 'working' | 'down' | 'unknown',
       language: s.language || 'en',
       server: s.server,
     }));
 
-    console.log(`[Hexa] ${sources.length} source(s) via extract-all`);
+    // At least one source must have a URL for initial playback
+    const workingSources = sources.filter(s => s.url && s.status === 'working');
+    console.log(`[Hexa] ${workingSources.length} working / ${sources.length} total source(s) via extract-all`);
 
     const subtitles = await subtitlePromise;
-    return { success: true, sources, subtitles: subtitles.length > 0 ? subtitles : undefined };
+    return {
+      success: sources.length > 0, // True if we have any servers (working or lazy-fetchable)
+      sources, // Return ALL sources (working + unknown) so the player can show them
+      subtitles: subtitles.length > 0 ? subtitles : undefined,
+    };
   } catch (err) {
     console.error(`[Hexa] extract-all error:`, err instanceof Error ? err.message : err);
     return { success: false, sources: [], error: err instanceof Error ? err.message : 'Hexa extraction failed' };
