@@ -21,7 +21,7 @@ Two frontends (`flixer.su`, `hexa.su`) sharing the same backend.
 - **Flixer frontend**: `https://flixer.su`
 - **Hexa frontend**: `https://hexa.su`
 - **Flixer TMDB API**: `https://plsdontscrapemelove.flixer.su`
-- **Hexa TMDB API**: `https://themoviedb.hexa.su` (used by our codebase)
+- **Hexa TMDB API**: `https://theemoviedb.hexa.su` (used by our codebase)
 - **Flixer user API**: `https://api.flixer.su`
 - **Hexa user API**: `https://api.hexa.su`
 - **WASM module**: `img_data_bg.wasm` (Rust-compiled, wasm-bindgen) — served at `/assets/wasm/`
@@ -36,4 +36,4 @@ All codebase references have been corrected:
 - `flixer.cc` → `flixer.su` across all files
 - `india: "Iris"` → `india: "Isis"` in all SERVER_NAMES maps
 - Domain allowlist updated with `flixer.su`
-- Docker proxy API base updated from dead `flixer.sh` to `themoviedb.hexa.su`
+- Docker proxy API base updated from dead `flixer.sh` to `theemoviedb.hexa.su`

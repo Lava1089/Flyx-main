@@ -36,7 +36,7 @@ const SERVER_OVERRIDE = args.find(a => a.startsWith('--servers='))?.split('=')[1
   || (serversIdx >= 0 && args[serversIdx + 1] && !args[serversIdx + 1].startsWith('-') ? args[serversIdx + 1] : undefined);
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
+const FLIXER_API_BASE = 'https://theemoviedb.hexa.su';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 const SERVER_NAMES = {
@@ -283,6 +283,7 @@ async function makeFlixerRequest(apiKey, apiPath, extraHeaders = {}) {
     'Accept': 'text/plain',
     'Accept-Language': 'en-US,en;q=0.9',
     'User-Agent': UA,
+    'x-fingerprint-lite': 'e9136c41504646444',
     ...extraHeaders,
   };
 
@@ -637,7 +638,7 @@ async function testBothBackends() {
   console.log(`\n${C.bold}═══ Phase 7: Dual Backend Validation ═══${C.reset}\n`);
 
   const backends = [
-    { name: 'hexa.su', url: 'https://themoviedb.hexa.su/api/time' },
+    { name: 'hexa.su', url: 'https://theemoviedb.hexa.su/api/time' },
     { name: 'flixer.su', url: 'https://plsdontscrapemelove.flixer.su/api/time' },
   ];
 
@@ -664,7 +665,7 @@ async function testWasmModuleAvailability() {
   console.log(`\n${C.bold}═══ Phase 8: Remote WASM Module Check ═══${C.reset}\n`);
 
   const wasmUrls = [
-    { name: 'hexa.su', url: 'https://themoviedb.hexa.su/assets/wasm/img_data.js' },
+    { name: 'hexa.su', url: 'https://theemoviedb.hexa.su/assets/wasm/img_data.js' },
     { name: 'flixer.su', url: 'https://plsdontscrapemelove.flixer.su/assets/wasm/img_data.js' },
   ];
 

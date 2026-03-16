@@ -8,7 +8,7 @@ const pathMod = require('path');
 const crypto = require('crypto');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-const API_BASE = 'https://themoviedb.hexa.su';
+const API_BASE = 'https://theemoviedb.hexa.su';
 
 // ============================================================================
 // WASM Loader — ported from cloudflare-proxy/src/flixer-proxy.ts
@@ -342,7 +342,7 @@ async function buildHeaders(apiKey, fullUrl) {
   const nonce = generateNonce();
   const fp = generateFingerprint();
   const sig = await generateSignature(apiKey, ts, nonce, apiPath);
-  return { 'X-Api-Key': apiKey, 'X-Request-Timestamp': ts.toString(), 'X-Request-Nonce': nonce, 'X-Request-Signature': sig, 'X-Client-Fingerprint': fp };
+  return { 'X-Api-Key': apiKey, 'X-Request-Timestamp': ts.toString(), 'X-Request-Nonce': nonce, 'X-Request-Signature': sig, 'X-Client-Fingerprint': fp, 'x-fingerprint-lite': 'e9136c41504646444' };
 }
 
 // ============================================================================

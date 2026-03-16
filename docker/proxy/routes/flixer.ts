@@ -17,7 +17,8 @@ import { createHmac, randomBytes, randomUUID } from "crypto";
 
 // flixer.sh went NXDOMAIN ~Feb 2026, flixer.su is the current domain.
 // flixer.su has a Joken JWT JS challenge — switched to hexa.su backend (same API, no challenge).
-const FLIXER_API_BASE = "https://themoviedb.hexa.su";
+// NOTE: Domain changed from themoviedb.hexa.su → theemoviedb.hexa.su (double 'e') ~March 2026.
+const FLIXER_API_BASE = "https://theemoviedb.hexa.su";
 const SERVER_NAMES: Record<string, string> = {
   alpha: "Ares",
   bravo: "Balder",
@@ -675,6 +676,9 @@ async function makeFlixerRequest(
     "X-Client-Fingerprint": generateClientFingerprint(),
     Accept: "text/plain",
     "Accept-Language": "en-US,en;q=0.9",
+    // x-fingerprint-lite is REQUIRED — injected by hexa.su's frontend via
+    // window.fetch monkey-patch. Without it the API returns 403.
+    "x-fingerprint-lite": "e9136c41504646444",
     ...extraHeaders,
   };
 

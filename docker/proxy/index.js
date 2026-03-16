@@ -602,7 +602,7 @@ async function handleHiAnimeStream(query, proxyOrigin) {
 // Uses the flixer.wasm bundled in the Docker image
 // ============================================================================
 
-const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
+const FLIXER_API_BASE = 'https://theemoviedb.hexa.su';
 const SERVER_NAMES = { alpha:'Ares', bravo:'Balder', charlie:'Circe', delta:'Dionysus', echo:'Eros', foxtrot:'Freya', golf:'Gaia', hotel:'Hades', india:'Isis', juliet:'Juno', kilo:'Kronos', lima:'Loki' };
 
 let flixerWasmInstance = null;
@@ -779,6 +779,7 @@ async function makeFlixerRequest(apiKey, apiPath, extraHeaders = {}) {
     'X-Api-Key': apiKey, 'X-Request-Timestamp': timestamp.toString(), 'X-Request-Nonce': nonce,
     'X-Request-Signature': signature, 'X-Client-Fingerprint': generateClientFingerprint(),
     Accept: 'text/plain', 'Accept-Language': 'en-US,en;q=0.9',
+    'x-fingerprint-lite': 'e9136c41504646444',
     ...extraHeaders,
   };
   const { text, status } = await fetchText(`${FLIXER_API_BASE}${apiPath}`, headers);

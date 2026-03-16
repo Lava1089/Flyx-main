@@ -6,7 +6,7 @@
 |------|--------|--------|-------|
 | Pre-2026 | `flixer.sh` | NXDOMAIN | Original domain, confirmed dead |
 | ~Feb 2026 | `flixer.su` | **Active** | New frontend domain, uses `api.flixer.su` + `plsdontscrapemelove.flixer.su` |
-| ~Feb 2026 | `hexa.su` | **Active** | Separate frontend, uses `api.hexa.su` + `themoviedb.hexa.su` |
+| ~Feb 2026 | `hexa.su` | **Active** | Separate frontend, uses `api.hexa.su` + `theemoviedb.hexa.su` |
 
 **Note**: All codebase references have been corrected to use `flixer.su`.
 
@@ -19,7 +19,7 @@
 | `plsdontscrapemelove.flixer.su` | TMDB/Stream API backend | ✅ Live — returns JSON from `/api/time`, serves WASM + client modules |
 | `hexa.su` | Frontend (SPA) | ✅ Live — title "Hexa Watch - Stream Movies & TV Shows" |
 | `api.hexa.su` | User API (auth, progress, watch parties, websocket) | ✅ Live — referenced in hexa.su JS bundle |
-| `themoviedb.hexa.su` | TMDB/Stream API backend | ✅ Live — returns JSON from `/api/time`, serves WASM + client modules |
+| `theemoviedb.hexa.su` | TMDB/Stream API backend | ✅ Live — returns JSON from `/api/time`, serves WASM + client modules |
 | `flixer.sh` | Original domain | ❌ NXDOMAIN — confirmed dead |
 
 ## Key Observations

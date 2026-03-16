@@ -16,6 +16,9 @@
  *   - The `Origin` header should NOT be sent
  *   - The `sec-fetch-*` headers should NOT be sent
  *   - A "warm-up" request without X-Server header is needed before the actual request
+ *   - `x-fingerprint-lite` header is REQUIRED (March 2026) — injected by hexa.su's
+ *     frontend via window.fetch monkey-patch. Value: "e9136c41504646444" (static, baked
+ *     into JS bundle index-81510909.js). Without it, API returns 403.
  * 
  * IMPORTANT: WASM is bundled at build time via wrangler, not fetched at runtime.
  * This avoids the "Wasm code generation disallowed by embedder" error.
@@ -34,9 +37,10 @@ export interface Env {
 // Flixer/Hexa API base — they rotate domains periodically.
 // flixer.sh went NXDOMAIN ~Feb 2026, flixer.su is the current domain.
 // flixer.su has a Joken JWT JS challenge that blocks all non-browser requests.
-// hexa.su (same backend, different domain) serves the API at themoviedb.hexa.su
+// hexa.su (same backend, different domain) serves the API at theemoviedb.hexa.su
 // with NO JS challenge — direct API access works from datacenter IPs.
-const FLIXER_API_BASE = 'https://themoviedb.hexa.su';
+// NOTE: Domain changed from themoviedb.hexa.su → theemoviedb.hexa.su (double 'e') ~March 2026.
+const FLIXER_API_BASE = 'https://theemoviedb.hexa.su';
 
 // CORS headers
 function corsHeaders(): Record<string, string> {
@@ -795,6 +799,11 @@ async function makeFlixerRequest(
     ...extraHeaders,
   };
   
+  // Hexa.su frontend monkey-patches window.fetch to inject x-fingerprint-lite
+  // on all /api/tmdb/.../images requests. Without it, the API returns 403.
+  // Discovered March 2026 — hardcoded in hexa.su's main JS bundle.
+  headers['x-fingerprint-lite'] = 'e9136c41504646444';
+
   // Direct fetch — hexa.su has NO JS challenge, works from CF Worker IPs.
   // Do NOT route through RPI — that adds latency and a failure point.
   const url = `${FLIXER_API_BASE}${path}`;
@@ -939,6 +948,7 @@ async function extractAllServers(
   season: string | undefined,
   episode: string | undefined,
   logger: ReturnType<typeof createLogger>,
+  env?: Env,
   _isRetry: boolean = false,
 ): Promise<Response> {
   const startTime = Date.now();
@@ -982,81 +992,171 @@ async function extractAllServers(
       .filter(s => availableServers.includes(s))
       .concat(availableServers.filter(s => !priorityOrder.includes(s)));
 
-    logger.info(`Querying ${orderedServers.length} servers for ${type}/${tmdbId}`);
+    logger.info(`Querying ALL ${orderedServers.length} servers for ${type}/${tmdbId}`);
 
-    // Process first batch eagerly (4 priority servers) to get working sources fast,
-    // then include ALL remaining servers as "unknown" for lazy-fetch on click.
-    const EAGER_BATCH_SIZE = 4;
-    const BATCH_DELAY = 150;
-    const workingSources: any[] = [];
+    // =========================================================================
+    // Phase 1: Extract URLs from ALL servers in parallel batches
+    // =========================================================================
+    const BATCH_SIZE = 4;
+    const BATCH_DELAY = 100;
+    const extractedSources: Array<{ server: string; url: string; raw: any }> = [];
     const failedServers = new Set<string>();
-    const queriedServers = new Set<string>();
     const errors: string[] = [];
 
-    // Eagerly query the first batch of priority servers
-    for (let i = 0; i < orderedServers.length; i += EAGER_BATCH_SIZE) {
-      const batch = orderedServers.slice(i, i + EAGER_BATCH_SIZE);
+    for (let i = 0; i < orderedServers.length; i += BATCH_SIZE) {
+      const batch = orderedServers.slice(i, i + BATCH_SIZE);
 
       const batchResults = await Promise.allSettled(
         batch.map(async (server) => {
-          queriedServers.add(server);
           const result = await getSourceFromServer(
             loader, apiKey, type, tmdbId, server,
             season || undefined, episode || undefined,
           );
           if (result.url) {
-            return {
-              quality: 'auto',
-              title: `Flixer ${SERVER_NAMES[server] || server}`,
-              url: result.url,
-              type: 'hls',
-              referer: 'https://hexa.su/',
-              requiresSegmentProxy: true,
-              status: 'working',
-              language: 'en',
-              server,
-            };
+            return { server, url: result.url, raw: result.raw };
           }
-          throw new Error(`${server}: no URL in decrypted response`);
+          throw new Error(`${server}: no URL`);
         })
       );
 
       for (const result of batchResults) {
         if (result.status === 'fulfilled' && result.value) {
-          workingSources.push(result.value);
+          extractedSources.push(result.value);
         } else if (result.status === 'rejected') {
           errors.push(result.reason?.message || 'unknown');
-          // Extract server name from error to mark as failed
           const match = result.reason?.message?.match(/^(\w+):/);
           if (match) failedServers.add(match[1]);
         }
       }
 
-      // Stop eagerly querying after we have enough working sources
-      // Remaining servers will be included as "unknown" for lazy-fetch
-      if (workingSources.length >= 4) {
-        logger.info(`Got ${workingSources.length} working sources after ${i + EAGER_BATCH_SIZE} servers, rest will be lazy-fetched`);
-        break;
-      }
-
-      // Delay between batches to avoid rate limiting
-      if (i + EAGER_BATCH_SIZE < orderedServers.length) {
+      if (i + BATCH_SIZE < orderedServers.length) {
         await new Promise(r => setTimeout(r, BATCH_DELAY));
       }
     }
 
-    // Build the full sources list: working sources first, then all un-queried servers as "unknown"
-    const allSources = [...workingSources];
+    logger.info(`Phase 1 done: ${extractedSources.length} URLs extracted, ${failedServers.size} failed`);
+
+    // =========================================================================
+    // Phase 2: Validate m3u8 master playlists via RPI proxy for ALL extracted URLs
+    // A URL that decrypts fine can still 404/403 at the CDN — we need to check.
+    // =========================================================================
+    const cdnHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Encoding': 'identity',
+      'Referer': 'https://hexa.su/',
+      'Origin': 'https://hexa.su',
+    };
+
+    const validateM3u8 = async (targetUrl: string): Promise<boolean> => {
+      // Strategy 1: Direct fetch (fast, but CDN often blocks CF IPs)
+      try {
+        const directRes = await fetch(targetUrl, { headers: cdnHeaders, signal: AbortSignal.timeout(5000) });
+        if (directRes.ok) {
+          const text = await directRes.text();
+          return text.includes('#EXTM3U') || text.includes('#EXT-X-STREAM-INF') || text.includes('#EXTINF');
+        }
+      } catch {}
+
+      // Strategy 2: RPI rust-fetch
+      if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
+        try {
+          let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
+          if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
+          const rustParams = new URLSearchParams({ url: targetUrl, headers: JSON.stringify(cdnHeaders), timeout: '10' });
+          const rustRes = await fetch(`${rpiBase}/fetch-rust?${rustParams.toString()}`, {
+            headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+            signal: AbortSignal.timeout(12000),
+          });
+          if (rustRes.ok) {
+            const text = await rustRes.text();
+            return text.includes('#EXTM3U') || text.includes('#EXT-X-STREAM-INF') || text.includes('#EXTINF');
+          }
+        } catch {}
+      }
+
+      return false;
+    };
+
+    // Validate all extracted URLs in parallel (max 6 concurrent to avoid hammering)
+    const VALIDATE_CONCURRENCY = 6;
+    const validatedSources: Array<{ server: string; url: string; valid: boolean }> = [];
+
+    for (let i = 0; i < extractedSources.length; i += VALIDATE_CONCURRENCY) {
+      const batch = extractedSources.slice(i, i + VALIDATE_CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (src) => {
+          const valid = await validateM3u8(src.url);
+          return { server: src.server, url: src.url, valid };
+        })
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          validatedSources.push(r.value);
+          if (r.value.valid) {
+            logger.debug(`${r.value.server}: m3u8 validated OK`);
+          } else {
+            logger.debug(`${r.value.server}: m3u8 validation FAILED`);
+          }
+        }
+      }
+    }
+
+    const workingCount = validatedSources.filter(s => s.valid).length;
+    logger.info(`Phase 2 done: ${workingCount}/${validatedSources.length} servers have valid m3u8`);
+
+    // =========================================================================
+    // Phase 3: Build final sources list — validated working first, then failed
+    // =========================================================================
+    const allSources: any[] = [];
+
+    // Working (validated) sources first, sorted by priority order
     for (const server of orderedServers) {
-      if (!queriedServers.has(server) || failedServers.has(server)) {
+      const validated = validatedSources.find(s => s.server === server && s.valid);
+      if (validated) {
         allSources.push({
           quality: 'auto',
           title: `Flixer ${SERVER_NAMES[server] || server}`,
-          url: '', // No URL yet — will be fetched on demand
+          url: validated.url,
           type: 'hls',
           referer: 'https://hexa.su/',
           requiresSegmentProxy: true,
-          status: failedServers.has(server) ? 'down' : 'unknown',
+          status: 'working',
+          language: 'en',
+          server,
+        });
+      }
+    }
+
+    // Then sources that had URLs but failed m3u8 validation (might work later)
+    for (const server of orderedServers) {
+      const validated = validatedSources.find(s => s.server === server && !s.valid);
+      if (validated) {
+        allSources.push({
+          quality: 'auto',
+          title: `Flixer ${SERVER_NAMES[server] || server}`,
+          url: validated.url, // Still include URL — CDN might just be temporarily down
+          type: 'hls',
+          referer: 'https://hexa.su/',
+          requiresSegmentProxy: true,
+          status: 'down',
+          language: 'en',
+          server,
+        });
+      }
+    }
+
+    // Finally, servers that returned no URL at all
+    for (const server of orderedServers) {
+      if (failedServers.has(server) && !validatedSources.find(s => s.server === server)) {
+        allSources.push({
+          quality: 'auto',
+          title: `Flixer ${SERVER_NAMES[server] || server}`,
+          url: '',
+          type: 'hls',
+          referer: 'https://hexa.su/',
+          requiresSegmentProxy: true,
+          status: 'down',
           language: 'en',
           server,
         });
@@ -1064,35 +1164,34 @@ async function extractAllServers(
     }
 
     const elapsed = Date.now() - startTime;
-    logger.info(`extract-all: ${workingSources.length} working / ${allSources.length} total servers in ${elapsed}ms${errors.length > 0 ? `, ${errors.length} errors` : ''}`);
+    logger.info(`extract-all: ${workingCount} validated / ${extractedSources.length} extracted / ${orderedServers.length} total in ${elapsed}ms`);
 
-    if (workingSources.length > 0) {
+    if (workingCount > 0) {
       consecutiveFailures = 0;
       lastSuccessTime = Date.now();
     } else {
       consecutiveFailures++;
-      logger.warn(`extract-all: 0 working sources. Errors: ${errors.slice(0, 5).join('; ')}`);
+      logger.warn(`extract-all: 0 validated sources. Errors: ${errors.slice(0, 5).join('; ')}`);
 
-      // If ALL servers returned no URL and this isn't already a retry,
-      // force WASM re-init and try once more — the API key may have expired
       if (!_isRetry && errors.length > 0) {
         logger.warn('extract-all: 0 sources on first attempt — forcing WASM re-init and retrying');
         cachedWasmLoader = null;
         cachedApiKey = null;
         wasmInitPromise = null;
         consecutiveFailures = 0;
-        return extractAllServers(tmdbId, type, season, episode, logger, true);
+        return extractAllServers(tmdbId, type, season, episode, logger, env, true);
       }
     }
 
     return jsonResponse({
-      success: workingSources.length > 0 || allSources.length > 0,
+      success: workingCount > 0,
       sources: allSources,
       serverCount: orderedServers.length,
-      successCount: workingSources.length,
+      extractedCount: extractedSources.length,
+      validatedCount: workingCount,
       elapsed_ms: elapsed,
       timestamp: new Date().toISOString(),
-    }, workingSources.length > 0 ? 200 : (allSources.length > 0 ? 200 : 404));
+    }, workingCount > 0 ? 200 : (allSources.length > 0 ? 200 : 404));
 
   } catch (error) {
     logger.error('extract-all error', error as Error);
@@ -1105,6 +1204,7 @@ async function extractAllServers(
     }, 500);
   }
 }
+
 
 /**
  * Main handler for Flixer proxy requests
@@ -1408,7 +1508,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       return jsonResponse({ error: 'Season and episode required for TV shows' }, 400);
     }
 
-    return extractAllServers(tmdbId, type, season, episode, logger);
+    return extractAllServers(tmdbId, type, season, episode, logger, env);
   }
 
   // Single server extract endpoint (kept for backwards compatibility)
