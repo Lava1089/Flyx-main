@@ -333,7 +333,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   // HLS MANIFEST_PARSED or resume prompt resolves it to signal "this source works"
   const sourceReadyResolverRef = useRef<(() => void) | null>(null);
   
-  // Auto-advance timer: if a source doesn't begin playing within 3s, skip to next source
+  // Auto-advance timer: if a source doesn't begin playing within 10s, skip to next source
   const playbackStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const playbackStartedRef = useRef<boolean>(false);
   
@@ -1159,12 +1159,12 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       playbackStartTimeoutRef.current = null;
     }
     
-    // Auto-advance: if playback doesn't start within 3s, try next source in the list
+    // Auto-advance: if playback doesn't start within 10s, try next source in the list
     const startPlaybackTimeout = () => {
       playbackStartTimeoutRef.current = setTimeout(() => {
         if (playbackStartedRef.current) return; // Already playing, ignore
         
-        console.log(`[VideoPlayer] Source ${currentSourceIndex} didn't start within 3s, auto-advancing...`);
+        console.log(`[VideoPlayer] Source ${currentSourceIndex} didn't start within 10s, auto-advancing...`);
         
         // Save position before switching
         if (video.currentTime > 0 && pendingSeekTimeRef.current === null) {
@@ -1194,7 +1194,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           console.log('[VideoPlayer] No more sources in current provider, exhausted');
           // Let the existing error handling / provider fallback take over
         }
-      }, 3000);
+      }, 10000);
     };
     
     // Listen for the 'playing' event to cancel the timeout
@@ -1251,7 +1251,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
         hls.attachMedia(video);
         console.log('[HLS] Source loaded and media attached');
         
-        // Start the 3s auto-advance timeout (skip dead sources fast)
+        // Start the 10s auto-advance timeout (skip dead sources)
         if (!shouldShowResumePromptRef.current) {
           startPlaybackTimeout();
         }
