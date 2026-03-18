@@ -41,6 +41,7 @@ export class FlixerProvider implements Provider {
         request.mediaType,
         request.season,
         request.episode,
+        request.capToken,
       );
       return {
         success: result.success,
@@ -74,6 +75,7 @@ export class FlixerProvider implements Provider {
         request.mediaType,
         request.season,
         request.episode,
+        request.capToken,
       );
       return source ? this.normalizeSource(source) : null;
     } catch {

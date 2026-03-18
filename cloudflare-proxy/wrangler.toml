@@ -20,6 +20,10 @@ enabled = false
 # Run: npx wrangler tail media-proxy
 # This streams logs in real-time to your terminal
 
+# Cron Triggers for hexa monitoring (every 15 minutes)
+[triggers]
+crons = ["*/15 * * * *"]
+
 # Environment variables - set via wrangler secret or Cloudflare dashboard
 # wrangler secret put RPI_PROXY_URL
 # wrangler secret put RPI_PROXY_KEY
@@ -117,6 +121,16 @@ PROTECTION_MODE = "none"
 # binding = "STREAM_TOKENS"
 # id = "your-stream-tokens-kv-id"
 
+# =============================================================================
+# HEXA MONITORING KV NAMESPACE
+# =============================================================================
+# Create namespace:
+#   wrangler kv namespace create "HEXA_CONFIG"
+# Then update the id below with the returned ID.
+[[kv_namespaces]]
+binding = "HEXA_CONFIG"
+id = "ef441bca9b6148e098689a9334fd6288"
+
 # Production environment
 [env.production]
 name = "media-proxy"
@@ -152,3 +166,7 @@ id = "0000000000000000000000000000000000000002"
 [[env.development.kv_namespaces]]
 binding = "STREAM_TOKENS"
 id = "0000000000000000000000000000000000000003"
+
+[[env.development.kv_namespaces]]
+binding = "HEXA_CONFIG"
+id = "0000000000000000000000000000000000000004"

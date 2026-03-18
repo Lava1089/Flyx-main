@@ -7,6 +7,7 @@ A Cloudflare Worker that proxies HLS streams and live TV with proper headers and
 - **Stream Proxy** (`/stream/`) - Proxies HLS streams for 2embed/vidsrc
 - **VidSrc Proxy** (`/vidsrc/`) - Extracts streams from 2embed.stream API (NO Turnstile!)
 - **AnimeKai Proxy** (`/animekai/`) - Proxies MegaUp CDN streams via RPI residential IP
+- **Flixer Proxy** (`/flixer/`) - Extracts streams from hexa.su with WASM decryption + Cap.js PoW
 - **TV Proxy** (`/tv/`) - Proxies DLHD live TV streams
 - **IPTV Proxy** (`/iptv/`) - Proxies Stalker portal IPTV streams
 - **DLHD Proxy** (`/dlhd/`) - Proxies DLHD via Oxylabs residential IPs
@@ -258,6 +259,43 @@ Routes MegaUp CDN streams through RPI residential proxy. MegaUp blocks:
 
 Requires `RPI_PROXY_URL` and `RPI_PROXY_KEY` secrets to be configured.
 
+### Flixer Proxy (hexa.su)
+
+```
+GET /flixer/extract?tmdbId=<id>&type=<movie|tv>&season=<n>&episode=<n>&server=<name>
+GET /flixer/health
+GET /flixer/monitor
+```
+
+Extracts movie/TV streams from hexa.su using WASM-based encryption. The WASM module (bundled at build time) generates API keys and decrypts responses.
+
+**Cap.js PoW Token:**
+
+hexa.su gates API access behind a Cap.js proof-of-work challenge. The worker handles this automatically via cron trigger (every 15 minutes), solving the challenge server-side and caching the token in KV with a 2.5-hour TTL.
+
+For manual token refresh (e.g. first-time setup or debugging), use the standalone solver:
+
+```bash
+cd cloudflare-proxy
+node solve-cap-token.js
+```
+
+This solves the PoW locally (~60-80s) and writes the token directly to KV via `wrangler`. Requires `wrangler login` first.
+
+**Health Monitoring:**
+
+A cron-triggered monitor (`/flixer/monitor`) checks hexa.su every 15 minutes for:
+- API domain rotation
+- Fingerprint header changes
+- API route changes
+- WASM binary updates (every 6 hours)
+
+Changes are auto-applied to KV config and webhook alerts are sent. See `hexa-monitor.ts` for details.
+
+**Configuration:**
+- `HEXA_CONFIG` — KV namespace binding (stores API domain, fingerprint, cap token, monitor state)
+- `HEXA_ALERT_WEBHOOK_URL` — Discord webhook for change alerts (optional)
+
 ### Decoder Sandbox
 
 ```
@@ -399,11 +437,16 @@ Set via `wrangler secret` or Cloudflare Dashboard:
 wrangler secret put RPI_PROXY_URL
 wrangler secret put RPI_PROXY_KEY
 
+# Optional: Flixer monitor webhook alerts (Discord)
+wrangler secret put HEXA_ALERT_WEBHOOK_URL
+
 # Optional: API key protection
 wrangler secret put API_KEY
 ```
 
 **Note:** DLHD proxy will not function without RPI_PROXY_URL and RPI_PROXY_KEY configured, as dvalna.ru blocks all datacenter IPs.
+
+**Note:** The Flixer proxy requires the `HEXA_CONFIG` KV namespace binding in `wrangler.toml`. The Cap.js PoW token is refreshed automatically via cron, or manually with `node solve-cap-token.js`.
 
 ### wrangler.toml
 

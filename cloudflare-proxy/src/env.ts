@@ -23,4 +23,7 @@ export interface Env {
   OXYLABS_ENDPOINT?: string;
   OXYLABS_COUNTRY?: string;
   OXYLABS_CITY?: string;
+  HEXA_CONFIG?: KVNamespace;
+  HEXA_ALERT_WEBHOOK_URL?: string;
+  AUTO_DEPLOY_WASM?: string;
 }

@@ -294,6 +294,13 @@ export async function GET(request: NextRequest) {
     const originalEpisode = episode;
     const providerParam = searchParams.get('provider') || 'auto';
     const sourceName = searchParams.get('source');
+    // Cap.js PoW token solved by the browser — forwarded to CF Worker.
+    // Prefer header over query param (query params leak into logs/history).
+    // Cap tokens are JWTs (~200-500 chars); reject anything oversized or with suspicious chars.
+    const rawCapToken = request.headers.get('x-cap-token') || searchParams.get('capToken') || undefined;
+    const capToken = rawCapToken && rawCapToken.length <= 2048 && /^[A-Za-z0-9._\-]+$/.test(rawCapToken)
+      ? rawCapToken
+      : undefined;
 
     // MAL info for anime
     let malId = searchParams.get('malId') ? parseInt(searchParams.get('malId')!) : undefined;
@@ -404,6 +411,7 @@ export async function GET(request: NextRequest) {
       malId,
       title: malTitle,
       malTitle,
+      capToken,
     };
 
     // ========================================================================
@@ -676,7 +684,7 @@ async function directExtract(
     switch (providerName) {
       case 'flixer': {
         const { extractFlixerStreams } = await import('@/app/lib/services/flixer-extractor');
-        const result = await extractFlixerStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+        const result = await extractFlixerStreams(request.tmdbId, request.mediaType, request.season, request.episode, request.capToken);
         if (result.success && result.sources.length > 0) {
           return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'flixer' };
         }

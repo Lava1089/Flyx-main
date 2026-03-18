@@ -35,6 +35,7 @@ import { handlePPVRequest } from './ppv-proxy';
 import { handleVIPRowRequest } from './viprow-proxy';
 import { handleVidSrcRequest } from './vidsrc-proxy';
 import { handleHiAnimeRequest } from './hianime-proxy';
+import { runHealthChecks } from './hexa-monitor';
 import { createLogger, type LogLevel } from './logger';
 import { incrementMetric } from './metrics';
 import { corsPreflightResponse } from './cors';
@@ -175,6 +176,31 @@ export function buildRouteTable(): RouteEntry[] {
         incrementMetric('animekaiRequests');
         logger.info('Routing to AnimeKai proxy (RPI)', { path: new URL(request.url).pathname });
         return await handleAnimeKaiRequest(request, env);
+      },
+    },
+    // Flixer monitor endpoint (must come before general /flixer route)
+    {
+      prefix: '/flixer/monitor',
+      exact: true,
+      handler: async (_request, env, _ctx, logger) => {
+        logger.info('Routing to Flixer monitor endpoint');
+        if (!env.HEXA_CONFIG) {
+          return new Response(JSON.stringify({ error: 'HEXA_CONFIG KV not bound' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const raw = await env.HEXA_CONFIG.get('monitor_state');
+        if (!raw) {
+          return new Response(JSON.stringify({ status: 'no_data', message: 'No monitor state available yet' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(raw, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       },
     },
     {
@@ -360,5 +386,9 @@ export default {
     // No route matched — return root info
     logger.info('Root endpoint accessed');
     return buildRootResponse(env, logLevel);
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runHealthChecks(env, ctx).catch(() => { /* best-effort */ }));
   },
 };

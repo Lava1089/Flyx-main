@@ -17,14 +17,16 @@
  *   - The `sec-fetch-*` headers should NOT be sent
  *   - A "warm-up" request without X-Server header is needed before the actual request
  *   - `x-fingerprint-lite` header is REQUIRED (March 2026) — injected by hexa.su's
- *     frontend via window.fetch monkey-patch. Value: "e9136c41504646444" (static, baked
- *     into JS bundle index-81510909.js). Without it, API returns 403.
+ *     frontend via window.fetch monkey-patch. Value read from KV config (default:
+ *     "e9136c41504646444"). Without it, API returns 403.
  * 
  * IMPORTANT: WASM is bundled at build time via wrangler, not fetched at runtime.
  * This avoids the "Wasm code generation disallowed by embedder" error.
  */
 
 import { createLogger, type LogLevel } from './logger';
+import { getHexaConfig, type HexaConfig, type ApiRoutes } from './hexa-config';
+import { getCachedCapToken, getCapToken } from './hexa-cap-solver';
 // Import WASM module - bundled at build time by wrangler
 import FLIXER_WASM from './flixer.wasm';
 
@@ -32,22 +34,36 @@ export interface Env {
   LOG_LEVEL?: string;
   RPI_PROXY_URL?: string;
   RPI_PROXY_KEY?: string;
+  HEXA_CONFIG?: KVNamespace;
 }
 
-// Flixer/Hexa API base — they rotate domains periodically.
-// flixer.sh went NXDOMAIN ~Feb 2026, flixer.su is the current domain.
-// flixer.su has a Joken JWT JS challenge that blocks all non-browser requests.
-// hexa.su (same backend, different domain) serves the API at theemoviedb.hexa.su
-// with NO JS challenge — direct API access works from datacenter IPs.
-// NOTE: Domain changed from themoviedb.hexa.su → theemoviedb.hexa.su (double 'e') ~March 2026.
-const FLIXER_API_BASE = 'https://theemoviedb.hexa.su';
+/**
+ * Build the API path for movie or TV image requests using config routes.
+ * Replaces {tmdbId}, {season}, {episode} placeholders in the route templates.
+ */
+function buildApiPath(
+  config: HexaConfig,
+  type: string,
+  tmdbId: string,
+  season?: string,
+  episode?: string,
+): string {
+  if (type === 'movie') {
+    return config.apiRoutes.movieImages
+      .replace('{tmdbId}', tmdbId);
+  }
+  return config.apiRoutes.tvImages
+    .replace('{tmdbId}', tmdbId)
+    .replace('{season}', season || '')
+    .replace('{episode}', episode || '');
+}
 
 // CORS headers
 function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, x-cap-token',
   };
 }
 
@@ -614,7 +630,7 @@ let lastSuccessTime = 0;
 const WASM_MAX_AGE = 10 * 60 * 1000; // 10 minutes — force re-init to avoid stale API key
 let wasmInitTime = 0;
 
-async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): Promise<void> {
+async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>, config: HexaConfig): Promise<void> {
   // Auto-reset if too many consecutive failures or WASM is too old
   if (cachedWasmLoader && cachedApiKey) {
     const age = Date.now() - wasmInitTime;
@@ -633,7 +649,7 @@ async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): P
     if (cachedWasmLoader && cachedApiKey) return; // double-check after await
     logger.info('Initializing Flixer WASM...');
     try {
-      await syncServerTime();
+      await syncServerTime(config);
       logger.info('Time sync done', { offset: serverTimeOffset });
     } catch (e) {
       logger.warn('Time sync failed, using local time', { error: e instanceof Error ? e.message : String(e) });
@@ -656,11 +672,12 @@ async function ensureWasmInitialized(logger: ReturnType<typeof createLogger>): P
 /**
  * Sync with Flixer server time
  */
-async function syncServerTime(): Promise<void> {
+async function syncServerTime(config: HexaConfig): Promise<void> {
   try {
     const localTimeBefore = Date.now();
     // hexa.su time sync — no JS challenge, direct fetch works from CF Workers
-    const response = await fetch(`${FLIXER_API_BASE}/api/time?t=${localTimeBefore}`, {
+    const timePath = config.apiRoutes.time;
+    const response = await fetch(`${config.apiDomain}${timePath}?t=${localTimeBefore}`, {
       signal: AbortSignal.timeout(5000),
     });
     
@@ -760,7 +777,9 @@ function generateAuthHeaders(apiKey: string, path: string): Record<string, strin
 async function makeFlixerRequest(
   apiKey: string,
   path: string,
-  extraHeaders: Record<string, string> = {}
+  config: HexaConfig,
+  extraHeaders: Record<string, string> = {},
+  capToken?: string | null,
 ): Promise<string> {
   const timestamp = getServerTimestamp();
   const nonceBytes = new Uint8Array(16);
@@ -801,12 +820,18 @@ async function makeFlixerRequest(
   
   // Hexa.su frontend monkey-patches window.fetch to inject x-fingerprint-lite
   // on all /api/tmdb/.../images requests. Without it, the API returns 403.
-  // Discovered March 2026 — hardcoded in hexa.su's main JS bundle.
-  headers['x-fingerprint-lite'] = 'e9136c41504646444';
+  // Value is read from KV-backed config (falls back to hardcoded default).
+  headers['x-fingerprint-lite'] = config.fingerprintLite;
+
+  // Cap.js PoW token — required since March 2026. Without it, API returns
+  // 403 {"error":"captcha_required"}. Token is cached in KV (3hr TTL).
+  if (capToken) {
+    headers['x-cap-token'] = capToken;
+  }
 
   // Direct fetch — hexa.su has NO JS challenge, works from CF Worker IPs.
   // Do NOT route through RPI — that adds latency and a failure point.
-  const url = `${FLIXER_API_BASE}${path}`;
+  const url = `${config.apiDomain}${path}`;
   console.log(`[Flixer] API request: ${path} (server: ${extraHeaders['X-Server'] || 'none'})`);
   
   const response = await fetch(url, {
@@ -836,18 +861,18 @@ async function getSourceFromServer(
   type: string,
   tmdbId: string,
   server: string,
+  config: HexaConfig,
   seasonId?: string,
   episodeId?: string,
+  capToken?: string | null,
 ): Promise<{ url: string | null; raw: any }> {
-  const path = type === 'movie'
-    ? `/api/tmdb/movie/${tmdbId}/images`
-    : `/api/tmdb/tv/${tmdbId}/season/${seasonId}/episode/${episodeId}/images`;
+  const path = buildApiPath(config, type, tmdbId, seasonId, episodeId);
 
   try {
-    const encrypted = await makeFlixerRequest(apiKey, path, {
+    const encrypted = await makeFlixerRequest(apiKey, path, config, {
       'X-Only-Sources': '1',
       'X-Server': server,
-    });
+    }, capToken);
 
     const decrypted = await loader.processImgData(encrypted, apiKey);
     // processImgData returns a Promise that resolves to either a JSON string or
@@ -906,9 +931,11 @@ async function getAvailableServers(
   apiKey: string,
   warmupPath: string,
   logger: ReturnType<typeof createLogger>,
+  config: HexaConfig,
+  capToken?: string | null,
 ): Promise<string[]> {
   try {
-    const encrypted = await makeFlixerRequest(apiKey, warmupPath, { 'bW90aGFmYWth': '1' });
+    const encrypted = await makeFlixerRequest(apiKey, warmupPath, config, { 'bW90aGFmYWth': '1' }, capToken);
     const decrypted = await loader.processImgData(encrypted, apiKey);
     const data = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
 
@@ -948,20 +975,22 @@ async function extractAllServers(
   season: string | undefined,
   episode: string | undefined,
   logger: ReturnType<typeof createLogger>,
+  config: HexaConfig,
   env?: Env,
   _isRetry: boolean = false,
+  clientCapToken?: string,
 ): Promise<Response> {
   const startTime = Date.now();
 
   try {
     // Initialize WASM if not cached (deduplicated across parallel requests)
-    await ensureWasmInitialized(logger);
+    await ensureWasmInitialized(logger, config);
 
     // Re-sync server time if it's been a while (browser client re-syncs every 5 min)
     const timeSinceInit = Date.now() - wasmInitTime;
     if (timeSinceInit > 5 * 60 * 1000) {
       try {
-        await syncServerTime();
+        await syncServerTime(config);
         logger.info('Re-synced server time', { offset: serverTimeOffset });
       } catch { /* use existing offset */ }
     }
@@ -969,12 +998,29 @@ async function extractAllServers(
     const apiKey = cachedApiKey!;
     const loader = cachedWasmLoader!;
 
-    const warmupPath = type === 'movie'
-      ? `/api/tmdb/movie/${tmdbId}/images`
-      : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+    const warmupPath = buildApiPath(config, type, tmdbId, season, episode);
+
+    // Prefer client-provided cap token (browser-solved PoW), fall back to KV cache
+    let capToken: string | null = clientCapToken || null;
+    if (!capToken && env?.HEXA_CONFIG) {
+      capToken = await getCachedCapToken(env.HEXA_CONFIG);
+      if (!capToken) {
+        // No cached token — try solving inline. CF Workers crypto.subtle is
+        // hardware-accelerated and much faster than Node.js (~10-20s vs 80s).
+        logger.warn('No cap token from client or KV — solving PoW inline...');
+        try {
+          capToken = await getCapToken(env.HEXA_CONFIG);
+          if (capToken) {
+            logger.info('Cap token solved inline successfully');
+          }
+        } catch (e) {
+          logger.error('Inline cap solve failed', { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    }
 
     // Get available servers from warm-up (decrypts the response)
-    const availableServers = await getAvailableServers(loader, apiKey, warmupPath, logger);
+    const availableServers = await getAvailableServers(loader, apiKey, warmupPath, logger, config, capToken);
 
     if (availableServers.length === 0) {
       return jsonResponse({
@@ -1009,8 +1055,8 @@ async function extractAllServers(
       const batchResults = await Promise.allSettled(
         batch.map(async (server) => {
           const result = await getSourceFromServer(
-            loader, apiKey, type, tmdbId, server,
-            season || undefined, episode || undefined,
+            loader, apiKey, type, tmdbId, server, config,
+            season || undefined, episode || undefined, capToken,
           );
           if (result.url) {
             return { server, url: result.url, raw: result.raw };
@@ -1179,7 +1225,7 @@ async function extractAllServers(
         cachedApiKey = null;
         wasmInitPromise = null;
         consecutiveFailures = 0;
-        return extractAllServers(tmdbId, type, season, episode, logger, env, true);
+        return extractAllServers(tmdbId, type, season, episode, logger, config, env, true, clientCapToken);
       }
     }
 
@@ -1215,6 +1261,9 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
   const logLevel = (env.LOG_LEVEL || 'info') as LogLevel;
   const logger = createLogger(request, logLevel);
 
+  // Load KV-backed config (cached in-memory for 5 min, falls back to hardcoded defaults)
+  const config = await getHexaConfig(env.HEXA_CONFIG);
+
   // CORS preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders() });
@@ -1243,22 +1292,26 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     const server = url.searchParams.get('server') || 'alpha';
 
     try {
-      await ensureWasmInitialized(logger);
+      await ensureWasmInitialized(logger, config);
       const apiKey = cachedApiKey!;
       const loader = cachedWasmLoader!;
 
-      const apiPath = type === 'movie'
-        ? `/api/tmdb/movie/${tmdbId}/images`
-        : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+      // Get cap token from KV cache or solve inline
+      let capToken: string | null = null;
+      if (env.HEXA_CONFIG) {
+        capToken = await getCapToken(env.HEXA_CONFIG);
+      }
+
+      const apiPath = buildApiPath(config, type, tmdbId, season, episode);
 
       // Warm-up (proper — decrypt to register session)
-      await getAvailableServers(loader, apiKey, apiPath, logger);
+      await getAvailableServers(loader, apiKey, apiPath, logger, config, capToken);
 
       // Fetch encrypted
-      const encrypted = await makeFlixerRequest(apiKey, apiPath, {
+      const encrypted = await makeFlixerRequest(apiKey, apiPath, config, {
         'X-Only-Sources': '1',
         'X-Server': server,
-      });
+      }, capToken);
 
       // Decrypt
       const decrypted = await loader.processImgData(encrypted, apiKey);
@@ -1310,23 +1363,27 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     try {
       // Step 1: WASM init
       const t0 = Date.now();
-      await ensureWasmInitialized(logger);
+      await ensureWasmInitialized(logger, config);
       steps.wasmInit = { ok: true, ms: Date.now() - t0, keyPrefix: cachedApiKey!.slice(0, 16), keyLen: cachedApiKey!.length };
 
       const apiKey = cachedApiKey!;
       const loader = cachedWasmLoader!;
-      const apiPath = type === 'movie'
-        ? `/api/tmdb/movie/${tmdbId}/images`
-        : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
+      const apiPath = buildApiPath(config, type, tmdbId, season, episode);
+
+      // Get cap token from KV cache or solve inline
+      let capToken: string | null = null;
+      if (env.HEXA_CONFIG) {
+        capToken = await getCapToken(env.HEXA_CONFIG);
+      }
 
       // Step 2: Warm-up
       const t1 = Date.now();
-      const servers = await getAvailableServers(loader, apiKey, apiPath, logger);
+      const servers = await getAvailableServers(loader, apiKey, apiPath, logger, config, capToken);
       steps.warmup = { ok: servers.length > 0, ms: Date.now() - t1, serverCount: servers.length, servers: servers.slice(0, 8) };
 
       // Step 3: Fetch + decrypt
       const t2 = Date.now();
-      const encrypted = await makeFlixerRequest(apiKey, apiPath, { 'X-Only-Sources': '1', 'X-Server': server });
+      const encrypted = await makeFlixerRequest(apiKey, apiPath, config, { 'X-Only-Sources': '1', 'X-Server': server }, capToken);
       steps.apiFetch = { ok: true, ms: Date.now() - t2, encryptedLen: encrypted.length, preview: encrypted.substring(0, 80) };
 
       const t3 = Date.now();
@@ -1500,6 +1557,10 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     const type = url.searchParams.get('type') || 'movie';
     const season = url.searchParams.get('season') || undefined;
     const episode = url.searchParams.get('episode') || undefined;
+    // Accept cap token from client (browser-solved PoW) via header or query param
+    // Validate: Cap tokens are JWTs (~200-500 chars), reject oversized/malformed input
+    const rawCapToken = request.headers.get('x-cap-token') || url.searchParams.get('capToken') || undefined;
+    const clientCapToken = rawCapToken && rawCapToken.length <= 2048 && /^[A-Za-z0-9._\-]+$/.test(rawCapToken) ? rawCapToken : undefined;
 
     if (!tmdbId) {
       return jsonResponse({ error: 'Missing tmdbId parameter' }, 400);
@@ -1508,7 +1569,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
       return jsonResponse({ error: 'Season and episode required for TV shows' }, 400);
     }
 
-    return extractAllServers(tmdbId, type, season, episode, logger, env);
+    return extractAllServers(tmdbId, type, season, episode, logger, config, env, false, clientCapToken);
   }
 
   // Single server extract endpoint (kept for backwards compatibility)
@@ -1518,6 +1579,10 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     const season = url.searchParams.get('season');
     const episode = url.searchParams.get('episode');
     const server = url.searchParams.get('server') || 'alpha';
+    // Accept cap token from client (browser-solved PoW) via header or query param
+    // Validate: Cap tokens are JWTs (~200-500 chars), reject oversized/malformed input
+    const rawCapToken2 = request.headers.get('x-cap-token') || url.searchParams.get('capToken') || null;
+    const clientCapToken = rawCapToken2 && rawCapToken2.length <= 2048 && /^[A-Za-z0-9._\-]+$/.test(rawCapToken2) ? rawCapToken2 : null;
 
     if (!tmdbId) {
       return jsonResponse({ error: 'Missing tmdbId parameter' }, 400);
@@ -1529,13 +1594,17 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
 
     try {
       // Initialize WASM if not cached (deduplicated across parallel requests)
-      await ensureWasmInitialized(logger);
+      await ensureWasmInitialized(logger, config);
+
+      // Prefer client-provided cap token (browser-solved PoW), fall back to KV cache
+      let capToken: string | null = clientCapToken;
+      if (!capToken && env.HEXA_CONFIG) {
+        capToken = await getCapToken(env.HEXA_CONFIG);
+      }
 
       // Proper warm-up — decrypt response to register session with API
-      const warmupPath = type === 'movie'
-        ? `/api/tmdb/movie/${tmdbId}/images`
-        : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
-      await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath, logger);
+      const warmupPath = buildApiPath(config, type, tmdbId, season || undefined, episode || undefined);
+      await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath, logger, config, capToken);
 
       // Get source from server
       const result = await getSourceFromServer(
@@ -1544,8 +1613,10 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
         type,
         tmdbId,
         server,
+        config,
         season || undefined,
-        episode || undefined
+        episode || undefined,
+        capToken,
       );
 
       if (!result.url) {
@@ -1558,15 +1629,13 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
           cachedApiKey = null;
           wasmInitPromise = null;
           
-          await ensureWasmInitialized(logger);
-          const warmupPath2 = type === 'movie'
-            ? `/api/tmdb/movie/${tmdbId}/images`
-            : `/api/tmdb/tv/${tmdbId}/season/${season}/episode/${episode}/images`;
-          await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath2, logger);
+          await ensureWasmInitialized(logger, config);
+          const warmupPath2 = buildApiPath(config, type, tmdbId, season || undefined, episode || undefined);
+          await getAvailableServers(cachedWasmLoader!, cachedApiKey!, warmupPath2, logger, config, capToken);
           
           const retryResult = await getSourceFromServer(
-            cachedWasmLoader!, cachedApiKey!, type, tmdbId, server,
-            season || undefined, episode || undefined
+            cachedWasmLoader!, cachedApiKey!, type, tmdbId, server, config,
+            season || undefined, episode || undefined, capToken,
           );
           
           if (retryResult.url) {

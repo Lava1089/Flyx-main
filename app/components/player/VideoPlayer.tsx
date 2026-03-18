@@ -599,11 +599,22 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
     try {
       // HEXA: Use server-side extraction via API route (same path as mobile player).
       // Direct browser-to-CF-Worker calls can fail due to CORS/network issues.
+      // Solve Cap.js PoW in the browser first — same pattern as DLHD whitelist.
       if (providerName === 'flixer') {
         const params = new URLSearchParams({ tmdbId, type: mediaType, provider: 'flixer' });
         if (mediaType === 'tv' && season && episode) {
           params.append('season', season.toString());
           params.append('episode', episode.toString());
+        }
+        // Solve Cap.js PoW in browser and pass token to API
+        try {
+          const { getCapToken } = await import('@/app/lib/services/hexa-cap-solver');
+          const capToken = await getCapToken();
+          if (capToken) {
+            params.append('capToken', capToken);
+          }
+        } catch (e) {
+          console.warn('[VideoPlayer] Cap.js solve failed, proceeding without token:', e);
         }
         console.log(`[VideoPlayer] Hexa: fetching via API route`);
         const res = await fetch(`/api/stream/extract?${params}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
@@ -814,6 +825,16 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       if (mediaType === 'tv' && season && episode) {
         params.append('season', season.toString());
         params.append('episode', episode.toString());
+      }
+      // Solve Cap.js PoW in browser and pass token to API
+      try {
+        const { getCapToken } = await import('@/app/lib/services/hexa-cap-solver');
+        const capToken = await getCapToken();
+        if (capToken) {
+          params.append('capToken', capToken);
+        }
+      } catch (e) {
+        console.warn('[VideoPlayer] Cap.js solve failed (fallback), proceeding without token:', e);
       }
       try {
         const res = await fetch(`/api/stream/extract?${params}`, { priority: 'high' as RequestPriority, cache: 'no-store' });
@@ -4816,6 +4837,14 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                               if (mediaType === 'tv' && season && episode) {
                                 params.append('season', season.toString());
                                 params.append('episode', episode.toString());
+                              }
+                              // Add cap token for flixer lazy-fetch
+                              if (menuProvider === 'flixer') {
+                                try {
+                                  const { getCapToken } = await import('@/app/lib/services/hexa-cap-solver');
+                                  const capToken = await getCapToken();
+                                  if (capToken) params.append('capToken', capToken);
+                                } catch {}
                               }
                               
                               const response = await fetch(`/api/stream/extract?${params}`);

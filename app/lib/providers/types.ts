@@ -24,6 +24,8 @@ export interface ExtractionRequest {
   malId?: number;
   title?: string;
   malTitle?: string;
+  /** Cap.js PoW token solved by the browser — forwarded to CF Worker for hexa.su */
+  capToken?: string;
 }
 
 export interface StreamSource {

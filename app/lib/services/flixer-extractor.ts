@@ -114,12 +114,15 @@ async function fetchSubtitles(
  * 
  * Uses the /flixer/extract-all batch endpoint — one round trip to the CF Worker
  * which fans out to all servers internally. Much faster than 6 individual requests.
+ *
+ * @param capToken - Optional Cap.js PoW token solved by the browser
  */
 export async function extractFlixerStreams(
   tmdbId: string,
   type: 'movie' | 'tv',
   season?: number,
-  episode?: number
+  episode?: number,
+  capToken?: string | null,
 ): Promise<ExtractionResult> {
   console.log(`[Hexa] Extracting for ${type} ${tmdbId}${type === 'tv' ? ` S${season}E${episode}` : ''}`);
 
@@ -137,8 +140,18 @@ export async function extractFlixerStreams(
   try {
     // Single batch request — CF Worker fans out to all servers internally
     // Use cfFetch: on CF Pages, direct fetch to same-account CF Workers returns 404
-    const extractAllUrl = getFlixerExtractAllUrl(tmdbId, type, season, episode);
-    const response = await cfFetch(extractAllUrl, { signal: AbortSignal.timeout(30000) });
+    let extractAllUrl = getFlixerExtractAllUrl(tmdbId, type, season, episode);
+    const fetchHeaders: Record<string, string> = {};
+    if (capToken) {
+      fetchHeaders['x-cap-token'] = capToken;
+      // Also pass as query param (fallback if header gets stripped by RPI proxy)
+      const sep = extractAllUrl.includes('?') ? '&' : '?';
+      extractAllUrl += `${sep}capToken=${encodeURIComponent(capToken)}`;
+    }
+    const response = await cfFetch(extractAllUrl, {
+      signal: AbortSignal.timeout(30000),
+      headers: fetchHeaders,
+    });
 
     if (!response.ok) {
       console.log(`[Hexa] extract-all returned ${response.status}`);
@@ -189,7 +202,8 @@ export async function fetchFlixerSourceByName(
   tmdbId: string,
   type: 'movie' | 'tv',
   season?: number,
-  episode?: number
+  episode?: number,
+  capToken?: string | null,
 ): Promise<StreamSource | null> {
   // Find server by display name (e.g., "Flixer Ares" -> "alpha")
   const serverEntry = Object.entries(SERVER_NAMES).find(([_, displayName]) =>
@@ -198,10 +212,17 @@ export async function fetchFlixerSourceByName(
   const server = serverEntry ? serverEntry[0] : 'alpha';
 
   try {
-    const extractUrl = getFlixerExtractUrl(tmdbId, type, server, season, episode);
+    let extractUrl = getFlixerExtractUrl(tmdbId, type, server, season, episode);
+    const fetchHeaders: Record<string, string> = {};
+    if (capToken) {
+      fetchHeaders['x-cap-token'] = capToken;
+      const sep = extractUrl.includes('?') ? '&' : '?';
+      extractUrl += `${sep}capToken=${encodeURIComponent(capToken)}`;
+    }
     
     const response = await cfFetch(extractUrl, {
       signal: AbortSignal.timeout(20000),
+      headers: fetchHeaders,
     });
     
     if (!response.ok) {
