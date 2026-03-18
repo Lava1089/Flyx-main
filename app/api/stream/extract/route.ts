@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { ExtractionRequest } from '@/app/lib/providers/types';
 import { isAnimeContent } from '@/app/lib/services/animekai-extractor';
 import { performanceMonitor } from '@/app/lib/utils/performance-monitor';
-import { getStreamProxyUrl, getAnimeKaiProxyUrl, getVidLinkStreamProxyUrl, getVidSrcStreamProxyUrl, get1moviesStreamProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
+import { getStreamProxyUrl, getAnimeKaiProxyUrl, getFlixerStreamProxyUrl, getVidLinkStreamProxyUrl, getVidSrcStreamProxyUrl, get1moviesStreamProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
 
 // Lazy-load registry to prevent module-load crashes on CF Pages runtime.
 // If any provider import fails (e.g., Node.js APIs), the whole module would crash
@@ -126,9 +126,8 @@ function maybeProxyUrl(source: any, provider: string): string {
     const isVidLinkCdn = source.url.includes('vodvidl.site') || source.url.includes('videostr.net');
 
     // Route through provider-specific proxy for CDNs that block datacenter IPs
-    // Flixer CDN has CORS: * — browser fetches directly from residential IP, no proxy needed
     if (isFlixer) {
-      return source.url;
+      return getFlixerStreamProxyUrl(source.url);
     }
     if (isAnimeKai || isAnimeKaiSrc || isMegaUpCdn) {
       return getAnimeKaiProxyUrl(source.url);

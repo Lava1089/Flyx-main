@@ -1751,69 +1751,19 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
 
     // searchParams.get() already decodes the URL — do NOT double-decode
     const decodedUrl = targetUrl;
-    logger.info('Flixer stream proxy', { url: decodedUrl.substring(0, 100) });
-
-    // Determine correct referer for the CDN
-    let cdnReferer = 'https://hexa.su/';
-    if (decodedUrl.includes('frostcomet') || decodedUrl.includes('thunderleaf') || decodedUrl.includes('skyember')) {
-      cdnReferer = 'https://hexa.su/';
-    }
 
     const cdnHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
       'Accept': '*/*',
       'Accept-Encoding': 'identity',
-      'Referer': cdnReferer,
-      'Origin': 'https://hexa.su',
+      'Referer': 'https://flixer.su/',
+      'Origin': 'https://flixer.su',
     };
 
-    // Strategy 1: Try direct fetch from CF Worker (some CDN subdomains allow it)
-    try {
-      const directRes = await fetch(decodedUrl, {
-        headers: cdnHeaders,
-        signal: AbortSignal.timeout(8000),
-      });
+    // Flixer CDN blocks datacenter IPs — CF Worker direct fetch always gets 403.
+    // RPI /fetch-rust also times out on Flixer CDN segments (TLS issue).
+    // Go straight to RPI /flixer/stream (legacy Node.js) which works reliably.
 
-      if (directRes.ok) {
-        logger.info('Flixer stream: CF direct OK');
-        return handleFlixerStreamResponse(directRes, decodedUrl, url.origin, 'cf-direct', logger);
-      }
-      logger.debug('Flixer stream: CF direct failed', { status: directRes.status });
-    } catch (e) {
-      logger.debug('Flixer stream: CF direct error', { error: e instanceof Error ? e.message : String(e) });
-    }
-
-    // Strategy 2: RPI /fetch-rust (Chrome TLS fingerprint from residential IP)
-    // CF Worker stays the transparent proxy — rust-fetch only does the upstream fetch.
-    if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
-      try {
-        let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
-        if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
-
-        const rustParams = new URLSearchParams({
-          url: decodedUrl,
-          headers: JSON.stringify(cdnHeaders),
-          timeout: '30',
-        });
-        const rustUrl = `${rpiBase}/fetch-rust?${rustParams.toString()}`;
-        logger.debug('Flixer stream: trying RPI rust-fetch', { url: decodedUrl.substring(0, 80) });
-
-        const rustRes = await fetch(rustUrl, {
-          headers: { 'X-API-Key': env.RPI_PROXY_KEY },
-          signal: AbortSignal.timeout(20000),
-        });
-
-        if (rustRes.ok) {
-          logger.info('Flixer stream: RPI rust-fetch OK');
-          return handleFlixerStreamResponse(rustRes, decodedUrl, url.origin, 'rpi-rust', logger);
-        }
-        logger.warn('Flixer stream: RPI rust-fetch failed', { status: rustRes.status });
-      } catch (e) {
-        logger.error('Flixer stream: RPI rust-fetch error', { error: e instanceof Error ? e.message : String(e) });
-      }
-    }
-
-    // Strategy 3: RPI /flixer/stream fallback (Node.js https — legacy)
     if (env.RPI_PROXY_URL && env.RPI_PROXY_KEY) {
       try {
         let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
@@ -1822,15 +1772,13 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
         const rpiParams = new URLSearchParams({
           url: decodedUrl,
           key: env.RPI_PROXY_KEY,
-          referer: cdnReferer,
-          origin: 'https://hexa.su',
+          referer: 'https://flixer.su/',
+          origin: 'https://flixer.su',
         });
         const rpiUrl = `${rpiBase}/flixer/stream?${rpiParams.toString()}`;
-        logger.debug('Flixer stream: trying RPI legacy', { rpiUrl: rpiUrl.substring(0, 80) });
 
         const rpiRes = await fetch(rpiUrl, { signal: AbortSignal.timeout(15000) });
         if (rpiRes.ok) {
-          logger.info('Flixer stream: RPI legacy OK');
           return handleFlixerStreamResponse(rpiRes, decodedUrl, url.origin, 'rpi-legacy', logger);
         }
         logger.warn('Flixer stream: RPI legacy failed', { status: rpiRes.status });

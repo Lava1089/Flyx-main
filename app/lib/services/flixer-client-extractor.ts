@@ -76,7 +76,7 @@ export async function extractFlixerClient(
       url: s.url,
       type: (s.type || 'hls') as 'hls' | 'mp4',
       referer: s.referer || 'https://flixer.su/',
-      requiresSegmentProxy: false, // CDN has CORS: * — browser fetches directly
+      requiresSegmentProxy: true, // CDN blocks non-whitelisted origins, needs proxy
       status: 'working' as const,
       language: s.language || 'en',
       server: s.server,
@@ -118,7 +118,7 @@ export async function fetchFlixerSourceClient(
       url: s.url,
       type: (s.type || 'hls') as 'hls' | 'mp4',
       referer: s.referer || 'https://flixer.su/',
-      requiresSegmentProxy: false, // CDN has CORS: * — browser fetches directly
+      requiresSegmentProxy: true, // CDN blocks non-whitelisted origins, needs proxy
       status: 'working',
       language: s.language || 'en',
       server: s.server || server,
