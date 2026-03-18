@@ -24,7 +24,7 @@ export interface HexaConfig {
 }
 
 export const DEFAULTS: HexaConfig = {
-  apiDomain: 'https://theemoviedb.hexa.su',
+  apiDomain: 'https://plsdontscrapemelove.flixer.su',
   fingerprintLite: 'e9136c41504646444',
   apiRoutes: {
     time: '/api/time',
@@ -104,7 +104,7 @@ async function readFromKV(kv: KVNamespace): Promise<Partial<HexaConfig>> {
  * Allowed domain patterns for the API base URL.
  * Prevents SSRF if KV is poisoned — only hexa/flixer domains are accepted.
  */
-export const ALLOWED_API_DOMAIN_PATTERN = /^https:\/\/[a-z]*moviedb[a-z]*\.(hexa|flixer)\.[a-z]{2,6}$/;
+export const ALLOWED_API_DOMAIN_PATTERN = /^https:\/\/[a-z]*(?:moviedb[a-z]*|api|plsdontscrapemelove)\.(hexa|flixer)\.[a-z]{2,6}$/;
 
 /**
  * Fingerprint must be alphanumeric only — prevents header injection.

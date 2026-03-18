@@ -1020,6 +1020,16 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       type ProviderResult = { providerName: string; data: any; sources: any[] };
 
       const providerPromises = priorityOrder.map(async (providerName): Promise<ProviderResult> => {
+        // Flixer: use browser-direct extraction via CF Worker
+        if (providerName === 'flixer') {
+          console.log(`[VideoPlayer] Trying flixer (browser-direct)...`);
+          const { extractFlixerClient } = await import('@/app/lib/services/flixer-client-extractor');
+          const sources = await extractFlixerClient(tmdbId, mediaType as 'movie' | 'tv', season, episode);
+          if (sources.length === 0) throw new Error('flixer: no sources');
+          console.log(`[VideoPlayer] ✓ flixer: ${sources.length} source(s)`);
+          return { providerName: 'flixer', data: { success: true, provider: 'flixer' }, sources };
+        }
+
         const apiUrl = buildApiUrl(providerName);
         if (!apiUrl) throw new Error(`${providerName}: skipped (MAL-direct)`);
 

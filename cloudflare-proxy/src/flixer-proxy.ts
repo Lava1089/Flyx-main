@@ -800,13 +800,12 @@ async function makeFlixerRequest(
   const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
   const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
   
-  // HEADER NOTES (Feb 2026 — hexa.su flipped the bW90aGFmYWth logic):
-  // - bW90aGFmYWth: "1" is now REQUIRED on the initial server-list fetch (warm-up).
-  //   Without it, the API returns plain TMDB image data instead of encrypted stream data.
-  //   It is passed via extraHeaders from getOrCreateWarmup().
-  // - For per-server source fetches (X-Only-Sources + X-Server), do NOT send bW90aGFmYWth.
-  // - Origin header should NOT be sent
-  // - sec-fetch-* headers should NOT be sent
+  // Match flixer.su's actual request pattern (verified via Puppeteer sniffing):
+  // - Origin: https://flixer.su is REQUIRED
+  // - Referer: https://flixer.su/ is sent
+  // - bw90agfmywth: 1 is sent on warm-up (via extraHeaders)
+  // - No cap token needed
+  // - No sec-fetch-* headers
   const headers: Record<string, string> = {
     'X-Api-Key': apiKey,
     'X-Request-Timestamp': timestamp.toString(),
@@ -815,22 +814,14 @@ async function makeFlixerRequest(
     'X-Client-Fingerprint': generateClientFingerprint(),
     'Accept': 'text/plain',
     'Accept-Language': 'en-US,en;q=0.9',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Origin': 'https://flixer.su',
+    'Referer': 'https://flixer.su/',
     ...extraHeaders,
   };
   
-  // Hexa.su frontend monkey-patches window.fetch to inject x-fingerprint-lite
-  // on all /api/tmdb/.../images requests. Without it, the API returns 403.
-  // Value is read from KV-backed config (falls back to hardcoded default).
   headers['x-fingerprint-lite'] = config.fingerprintLite;
 
-  // Cap.js PoW token — required since March 2026. Without it, API returns
-  // 403 {"error":"captcha_required"}. Token is cached in KV (3hr TTL).
-  if (capToken) {
-    headers['x-cap-token'] = capToken;
-  }
-
-  // Direct fetch — hexa.su has NO JS challenge, works from CF Worker IPs.
+  // Direct fetch to flixer API.
   // Do NOT route through RPI — that adds latency and a failure point.
   const url = `${config.apiDomain}${path}`;
   console.log(`[Flixer] API request: ${path} (server: ${extraHeaders['X-Server'] || 'none'})`);
@@ -936,7 +927,7 @@ async function getAvailableServers(
   capToken?: string | null,
 ): Promise<string[]> {
   try {
-    const encrypted = await makeFlixerRequest(apiKey, warmupPath, config, { 'bW90aGFmYWth': '1' }, capToken);
+    const encrypted = await makeFlixerRequest(apiKey, warmupPath, config, { 'bw90agfmywth': '1' }, capToken);
     const decrypted = await loader.processImgData(encrypted, apiKey);
     const data = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
 
@@ -1495,10 +1486,8 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
         'Accept-Language': 'en-US,en;q=0.9',
       };
 
-      // Warm-up request needs bW90aGFmYWth header
-      if (warmup) {
-        headers['bW90aGFmYWth'] = '1';
-      }
+      // Warm-up request — no extra headers needed for flixer.su
+      // (bW90aGFmYWth was only needed for hexa.su)
 
       // Per-server request needs X-Only-Sources + X-Server
       if (server && !warmup) {
@@ -1589,7 +1578,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     // Accept cap token from client (browser-solved PoW) via header or query param
     // Validate: Cap tokens are JWTs (~200-500 chars), reject oversized/malformed input
     const rawCapToken = request.headers.get('x-cap-token') || url.searchParams.get('capToken') || undefined;
-    const clientCapToken = rawCapToken && rawCapToken.length <= 2048 && /^[A-Za-z0-9._\-]+$/.test(rawCapToken) ? rawCapToken : undefined;
+    const clientCapToken = rawCapToken && rawCapToken.length <= 2048 && /^[A-Za-z0-9._:\-]+$/.test(rawCapToken) ? rawCapToken : undefined;
 
     if (!tmdbId) {
       return jsonResponse({ error: 'Missing tmdbId parameter' }, 400);
@@ -1611,7 +1600,7 @@ export async function handleFlixerRequest(request: Request, env: Env): Promise<R
     // Accept cap token from client (browser-solved PoW) via header or query param
     // Validate: Cap tokens are JWTs (~200-500 chars), reject oversized/malformed input
     const rawCapToken2 = request.headers.get('x-cap-token') || url.searchParams.get('capToken') || null;
-    const clientCapToken = rawCapToken2 && rawCapToken2.length <= 2048 && /^[A-Za-z0-9._\-]+$/.test(rawCapToken2) ? rawCapToken2 : null;
+    const clientCapToken = rawCapToken2 && rawCapToken2.length <= 2048 && /^[A-Za-z0-9._:\-]+$/.test(rawCapToken2) ? rawCapToken2 : null;
 
     if (!tmdbId) {
       return jsonResponse({ error: 'Missing tmdbId parameter' }, 400);
