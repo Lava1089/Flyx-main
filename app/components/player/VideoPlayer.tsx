@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Hls from 'hls.js';
-import { getFlixerStreamProxyUrl, getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import { useAnalytics } from '../analytics/AnalyticsProvider';
 import { useWatchProgress } from '@/lib/hooks/useWatchProgress';
 import { trackWatchStart, trackWatchProgress, trackWatchPause, trackWatchComplete } from '@/lib/utils/live-activity';
@@ -100,10 +100,13 @@ interface VideoPlayerProps {
 
 /**
  * Wrap a raw CDN source URL through the appropriate CF Worker stream proxy.
- * Flixer/VidSrc/etc CDN URLs need to be proxied because:
- *   1. CORS blocks direct browser access to CDN domains
- *   2. CDN requires specific headers (Referer, Origin) that browsers can't set cross-origin
- *   3. The proxy rewrites m3u8 playlists so all sub-requests also go through the proxy
+ * 
+ * Flixer CDN (wind.10018.workers.dev etc.) returns Access-Control-Allow-Origin: *
+ * so the browser can fetch m3u8/segments/keys DIRECTLY from its residential IP.
+ * Proxying through CF Worker is slower (datacenter IP gets blocked, falls back to RPI)
+ * and breaks mobile entirely. So flixer sources are NOT proxied.
+ * 
+ * Other providers (hianime, animekai) still need proxying for CORS/headers.
  */
 function applyStreamProxy(sourceUrl: string, providerName: string, requiresProxy?: boolean): string {
   if (!sourceUrl) return sourceUrl;
@@ -113,6 +116,11 @@ function applyStreamProxy(sourceUrl: string, providerName: string, requiresProxy
       sourceUrl.includes('/api/stream-proxy') || sourceUrl.includes('/stream/')) {
     return sourceUrl;
   }
+
+  // Flixer CDN has CORS: * — browser fetches directly from residential IP.
+  // No proxy needed. This is faster and works on mobile.
+  if (providerName === 'flixer') return sourceUrl;
+
   // Only proxy if the source says it needs it (or it's a known CDN URL)
   const needsProxy = requiresProxy ||
     sourceUrl.includes('.workers.dev') ||
@@ -121,7 +129,6 @@ function applyStreamProxy(sourceUrl: string, providerName: string, requiresProxy
     sourceUrl.includes('skyember');
   if (!needsProxy) return sourceUrl;
 
-  if (providerName === 'flixer') return getFlixerStreamProxyUrl(sourceUrl);
   if (providerName === 'hianime') return getHiAnimeStreamProxyUrl(sourceUrl);
   if (providerName === 'animekai') return getAnimeKaiProxyUrl(sourceUrl);
   // For other providers, return as-is (they handle their own proxying)

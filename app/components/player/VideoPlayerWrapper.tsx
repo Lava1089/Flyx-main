@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { getAnimeKaiProxyUrl, getFlixerStreamProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import { getProviderSettings } from '@/lib/sync';
 
 // Dynamically import players to reduce initial bundle size
@@ -195,8 +195,9 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
               
               if (!isAlreadyProxied) {
                 const targetUrl = sources[0].directUrl || sourceUrl;
+                // Flixer CDN has CORS: * — browser fetches directly from residential IP
                 if (actualProvider === 'flixer') {
-                  sourceUrl = getFlixerStreamProxyUrl(targetUrl);
+                  // No proxy needed — direct browser fetch is faster and works on mobile
                 } else if (actualProvider === 'hianime') {
                   sourceUrl = getHiAnimeStreamProxyUrl(targetUrl);
                 } else {
@@ -254,8 +255,9 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
         sourceUrl.includes('/flixer/stream');
       
       if (!isAlreadyProxied) {
+        // Flixer CDN has CORS: * — browser fetches directly from residential IP
         if (streamData.provider === 'flixer') {
-          sourceUrl = getFlixerStreamProxyUrl(sourceUrl);
+          // No proxy needed
         } else if (streamData.provider === 'hianime') {
           sourceUrl = getHiAnimeStreamProxyUrl(sourceUrl);
         } else {

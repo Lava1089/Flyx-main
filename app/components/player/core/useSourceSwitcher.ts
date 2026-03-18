@@ -10,7 +10,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { getAnimeKaiProxyUrl, getFlixerStreamProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
+import { getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import type { PlayerSource } from './types';
 
 export interface UseSourceSwitcherOptions {
@@ -66,7 +66,8 @@ export function useSourceSwitcher(options: UseSourceSwitcherOptions): UseSourceS
         const isHiAnimeSource = source.title?.toLowerCase().includes('hianime') ||
                                 options.provider === 'hianime';
         if (isFlixerSource) {
-          finalUrl = getFlixerStreamProxyUrl(targetUrl);
+          // Flixer CDN has CORS: * — browser fetches directly from residential IP
+          // No proxy needed — faster and works on mobile
         } else if (isHiAnimeSource) {
           finalUrl = getHiAnimeStreamProxyUrl(targetUrl);
         } else {
