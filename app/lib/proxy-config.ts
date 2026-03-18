@@ -420,6 +420,33 @@ function getFlixerProxyBaseUrl(): string {
 }
 
 /**
+ * Get Flixer sign URL — CF Worker generates signed auth headers for browser-direct requests.
+ */
+export function getFlixerSignUrl(
+  tmdbId: string,
+  type: 'movie' | 'tv',
+  opts?: { server?: string; warmup?: boolean; season?: number; episode?: number },
+): string {
+  const baseUrl = getFlixerProxyBaseUrl();
+  const params = new URLSearchParams({ tmdbId, type });
+  if (opts?.server) params.set('server', opts.server);
+  if (opts?.warmup) params.set('warmup', '1');
+  if (type === 'tv' && opts?.season && opts?.episode) {
+    params.set('season', opts.season.toString());
+    params.set('episode', opts.episode.toString());
+  }
+  return `${baseUrl}/flixer/sign?${params.toString()}`;
+}
+
+/**
+ * Get Flixer decrypt URL — CF Worker decrypts encrypted hexa API response.
+ */
+export function getFlixerDecryptUrl(): string {
+  const baseUrl = getFlixerProxyBaseUrl();
+  return `${baseUrl}/flixer/decrypt`;
+}
+
+/**
  * Check if a URL is from Flixer/Hexa CDN
  */
 export function isFlixerCdnUrl(url: string): boolean {
