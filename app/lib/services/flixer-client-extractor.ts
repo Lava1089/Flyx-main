@@ -45,7 +45,7 @@ export async function extractFlixerClient(
   if (type === 'tv' && episode != null) params.set('episode', episode.toString());
 
   const res = await fetch(`${CF_WORKER_BASE}/flixer/extract-all?${params}`, {
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {

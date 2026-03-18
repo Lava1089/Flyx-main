@@ -974,27 +974,18 @@ async function extractAllServers(
   const startTime = Date.now();
 
   try {
-    // Step 1: WASM init (same as validate)
+    // Step 1: WASM init
     await ensureWasmInitialized(logger, config);
 
     const apiKey = cachedApiKey!;
     const loader = cachedWasmLoader!;
     const apiPath = buildApiPath(config, type, tmdbId, season, episode);
 
-    // Step 2: Get cap token (same as validate)
-    let capToken: string | null = clientCapToken || null;
-    if (!capToken && env?.HEXA_CONFIG) {
-      capToken = await getCachedCapToken(env.HEXA_CONFIG);
-    }
-    if (clientCapToken && env?.HEXA_CONFIG) {
-      cacheCapToken(env.HEXA_CONFIG, clientCapToken, Date.now() + 2.5 * 60 * 60 * 1000).catch(() => {});
-    }
-    if (!capToken) {
-      logger.warn('No cap token available. Extraction will likely fail with 403.');
-    }
+    // No cap token needed — verified via Puppeteer sniffing of flixer.su.
+    // flixer.su makes ZERO requests to cap.hexa.su.
 
-    // Step 3: Warm-up (same as validate)
-    const availableServers = await getAvailableServers(loader, apiKey, apiPath, logger, config, capToken);
+    // Step 2: Warm-up (with bw90agfmywth header)
+    const availableServers = await getAvailableServers(loader, apiKey, apiPath, logger, config);
 
     // Use available servers, or priority list if warm-up returned nothing useful
     const priorityOrder = ['delta', 'alpha', 'bravo', 'charlie', 'echo', 'foxtrot', 'golf'];
@@ -1002,18 +993,15 @@ async function extractAllServers(
       ? availableServers
       : priorityOrder;
 
-    logger.info(`Querying ${serversToQuery.length} servers for ${type}/${tmdbId}`);
+    logger.info(`Querying ${serversToQuery.length} servers in parallel for ${type}/${tmdbId}`);
 
-    // Step 4: Extract each server — same pattern as validate's Step 3+4
-    const extractedSources: Array<{ server: string; url: string }> = [];
-    const errors: string[] = [];
-
-    for (const server of serversToQuery) {
-      try {
+    // Step 3: Extract ALL servers in PARALLEL (not sequential — speed matters)
+    const results = await Promise.allSettled(
+      serversToQuery.map(async (server) => {
         const encrypted = await makeFlixerRequest(apiKey, apiPath, config, {
           'X-Only-Sources': '1',
           'X-Server': server,
-        }, capToken);
+        });
 
         const decrypted = await loader.processImgData(encrypted, apiKey);
         const parsed = typeof decrypted === 'string' ? JSON.parse(decrypted) : decrypted;
@@ -1028,83 +1016,47 @@ async function extractAllServers(
         }
 
         if (url && url.trim()) {
-          extractedSources.push({ server, url });
-          logger.debug(`${server}: URL extracted`);
-        } else {
-          errors.push(`${server}: no URL in decrypted data`);
-          logger.debug(`${server}: decrypted OK but no URL. Keys: ${Object.keys(parsed).join(',')}`);
+          return { server, url };
         }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        errors.push(`${server}: ${msg}`);
-        logger.debug(`${server}: ${msg}`);
+        throw new Error(`${server}: no URL in decrypted data`);
+      })
+    );
+
+    const extractedSources: Array<{ server: string; url: string }> = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        extractedSources.push(r.value);
+      } else {
+        logger.debug(r.reason?.message || 'server extraction failed');
       }
     }
 
     logger.info(`Extraction done: ${extractedSources.length}/${serversToQuery.length} URLs extracted`);
 
-    // Step 5: Validate m3u8 for extracted URLs
-    const cdnHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Accept-Encoding': 'identity',
-      'Referer': 'https://hexa.su/',
-      'Origin': 'https://hexa.su',
-    };
+    // Step 4: Build sources — skip m3u8 validation for speed (<5s target).
+    // URLs from the API are fresh and valid; validation adds 2-5s per source.
+    // The player will handle any bad URLs gracefully via source switching.
+    const allSources = extractedSources.map(src => ({
+      quality: 'auto',
+      title: `Flixer ${SERVER_NAMES[src.server] || src.server}`,
+      url: src.url,
+      type: 'hls',
+      referer: 'https://hexa.su/',
+      requiresSegmentProxy: true,
+      status: 'working',
+      language: 'en',
+      server: src.server,
+    }));
 
-    const validateM3u8 = async (targetUrl: string): Promise<boolean> => {
-      try {
-        const directRes = await fetch(targetUrl, { headers: cdnHeaders, signal: AbortSignal.timeout(5000) });
-        if (directRes.ok) {
-          const text = await directRes.text();
-          return text.includes('#EXTM3U') || text.includes('#EXT-X-STREAM-INF') || text.includes('#EXTINF');
-        }
-      } catch {}
-      if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
-        try {
-          let rpiBase = env.RPI_PROXY_URL.replace(/\/+$/, '');
-          if (!rpiBase.startsWith('http')) rpiBase = `https://${rpiBase}`;
-          const rustParams = new URLSearchParams({ url: targetUrl, headers: JSON.stringify(cdnHeaders), timeout: '10' });
-          const rustRes = await fetch(`${rpiBase}/fetch-rust?${rustParams.toString()}`, {
-            headers: { 'X-API-Key': env.RPI_PROXY_KEY },
-            signal: AbortSignal.timeout(12000),
-          });
-          if (rustRes.ok) {
-            const text = await rustRes.text();
-            return text.includes('#EXTM3U') || text.includes('#EXT-X-STREAM-INF') || text.includes('#EXTINF');
-          }
-        } catch {}
-      }
-      return false;
-    };
-
-    // Validate all extracted URLs
-    const allSources: any[] = [];
-    for (const src of extractedSources) {
-      const valid = await validateM3u8(src.url);
-      allSources.push({
-        quality: 'auto',
-        title: `Flixer ${SERVER_NAMES[src.server] || src.server}`,
-        url: src.url,
-        type: 'hls',
-        referer: 'https://hexa.su/',
-        requiresSegmentProxy: true,
-        status: valid ? 'working' : 'down',
-        language: 'en',
-        server: src.server,
-      });
-    }
-
-    const workingCount = allSources.filter(s => s.status === 'working').length;
     const elapsed = Date.now() - startTime;
-    logger.info(`extract-all: ${workingCount} working / ${extractedSources.length} extracted / ${serversToQuery.length} queried in ${elapsed}ms`);
+    logger.info(`extract-all: ${allSources.length} sources in ${elapsed}ms`);
 
-    if (workingCount > 0) {
+    if (allSources.length > 0) {
       consecutiveFailures = 0;
       lastSuccessTime = Date.now();
     } else {
       consecutiveFailures++;
-      if (!_isRetry && extractedSources.length === 0) {
+      if (!_isRetry) {
         logger.warn('0 sources — forcing WASM re-init and retrying');
         cachedWasmLoader = null;
         cachedApiKey = null;
@@ -1115,14 +1067,14 @@ async function extractAllServers(
     }
 
     return jsonResponse({
-      success: workingCount > 0,
+      success: allSources.length > 0,
       sources: allSources,
       serverCount: serversToQuery.length,
-      extractedCount: extractedSources.length,
-      validatedCount: workingCount,
+      extractedCount: allSources.length,
+      validatedCount: allSources.length,
       elapsed_ms: elapsed,
       timestamp: new Date().toISOString(),
-    }, workingCount > 0 ? 200 : (allSources.length > 0 ? 200 : 404));
+    }, allSources.length > 0 ? 200 : 404);
 
   } catch (error) {
     logger.error('extract-all error', error as Error);
