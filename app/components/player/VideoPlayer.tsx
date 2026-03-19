@@ -275,7 +275,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   const castErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [providerAvailability, setProviderAvailability] = useState<Record<string, boolean>>({
     flixer: true, // Hexa (hexa.su) is the primary provider (WASM-based, fastest)
-    vidlink: true, // VidLink as secondary provider with multi-language support
+    uflix: true, // Uflix as secondary provider with 5 embed servers
     hexa: false, // Hexa disabled — most servers require JS execution, rarely works
     vidsrc: true, // VidSrc as tertiary fallback
     '1movies': true, // 1movies - fully reverse-engineered, no Puppeteer needed
@@ -298,20 +298,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   // Sync skip intro/outro refs with state (for use in timeupdate handler)
   useEffect(() => { skipIntroRef.current = skipIntro; }, [skipIntro]);
   useEffect(() => { skipOutroRef.current = skipOutro; }, [skipOutro]);
-
-  // VidLink language filter for dub selection
-  const [vidlinkLanguageFilter, setVidlinkLanguageFilter] = useState<string>('all');
-  const VIDLINK_LANGUAGES = [
-    { code: 'all', name: 'All Languages' },
-    { code: 'en', name: 'English' },
-    { code: 'de', name: 'German' },
-    { code: 'it', name: 'Italian' },
-    { code: 'fr', name: 'French' },
-    { code: 'es', name: 'Spanish' },
-    { code: 'es-419', name: 'Latin Spanish' },
-    { code: 'pt', name: 'Portuguese' },
-    { code: 'hi', name: 'Hindi' },
-  ];
 
   // HLS quality levels
   const [hlsLevels, setHlsLevels] = useState<{ height: number; bitrate: number; index: number }[]>([]);
@@ -741,7 +727,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       console.error(`[VideoPlayer] Error fetching sources for ${providerName}:`, err);
       
       // Cache empty array for this provider so UI shows "No sources available"
-      // This prevents the tab from showing VidLink sources when the provider fails
+      // This prevents the tab from showing stale sources when the provider fails
       setSourcesCache(prev => ({
         ...prev,
         [providerName]: [] // Empty array indicates provider has no sources
@@ -945,7 +931,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           const data = await res.json();
           setProviderAvailability({
             flixer: data.providers?.flixer?.enabled ?? true,
-            vidlink: data.providers?.vidlink?.enabled ?? true,
+            uflix: data.providers?.uflix?.enabled ?? true,
             hexa: false,
             vidsrc: data.providers?.vidsrc?.enabled ?? true,
             '1movies': data.providers?.['1movies']?.enabled ?? true,
@@ -970,8 +956,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       const defaultOrder: string[] = isAnime
         ? (isMalDirect
           ? ['hianime', 'animekai']
-          : ['hianime', 'animekai', 'flixer', 'vidlink', 'vidsrc'])
-        : ['flixer', 'vidlink', 'vidsrc'];
+          : ['hianime', 'animekai', 'flixer', 'uflix', 'vidsrc'])
+        : ['flixer', 'uflix', 'vidsrc'];
 
       const priorityOrder: string[] = [];
       for (const p of userOrder) {
@@ -1453,17 +1439,16 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     }
                     
                     // Source doesn't have URL - need to fetch it from API
-                    if (nextSource.title && provider === 'vidlink') {
+                    if (nextSource.title && (provider === 'uflix' || provider === 'animekai' || provider === 'hianime' || provider === 'flixer')) {
                       console.log(`[VideoPlayer] Fetching source ${i}: ${nextSource.title}...`);
                       
-                      // Extract source name from title (e.g., "Neon (English)" -> "Neon")
                       const sourceName = nextSource.title.split(' (')[0];
                       
                       try {
                         const params = new URLSearchParams({
                           tmdbId,
                           type: mediaType,
-                          provider: 'vidlink',
+                          provider,
                           source: sourceName,
                         });
                         
@@ -1478,7 +1463,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                         if (data.sources && data.sources[0]?.url) {
                           console.log(`[VideoPlayer] ✓ ${sourceName} fetched successfully`);
                           
-                          // Update the source in our list - use functional update
                           setAvailableSources(prev => {
                             const updatedSources = [...prev];
                             updatedSources[i] = { ...updatedSources[i], ...data.sources[0], status: 'working' };
@@ -1491,7 +1475,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                           return true;
                         } else {
                           console.log(`[VideoPlayer] ✗ ${sourceName} failed, trying next...`);
-                          // Mark as down and continue - update both state and cache
                           setAvailableSources(prev => {
                             const updatedSources = [...prev];
                             updatedSources[i] = { ...updatedSources[i], status: 'down' };
@@ -1506,7 +1489,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                   }
                   
                   // No more sources in current provider, try other providers
-                  // Order: vidsrc → flixer → 1movies → vidlink
+                  // Order: vidsrc → flixer → 1movies → uflix
                   console.log(`[VideoPlayer] All ${provider} sources exhausted, trying other providers...`);
                   
                   const fallbackProviders: string[] = [];
@@ -1518,7 +1501,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                   if (provider !== 'vidsrc' && providerAvailability.vidsrc) fallbackProviders.push('vidsrc');
                   if (provider !== 'flixer' && providerAvailability.flixer) fallbackProviders.push('flixer');
                   if (provider !== '1movies' && providerAvailability['1movies']) fallbackProviders.push('1movies');
-                  if (provider !== 'vidlink' && providerAvailability.vidlink) fallbackProviders.push('vidlink');
+                  if (provider !== 'uflix' && providerAvailability.uflix) fallbackProviders.push('uflix');
                   
                   for (const fallbackProvider of fallbackProviders) {
                     if (triedProvidersRef.current.has(fallbackProvider)) continue;
@@ -4691,7 +4674,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     .map(p => {
                       const displayNames: Record<string, string> = {
                         flixer: 'Hexa',
-                        vidlink: 'VidLink',
+                        uflix: 'Uflix',
                         hexa: 'Hexa',
                         vidsrc: 'VidSrc',
                         '1movies': '1movies',
@@ -4714,46 +4697,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     })}
                 </div>
 
-                {/* Language filter for VidLink */}
-                {menuProvider === 'vidlink' && (
-                  <div style={{ 
-                    padding: '0.5rem 1rem', 
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem'
-                  }}>
-                    <span style={{ 
-                      fontSize: '0.8rem', 
-                      color: 'rgba(255, 255, 255, 0.6)',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      🌐 Dub:
-                    </span>
-                    <select
-                      value={vidlinkLanguageFilter}
-                      onChange={(e) => setVidlinkLanguageFilter(e.target.value)}
-                      style={{
-                        flex: 1,
-                        padding: '0.4rem 0.6rem',
-                        fontSize: '0.85rem',
-                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '4px',
-                        color: 'white',
-                        cursor: 'pointer',
-                        outline: 'none',
-                      }}
-                    >
-                      {VIDLINK_LANGUAGES.map(lang => (
-                        <option key={lang.code} value={lang.code} style={{ backgroundColor: '#1a1a1a' }}>
-                          {lang.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
                 <div className={styles.sourcesList} data-server-sources="true">
                   {loadingProviders[menuProvider] ? (
                     <div style={{ padding: '1rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem' }}>
@@ -4773,9 +4716,6 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                         // If filter removes everything, show all sources (don't leave empty)
                         return filtered.length > 0 ? filtered : allSources;
                       }
-                      if (menuProvider === 'vidlink' && vidlinkLanguageFilter !== 'all') {
-                        return allSources.filter((s: any) => s.language === vidlinkLanguageFilter);
-                      }
                       return allSources;
                     })()
                       .map((source: any) => {
@@ -4794,7 +4734,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                           
                           // If source has "unknown" or "down" status (not yet fetched, or previously failed), fetch it
                           // "down" sources should be re-fetchable — the user explicitly clicked it, so give it another shot
-                          if ((source.status === 'unknown' || source.status === 'down') && (menuProvider === 'vidlink' || menuProvider === 'animekai' || menuProvider === 'hianime' || menuProvider === 'flixer')) {
+                          if ((source.status === 'unknown' || source.status === 'down') && (menuProvider === 'uflix' || menuProvider === 'animekai' || menuProvider === 'hianime' || menuProvider === 'flixer')) {
                             console.log(`[VideoPlayer] Fetching unknown source: ${source.title} from ${menuProvider}`);
                             setIsLoading(true);
                             setShowServerMenu(false);
@@ -4960,7 +4900,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                   ) : (
                     <div style={{ padding: '1rem', textAlign: 'center', color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem' }}>
                       {loadingProviders[menuProvider] ? 'Loading sources...' : 
-                       sourcesCache[menuProvider]?.length === 0 ? `No sources from ${menuProvider === 'animekai' ? 'AnimeKai' : menuProvider === 'vidsrc' ? 'VidSrc' : menuProvider === '1movies' ? '1movies' : menuProvider === 'flixer' ? 'Flixer' : 'VidLink'}` :
+                       sourcesCache[menuProvider]?.length === 0 ? `No sources from ${menuProvider === 'animekai' ? 'AnimeKai' : menuProvider === 'vidsrc' ? 'VidSrc' : menuProvider === '1movies' ? '1movies' : menuProvider === 'flixer' ? 'Flixer' : menuProvider === 'uflix' ? 'Uflix' : menuProvider}` :
                        'Click to load sources'}
                     </div>
                   )}

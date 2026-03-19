@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { ExtractionRequest } from '@/app/lib/providers/types';
 import { isAnimeContent } from '@/app/lib/services/animekai-extractor';
 import { performanceMonitor } from '@/app/lib/utils/performance-monitor';
-import { getStreamProxyUrl, getAnimeKaiProxyUrl, getFlixerStreamProxyUrl, getVidLinkStreamProxyUrl, getVidSrcStreamProxyUrl, get1moviesStreamProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
+import { getStreamProxyUrl, getAnimeKaiProxyUrl, getFlixerStreamProxyUrl, getVidSrcStreamProxyUrl, get1moviesStreamProxyUrl, isMegaUpCdnUrl, is1moviesCdnUrl, isAnimeKaiSource } from '@/app/lib/proxy-config';
 
 // Lazy-load registry to prevent module-load crashes on CF Pages runtime.
 // If any provider import fails (e.g., Node.js APIs), the whole module would crash
@@ -119,11 +119,9 @@ function maybeProxyUrl(source: any, provider: string): string {
     const is1moviesCdn = is1moviesCdnUrl(source.url);
     const is1movies = provider === '1movies';
     const isFlixer = provider === 'flixer';
-    const isVidLink = provider === 'vidlink';
+    const isUflix = provider === 'uflix';
     const isMultiEmbed = provider === 'multi-embed' || provider === 'multiembed' || provider === 'hexa';
     const isVidSrc = provider === 'vidsrc';
-    // VidLink CDN domains block datacenter IPs
-    const isVidLinkCdn = source.url.includes('vodvidl.site') || source.url.includes('videostr.net');
 
     // Route through provider-specific proxy for CDNs that block datacenter IPs
     if (isFlixer) {
@@ -132,8 +130,9 @@ function maybeProxyUrl(source: any, provider: string): string {
     if (isAnimeKai || isAnimeKaiSrc || isMegaUpCdn) {
       return getAnimeKaiProxyUrl(source.url);
     }
-    if (isVidLink || isVidLinkCdn) {
-      return getVidLinkStreamProxyUrl(source.url);
+    if (isUflix) {
+      // Uflix returns embed URLs — no proxying needed
+      return source.url;
     }
     if (isVidSrc) {
       return getVidSrcStreamProxyUrl(source.url, source.referer);
@@ -245,7 +244,7 @@ function getValidProviderNames(): string[] {
     new Set([
       ...registry.getAllEnabled().map((p: any) => p.name),
       // Include disabled providers too — they can be explicitly requested
-      'flixer', 'vidlink', 'animekai', 'hianime', 'vidsrc', 'multi-embed',
+      'flixer', 'uflix', 'animekai', 'hianime', 'vidsrc', 'multi-embed',
       'dlhd', 'viprow', 'ppv', 'cdn-live', 'iptv',
     ])
   );
@@ -389,7 +388,7 @@ export async function GET(request: NextRequest) {
 
     // GUARD: Reject TMDB-dependent providers when tmdbId=0 (MAL-direct anime)
     // These providers (flixer, vidlink, vidsrc, etc.) need a real TMDB ID to work
-    const tmdbDependentProviders = ['flixer', 'vidlink', 'vidsrc', 'multi-embed', 'hexa', '1movies'];
+    const tmdbDependentProviders = ['flixer', 'uflix', 'vidsrc', 'multi-embed', 'hexa', '1movies'];
     if (tmdbId === '0' && tmdbDependentProviders.includes(providerParam)) {
       return NextResponse.json(
         { error: `${providerParam} requires a real TMDB ID (tmdbId=0 is MAL-direct anime)`, success: false },
@@ -690,13 +689,13 @@ async function directExtract(
         }
         throw new Error(result.error || 'Hexa returned no sources');
       }
-      case 'vidlink': {
-        const { extractVidLinkStreams } = await import('@/app/lib/services/vidlink-extractor');
-        const result = await extractVidLinkStreams(request.tmdbId, request.mediaType, request.season, request.episode);
+      case 'uflix': {
+        const { extractUflixStreams } = await import('@/app/lib/services/uflix-extractor');
+        const result = await extractUflixStreams(request.tmdbId, request.mediaType, request.season, request.episode);
         if (result.success && result.sources.length > 0) {
-          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? true })), provider: 'vidlink' };
+          return { sources: result.sources.map(s => ({ ...s, requiresSegmentProxy: s.requiresSegmentProxy ?? false })), provider: 'uflix' };
         }
-        throw new Error(result.error || 'VidLink returned no sources');
+        throw new Error(result.error || 'Uflix returned no sources');
       }
       case 'vidsrc': {
         const { extractVidSrcStreams } = await import('@/app/lib/services/vidsrc-extractor');
@@ -754,12 +753,12 @@ async function directExtractWithFallback(
   const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
   
   // Priority order for anime vs movie/tv
-  // In production (CF Workers), exclude vidlink since it needs Node.js APIs
+  // Uflix works everywhere (no Node.js-specific APIs needed)
   const providerOrder = isAnime
     ? ['animekai', 'hianime', 'flixer', 'vidsrc', 'multi-embed']
     : isProduction
-      ? ['flixer', 'vidsrc', 'multi-embed']
-      : ['flixer', 'vidlink', 'vidsrc', 'multi-embed'];
+      ? ['flixer', 'uflix', 'vidsrc', 'multi-embed']
+      : ['flixer', 'uflix', 'vidsrc', 'multi-embed'];
 
   console.log(`[EXTRACT] Direct fallback order: ${providerOrder.join(', ')}`);
 
@@ -840,7 +839,7 @@ function inferProviderFromSourceName(sourceName: string): string | undefined {
   if (sourceName.includes('AnimeKai')) return 'animekai';
   if (sourceName.includes('Flixer') || sourceName.includes('Hexa')) return 'flixer';
   if (sourceName.includes('MultiEmbed')) return 'multi-embed';
-  if (sourceName.includes('(')) return 'vidlink'; // VidLink sources have parentheses
+  if (sourceName.includes('Uflix')) return 'uflix';
   return undefined;
 }
 

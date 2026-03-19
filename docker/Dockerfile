@@ -68,14 +68,6 @@ COPY --from=builder /app/public/flixer.wasm ./public/flixer.wasm
 COPY --from=builder /app/pow_wasm.js ./pow_wasm.js
 COPY --from=builder /app/pow_wasm_bg.wasm ./pow_wasm_bg.wasm
 
-# VidLink extractor needs this script at runtime (loaded via fs.readFileSync)
-COPY --from=builder /app/scripts/vidlink-script.js ./scripts/vidlink-script.js
-
-# libsodium-wrappers is needed by VidLink extractor at runtime (dynamic require)
-# Next.js standalone doesn't bundle it since it's a dynamic require — copy from builder
-COPY --from=builder /app/node_modules/libsodium-wrappers ./node_modules/libsodium-wrappers
-COPY --from=builder /app/node_modules/libsodium ./node_modules/libsodium
-
 # ── Copy proxy TypeScript source (Bun runs it directly, no build step) ──────
 COPY docker/proxy /proxy
 RUN cd /proxy && bun install --production

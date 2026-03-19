@@ -12,7 +12,7 @@ const sections = [
   { id: '111movies', title: '111movies', icon: '🎬' },
   { id: 'flixer', title: 'Flixer (WASM)', icon: '🔐' },
   { id: 'vidsrc', title: 'VidSrc', icon: '📡' },
-  { id: 'vidlink', title: 'VidLink', icon: '🌍' },
+  { id: 'uflix', title: 'Uflix', icon: '🌐' },
   { id: 'animekai', title: 'AnimeKai', icon: '🎌' },
   { id: 'megaup', title: 'MegaUp', icon: '🔓' },
   { id: 'hianime', title: 'HiAnime', icon: '🔬' },
@@ -28,7 +28,7 @@ const providerStats = [
   { name: '111movies', status: 'disabled', type: 'Movies/TV', method: 'Hash Obfuscation Changed' },
   { name: 'Flixer', status: 'working', type: 'Movies/TV', method: 'WASM Bundling' },
   { name: 'VidSrc', status: 'working', type: 'Movies/TV', method: 'Static Decoders' },
-  { name: 'VidLink', status: 'working', type: 'Multi-Lang', method: 'AES-256-CBC' },
+  { name: 'Uflix', status: 'working', type: 'Movies/TV', method: 'gStream API (no encryption)' },
   { name: 'AnimeKai', status: 'working', type: 'Anime', method: 'Native Crypto (183 Tables)' },
   { name: 'MegaUp', status: 'working', type: 'CDN', method: 'UA-Based Stream Cipher' },
   { name: 'HiAnime', status: 'working', type: 'Anime', method: 'TLS Fingerprint Bypass' },
@@ -704,8 +704,8 @@ function decodeHexFormat(encoded) {
             </motion.div>
           </section>
 
-          {/* VidLink */}
-          <section id="vidlink" className={styles.section}>
+          {/* Uflix */}
+          <section id="uflix" className={styles.section}>
             <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h2 className={styles.sectionTitle}>
                 <span className={styles.sectionIcon}>🌍</span>

@@ -4,7 +4,7 @@
  * 
  * Provider Priority:
  * - Flixer: PRIMARY provider (WASM-based extraction, 2-3s)
- * - VidLink: 2nd fallback (AES-256-CBC decryption)
+ * - Uflix: 2nd fallback (5 embed servers via gStream API)
  * - VidSrc: 3rd fallback (Turnstile issues)
  * - 1movies: DISABLED
  * - AnimeKai: PRIMARY for anime content only (auto-detected via MAL ID)
@@ -16,6 +16,7 @@ import { ANIMEKAI_ENABLED } from '@/app/lib/services/animekai-extractor';
 import { ONEMOVIES_ENABLED } from '@/app/lib/services/onemovies-extractor';
 import { FLIXER_ENABLED } from '@/app/lib/services/flixer-extractor';
 import { MULTI_EMBED_ENABLED } from '@/app/lib/services/multi-embed-extractor';
+import { UFLIX_ENABLED } from '@/app/lib/services/uflix-extractor';
 
 export async function GET() {
   return NextResponse.json({
@@ -26,11 +27,11 @@ export async function GET() {
         primary: true,
         description: 'Primary streaming source (WASM-based extraction)',
       },
-      vidlink: {
-        enabled: true,
-        name: 'VidLink',
+      uflix: {
+        enabled: UFLIX_ENABLED,
+        name: 'Uflix',
         primary: false,
-        description: 'Multi-language streaming fallback',
+        description: 'Uflix.to aggregator — 5 embed servers (2embed, smashy, gdrive, vidsrc, vidplus)',
       },
       hexa: {
         enabled: MULTI_EMBED_ENABLED,

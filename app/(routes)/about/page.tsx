@@ -597,9 +597,8 @@ export default function AboutPage() {
                 CDN uses Cloudflare Workers that block other Workers.</p>
               </div>
               <div className="provider-card">
-                <h4>📡 VidSrc + VidLink</h4>
-                <p>AES-256-CBC decryption. VidLink: 17 servers across 8 languages. VidSrc: static 
-                hex/base64 decoders with character manipulation.</p>
+                <h4>📡 VidSrc + Uflix</h4>
+                <p>VidSrc: static hex/base64 decoders with character manipulation. Uflix: 5 embed servers via gStream API, no encryption.</p>
               </div>
               <div className="provider-card">
                 <h4>🔬 HiAnime / MegaCloud</h4>

@@ -31,7 +31,7 @@ All streaming sources are managed through a unified Provider Registry with prior
 | # | Provider | Content | Method | Priority | Status |
 |---|----------|---------|--------|----------|--------|
 | 1 | Flixer | Movies, TV | WASM decryption via Hexa API | 10 | ✅ Enabled |
-| 2 | VidLink | Movies, TV | Sodium decryption + token auth | 20 | ✅ Enabled |
+| 2 | Uflix | Movies, TV | Multi-embed aggregator (5 servers) | 20 | ✅ Enabled |
 | 3 | AnimeKai | Anime | 183-table substitution cipher | 30 | ✅ Enabled |
 | 4 | HiAnime | Anime | MegaCloud TLS fingerprint bypass | 35 | ✅ Enabled |
 | 5 | VidSrc | Movies, TV | Multi-embed scraping | 40 | ✅ Enabled |

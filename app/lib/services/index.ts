@@ -6,4 +6,4 @@
 export { tmdbService } from './tmdb';
 export { extractorService } from './extractor';
 export { analyticsService, eventQueue } from './analytics';
-export { extractVidLinkStreams, VIDLINK_SOURCES } from './vidlink-extractor';
+export { extractUflixStreams, UFLIX_ENABLED } from './uflix-extractor';

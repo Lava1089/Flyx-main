@@ -21,8 +21,8 @@ const PROXY_ALLOWED_DOMAINS = [
   'poocloud.in', 'modistreams.org',
   // Flixer
   'flixer.su', 'flixer.sh', 'workers.dev',
-  // VidLink CDN
-  'vodvidl.site', 'videostr.net', 'vidlink.pro',
+  // Uflix embed providers
+  'uflix.to', '2embed.cc', 'smashystream.com', 'databasegdriveplayer.xyz', 'vidplus.to',
   // VidSrc / 2embed
   '2embed.stream', 'v1.2embed.stream', '2embed.cc', 'vidsrc-embed.ru', 'vsembed.ru',
   'vidsrc.cc', 'vidsrc.me', 'vidsrc.xyz', 'vidsrc.stream',

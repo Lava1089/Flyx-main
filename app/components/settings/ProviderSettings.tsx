@@ -21,10 +21,10 @@ const PROVIDERS: ProviderInfo[] = [
     icon: '📺',
   },
   {
-    id: 'vidlink',
-    name: 'VidLink',
-    description: 'Secondary provider — multi-language support',
-    icon: '🌍',
+    id: 'uflix',
+    name: 'Uflix',
+    description: 'Secondary provider — 5 embed servers',
+    icon: '🌐',
   },
   {
     id: 'hexa',
