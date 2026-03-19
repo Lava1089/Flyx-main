@@ -55,9 +55,11 @@ const STREAM_SERVERS = [
 
 /**
  * Fetch title from TMDB API for search purposes.
+ * Uses NEXT_PUBLIC_TMDB_API_KEY (v3 key) with ?api_key= query param.
+ * TMDB_API_KEY is a Bearer token (JWT) and cannot be used as a query param.
  */
 async function fetchTitleFromTMDB(tmdbId: string, type: 'movie' | 'tv'): Promise<string | null> {
-  const apiKey = process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY;
+  const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY;
   if (!apiKey) return null;
   try {
     const endpoint = type === 'movie' ? 'movie' : 'tv';
@@ -74,9 +76,10 @@ async function fetchTitleFromTMDB(tmdbId: string, type: 'movie' | 'tv'): Promise
 
 /**
  * Fetch IMDB ID from TMDB external_ids API.
+ * Uses NEXT_PUBLIC_TMDB_API_KEY (v3 key) with ?api_key= query param.
  */
 async function fetchImdbFromTMDB(tmdbId: string, type: 'movie' | 'tv'): Promise<string | null> {
-  const apiKey = process.env.TMDB_API_KEY || process.env.NEXT_PUBLIC_TMDB_API_KEY;
+  const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY;
   if (!apiKey) return null;
   try {
     const endpoint = type === 'movie' ? 'movie' : 'tv';
@@ -152,6 +155,7 @@ async function extractImdbFromPlayer(
 
 /**
  * Call /gStream API to get an embed URL for a specific stream.
+ * Returns the raw embed URL — resolveEmbedToStream() converts it to m3u8 later.
  */
 async function fetchGStream(
   streamId: string,
@@ -189,7 +193,7 @@ async function fetchGStream(
       quality: 'auto',
       title: `Uflix ${server?.name || streamName}`,
       url: link,
-      type: 'hls',
+      type: 'hls', // Will be resolved from embed → m3u8 by resolveEmbedToStream()
       referer: BASE + '/',
       requiresSegmentProxy: false,
       status: 'working',
@@ -200,6 +204,95 @@ async function fetchGStream(
     console.log(`[Uflix] gStream ${streamName} error: ${e instanceof Error ? e.message : e}`);
     return null;
   }
+}
+
+/**
+ * Resolve an embed iframe URL to an actual m3u8 stream URL.
+ * Uses the existing CF Worker /vidsrc/extract endpoint for 2embed/vidsrc sources.
+ */
+async function resolveEmbedToStream(
+  source: StreamSource,
+  tmdbId: string,
+  type: 'movie' | 'tv',
+  season?: number,
+  episode?: number,
+): Promise<StreamSource | null> {
+  const embedUrl = source.url;
+
+  // Already an m3u8 URL — no resolution needed
+  if (embedUrl.includes('.m3u8')) {
+    return source;
+  }
+
+  // Use the CF Worker /vidsrc/extract endpoint which handles 2embed → m3u8 resolution.
+  // This works for stream1 (2embed) and stream4 (vidsrc.me) since the CF Worker
+  // calls v1.2embed.stream API which supports both.
+  const is2embed = source.server === 'stream1' || embedUrl.includes('2embed');
+  const isVidsrc = source.server === 'stream4' || embedUrl.includes('vidsrc');
+
+  if (is2embed || isVidsrc) {
+    try {
+      // Build CF Worker URL — same pattern as vidsrc-extractor.ts extractFrom2EmbedApi()
+      const cfStreamProxy = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL || 'https://media-proxy.vynx.workers.dev/stream';
+      const cfBase = cfStreamProxy.replace(/\/stream\/?$/, '');
+      const cfVidsrcProxy = `${cfBase}/vidsrc`;
+
+      const params = new URLSearchParams({ tmdbId, type });
+      if (type === 'tv' && season && episode) {
+        params.set('season', season.toString());
+        params.set('episode', episode.toString());
+      }
+
+      const cfUrl = `${cfVidsrcProxy}/extract?${params}`;
+      console.log(`[Uflix] Resolving ${source.server} embed via CF Worker: ${cfUrl}`);
+
+      const res = await fetch(cfUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (!res.ok) {
+        console.log(`[Uflix] CF Worker returned ${res.status} for ${source.server}`);
+        return null;
+      }
+
+      const data = await res.json() as {
+        success?: boolean;
+        m3u8_url?: string;
+        proxied_url?: string;
+        source?: string;
+        error?: string;
+      };
+
+      if (!data.success || !data.m3u8_url) {
+        console.log(`[Uflix] CF Worker: no m3u8 for ${source.server}: ${data.error || 'unknown'}`);
+        return null;
+      }
+
+      // Build the proxied m3u8 URL
+      const m3u8Url = data.proxied_url
+        ? `${cfBase}${data.proxied_url}`
+        : data.m3u8_url;
+
+      console.log(`[Uflix] ✓ Resolved ${source.server} → m3u8 (source: ${data.source})`);
+
+      return {
+        ...source,
+        url: m3u8Url,
+        type: 'hls',
+        referer: 'https://v1.2embed.stream/',
+        requiresSegmentProxy: false, // CF Worker handles proxying
+      };
+    } catch (e) {
+      console.log(`[Uflix] Failed to resolve ${source.server}: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  // For other embed providers (smashystream, gdriveplayer, vidplus),
+  // we can't easily resolve to m3u8 server-side. Skip them.
+  console.log(`[Uflix] Skipping ${source.server} — embed URL not resolvable to m3u8`);
+  return null;
 }
 
 /**
@@ -271,36 +364,65 @@ export async function extractUflixStreams(
     return { success: false, sources: [], error: `Could not find IMDB ID for "${title}"` };
   }
 
-  // Step 5: Fetch all streams in parallel
+  // Step 5: Fetch embed URLs from all streams in parallel
   const streamDefs = buildStreamIds(imdbId, tmdbId, type, episodeCode);
-  const results = await Promise.allSettled(
+  const embedResults = await Promise.allSettled(
     streamDefs.map(({ server, streamId }) =>
       fetchGStream(streamId, slug, type, server.id, episodeCode)
     )
   );
 
-  const sources: StreamSource[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
+  const embedSources: StreamSource[] = [];
+  for (let i = 0; i < embedResults.length; i++) {
+    const result = embedResults[i];
     if (result.status === 'fulfilled' && result.value) {
-      sources.push(result.value);
+      embedSources.push(result.value);
       console.log(`[Uflix] ✓ ${streamDefs[i].server.name}: ${result.value.url.slice(0, 60)}...`);
     } else {
       console.log(`[Uflix] ✗ ${streamDefs[i].server.name}: no embed`);
     }
   }
 
-  console.log(`[Uflix] ${sources.length}/${STREAM_SERVERS.length} streams returned embeds`);
+  console.log(`[Uflix] ${embedSources.length}/${STREAM_SERVERS.length} streams returned embeds`);
+
+  if (embedSources.length === 0) {
+    return { success: false, sources: [], error: 'No embed URLs returned from uflix' };
+  }
+
+  // Step 6: Resolve embed URLs to actual m3u8 streams
+  // The embed URLs are iframe URLs (e.g., https://www.2embed.cc/embed/tt0137523)
+  // which HLS.js can't play. We resolve them via the CF Worker /vidsrc/extract endpoint.
+  console.log(`[Uflix] Resolving ${embedSources.length} embed URLs to m3u8 streams...`);
+
+  const resolvedResults = await Promise.allSettled(
+    embedSources.map(source =>
+      resolveEmbedToStream(source, tmdbId, type, season, episode)
+    )
+  );
+
+  const sources: StreamSource[] = [];
+  for (let i = 0; i < resolvedResults.length; i++) {
+    const result = resolvedResults[i];
+    if (result.status === 'fulfilled' && result.value) {
+      sources.push(result.value);
+      console.log(`[Uflix] ✓ Resolved ${embedSources[i].server}: ${result.value.url.slice(0, 80)}...`);
+    } else {
+      console.log(`[Uflix] ✗ Could not resolve ${embedSources[i].server} to m3u8`);
+    }
+  }
+
+  console.log(`[Uflix] ${sources.length} playable m3u8 streams from ${embedSources.length} embeds`);
 
   return {
     success: sources.length > 0,
     sources,
-    error: sources.length === 0 ? 'No working streams found' : undefined,
+    error: sources.length === 0 ? 'No embeds could be resolved to playable streams' : undefined,
   };
 }
 
 /**
  * Fetch a specific Uflix source by server name.
+ * Resolves the embed URL to an actual m3u8 stream.
  */
 export async function fetchUflixSourceByName(
   sourceName: string,
@@ -334,5 +456,9 @@ export async function fetchUflixSourceByName(
     ? (server.idType === 'tmdb' ? `${server.id}|movie|tmdb:${tmdbId}` : `${server.id}|movie|imdb:${imdbId}`)
     : (server.idType === 'tmdb' ? `${server.id}|serie|tmdb:${tmdbId}|${episodeCode}` : `${server.id}|serie|imdb:${imdbId}|${episodeCode}`);
 
-  return fetchGStream(streamId, slug, type, server.id, episodeCode);
+  const embedSource = await fetchGStream(streamId, slug, type, server.id, episodeCode);
+  if (!embedSource) return null;
+
+  // Resolve embed URL to m3u8
+  return resolveEmbedToStream(embedSource, tmdbId, type, season, episode);
 }
