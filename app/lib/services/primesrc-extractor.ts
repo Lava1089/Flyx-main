@@ -10,7 +10,7 @@
  * This gives access to ALL 14+ servers, not just PrimeVid.
  */
 
-import { getPrimeSrcExtractUrl, getPrimeSrcStreamProxyUrl } from '../proxy-config';
+// proxy-config imports removed — using getPrimeSrcProxyBaseUrl() directly
 
 interface StreamSource {
   quality: string;
