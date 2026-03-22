@@ -2,20 +2,24 @@
  * DLHD Proxy - March 2026 Update
  *
  * Proxies daddylive live streams through Cloudflare Workers.
- * M3U8 via proxy: chevy.soyspace.cyou/proxy/{server}/...
- * Keys via: go.ai-chatx.site/key/... (browser fetches directly after reCAPTCHA whitelist)
- * Main site: thedaddy.top (daddylive.mp is DNS-dead)
- * Player page: www.ksohls.ru (EPlayerAuth REMOVED, reCAPTCHA v3 replaces it)
+ * Two modes: proxied (watch parties) and direct (individual external players).
  *
- * Authentication Flow (March 2026):
- *   1. Hidden iframe loads player page → reCAPTCHA v3 whitelists user's IP
- *   2. Server lookup → Get server key (zeko, wind, etc.)
- *   3. Fetch M3U8 → Get playlist with key URLs
- *   4. Browser fetches keys directly from go.ai-chatx.site (IP whitelisted)
+ * Mode 1 — Proxied (default, watch parties):
+ *   Worker → RPI proxy for M3U8, keys (V5 auth), and segments.
+ *   V5 auth bypasses IP whitelist — unlimited channels, unlimited viewers.
+ *   Keys: worker /key → RPI /dlhd-key (PoW + channelSalt auth)
+ *
+ * Mode 2 — Direct (?direct=1, individual VLC/mpv users):
+ *   User opens /play?channel=51 in browser → reCAPTCHA whitelists their IP.
+ *   M3U8 returned with direct CDN URLs — VLC fetches keys/segments directly.
+ *   Each user gets their own 13-channel whitelist slot.
  *
  * Routes:
- *   GET /?channel=<id>           - Get proxied M3U8 playlist
- *   GET /key?url=<url>           - Proxy encryption key
+ *   GET /?channel=<id>           - Proxied M3U8 (watch parties, browser)
+ *   GET /?channel=<id>&direct=1  - Direct-CDN M3U8 (external player, IP whitelisted)
+ *   GET /play?channel=<id>       - HTML page: auto-whitelist + show M3U8 URL
+ *   GET /whitelist?channel=<id>  - Solve reCAPTCHA, return token for IP whitelist
+ *   GET /key?url=<url>           - Proxy encryption key (via RPI V5 auth)
  *   GET /segment?url=<url>       - Proxy video segment
  *   GET /auth?channel=<id>       - Get fresh auth token
  *   GET /health                  - Health check
@@ -80,9 +84,256 @@ function isAllowedOrigin(origin: string): boolean {
   });
 }
 
+
+
+// =============================================================================
+// SERVER-SIDE reCAPTCHA SOLVER (for /whitelist and /play endpoints)
+// =============================================================================
+
+const RECAPTCHA_SITE_KEY = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
+const VERIFY_URL = 'https://chevy.soyspace.cyou/verify';
+
+/** Extract reCAPTCHA JS version string from the API loader */
+async function getRecaptchaVersion(): Promise<string> {
+  const resp = await fetch('https://www.google.com/recaptcha/api.js?render=explicit', {
+    headers: { 'Referer': `https://${PLAYER_DOMAIN}/` },
+  });
+  const body = await resp.text();
+  const idx = body.indexOf('releases/');
+  if (idx !== -1) {
+    const rest = body.substring(idx + 9);
+    const end = rest.search(/[/"']/);
+    if (end > 0) return rest.substring(0, end);
+  }
+  throw new Error('Could not extract reCAPTCHA version');
+}
+
+/** Solve reCAPTCHA v3 via HTTP-only anchor/reload — no browser needed */
+async function solveRecaptchaV3(pageUrl: string, action: string): Promise<string> {
+  const version = await getRecaptchaVersion();
+  const rcOrigin = new URL(pageUrl).origin;
+  const originWithPort = rcOrigin.includes(':443') ? rcOrigin : `${rcOrigin}:443`;
+  const co = btoa(originWithPort).replace(/=+$/, '') + '.';
+
+  const anchorUrl = `https://www.google.com/recaptcha/api2/anchor?ar=1&k=${RECAPTCHA_SITE_KEY}&co=${co}&hl=en&v=${version}&size=invisible&cb=cb_${Date.now()}`;
+  const anchorResp = await fetch(anchorUrl, {
+    headers: { 'User-Agent': USER_AGENT, 'Referer': pageUrl },
+  });
+  const anchorHtml = await anchorResp.text();
+  const tokenMatch = anchorHtml.match(/id="recaptcha-token"\s+value="([^"]+)"/);
+  if (!tokenMatch) throw new Error('No recaptcha-token in anchor page');
+
+  const reloadResp = await fetch(`https://www.google.com/recaptcha/api2/reload?k=${RECAPTCHA_SITE_KEY}`, {
+    method: 'POST',
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Referer': anchorUrl,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams([
+      ['v', version], ['reason', 'q'], ['k', RECAPTCHA_SITE_KEY],
+      ['c', tokenMatch[1]], ['sa', action], ['co', co],
+    ]).toString(),
+  });
+  const reloadBody = await reloadResp.text();
+  const rrespMatch = reloadBody.match(/\["rresp","([^"]+)"/);
+  if (!rrespMatch) throw new Error('No rresp in reload response');
+  return rrespMatch[1];
+}
+
 /**
- * Generate signature for request validation
+ * GET /whitelist?channel=51
+ * Solves reCAPTCHA server-side and returns the token so the caller can
+ * POST it to chevy.soyspace.cyou/verify from their own IP.
  */
+async function handleWhitelistToken(url: URL, logger: any, origin: string | null): Promise<Response> {
+  const channel = url.searchParams.get('channel');
+  if (!channel || !isValidChannel(channel)) {
+    return jsonResponse({ error: 'Missing or invalid channel (e.g. 51)' }, 400, origin);
+  }
+
+  const channelId = `premium${channel}`;
+  const pageUrl = `https://${PLAYER_DOMAIN}/premiumtv/daddyhd.php?id=${channel}`;
+
+  try {
+    logger.info('Solving reCAPTCHA for external whitelist', { channel: channelId });
+    const token = await solveRecaptchaV3(pageUrl, 'player_access');
+    return jsonResponse({
+      success: true,
+      token,
+      channel_id: channelId,
+      verify_url: VERIFY_URL,
+      instructions: 'POST { "recaptcha-token": token, "channel_id": channel_id } to verify_url from your IP to whitelist it.',
+    }, 200, origin);
+  } catch (err) {
+    logger.error('reCAPTCHA solve failed', { error: (err as Error).message });
+    return jsonResponse({ success: false, error: (err as Error).message }, 502, origin);
+  }
+}
+
+/**
+ * GET /play?channel=51
+ * Serves a tiny HTML page that:
+ *   1. Auto-whitelists the user's IP (browser POSTs to verify)
+ *   2. Shows the M3U8 URL to paste into VLC/mpv
+ *
+ * The user opens this in their browser ONCE, then uses the M3U8 URL
+ * in their external player. Their IP stays whitelisted for ~30 min.
+ */
+function handlePlayPage(url: URL, logger: any): Response {
+  const channel = url.searchParams.get('channel');
+  if (!channel || !isValidChannel(channel)) {
+    return new Response('Missing ?channel=<number>', { status: 400, headers: { 'Content-Type': 'text/plain' } });
+  }
+
+  const workerOrigin = url.origin;
+  // The M3U8 URL for external players — uses ?direct=1 to get direct CDN URLs
+  const m3u8Url = `${workerOrigin}/dlhd?channel=${channel}&direct=1`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DLHD Channel ${channel}</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:600px;margin:40px auto;padding:0 20px;background:#111;color:#eee}
+    h1{font-size:1.4em}
+    .url{background:#222;padding:12px;border-radius:6px;word-break:break-all;font-family:monospace;font-size:0.9em;margin:12px 0;user-select:all;cursor:pointer}
+    .status{padding:10px;border-radius:6px;margin:12px 0}
+    .ok{background:#1a3a1a;border:1px solid #2d5a2d}
+    .err{background:#3a1a1a;border:1px solid #5a2d2d}
+    .pending{background:#3a3a1a;border:1px solid #5a5a2d}
+    button{background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:0.9em}
+    button:hover{background:#1d4ed8}
+    .copy-btn{background:#444;margin-left:8px}
+    .copy-btn:hover{background:#555}
+    .info{color:#999;font-size:0.85em;margin-top:20px}
+  </style>
+</head>
+<body>
+  <h1>&#128250; DLHD Channel ${channel}</h1>
+  <div id="status" class="status pending">Whitelisting your IP...</div>
+  <div style="margin:16px 0">
+    <strong>M3U8 URL for VLC / mpv:</strong>
+    <div class="url" id="m3u8url" onclick="copyUrl()">${m3u8Url}</div>
+    <button onclick="copyUrl()">&#128203; Copy URL</button>
+    <button class="copy-btn" onclick="openVlc()">Open in VLC</button>
+  </div>
+  <div>
+    <button onclick="doWhitelist()">&#128260; Re-whitelist</button>
+  </div>
+  <div class="info">
+    <p>Your IP gets whitelisted for ~30 minutes. If playback stops, come back here and click Re-whitelist.</p>
+    <p>Each IP supports up to 13 channels simultaneously.</p>
+  </div>
+  <script>
+    const VERIFY='${VERIFY_URL}';
+    const WL_ENDPOINT='${workerOrigin}/dlhd/whitelist?channel=${channel}';
+
+    async function doWhitelist(){
+      const el=document.getElementById('status');
+      el.className='status pending';
+      el.textContent='Solving reCAPTCHA...';
+      try{
+        const r=await fetch(WL_ENDPOINT);
+        const d=await r.json();
+        if(!d.success||!d.token){el.className='status err';el.textContent='Failed: '+(d.error||'no token');return}
+        el.textContent='Whitelisting your IP...';
+        const v=await fetch(VERIFY,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({'recaptcha-token':d.token,'channel_id':d.channel_id})
+        });
+        const vd=await v.json();
+        if(vd.success){
+          el.className='status ok';
+          el.textContent='\\u2705 IP whitelisted'+(vd.ip?' ('+vd.ip+')':'')+' — paste the URL into VLC';
+        }else{
+          el.className='status err';
+          el.textContent='Whitelist failed: '+(vd.error||'unknown')+(vd.message?' — '+vd.message:'');
+        }
+      }catch(e){el.className='status err';el.textContent='Error: '+e.message}
+    }
+
+    function copyUrl(){navigator.clipboard.writeText('${m3u8Url}').then(()=>{const b=event.target;b.textContent='Copied!';setTimeout(()=>b.textContent='\\u{1F4CB} Copy URL',1500)})}
+    function openVlc(){window.location='vlc://${m3u8Url}'}
+
+    doWhitelist();
+  </script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+/**
+ * Rewrite M3U8 for external players (direct CDN URLs).
+ * User's IP must be whitelisted — keys and segments go direct to CDN.
+ * No worker proxy needed, no RPI round-trip.
+ */
+function rewriteM3U8Direct(content: string, m3u8BaseUrl: string): string {
+  let modified = content;
+
+  // Resolve relative key URLs to absolute CDN URLs (direct fetch by player)
+  modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
+    let absoluteKeyUrl = originalKeyUrl;
+    if (!absoluteKeyUrl.startsWith('http')) {
+      try {
+        const base = new URL(m3u8BaseUrl);
+        absoluteKeyUrl = new URL(originalKeyUrl, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
+      } catch {
+        absoluteKeyUrl = m3u8BaseUrl.replace(/\/[^/]*$/, '/') + originalKeyUrl;
+      }
+    }
+    return `URI="${absoluteKeyUrl}"`;
+  });
+
+  // Remove ENDLIST for live streams
+  modified = modified.replace(/\n?#EXT-X-ENDLIST\s*$/m, '');
+
+  // Fix split URLs (same logic as proxied version)
+  const lines = modified.split('\n');
+  const joinedLines: string[] = [];
+  let currentLine = '';
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      if (currentLine) { joinedLines.push(currentLine); currentLine = ''; }
+      joinedLines.push(line);
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (currentLine) joinedLines.push(currentLine);
+      currentLine = trimmed;
+    } else {
+      currentLine += trimmed;
+    }
+  }
+  if (currentLine) joinedLines.push(currentLine);
+
+  // Resolve relative segment URLs to absolute (player fetches direct from CDN)
+  const processedLines = joinedLines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return line;
+    // Relative segment URL — make absolute
+    try {
+      const base = new URL(m3u8BaseUrl);
+      return new URL(trimmed, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
+    } catch {
+      return line;
+    }
+  });
+
+  return processedLines.join('\n');
+}
+
+
 async function generateSignature(sessionId: string, resource: string, timestamp: number, secret: string): Promise<string> {
   const data = `${sessionId}:${resource}:${timestamp}`;
   const encoder = new TextEncoder();
@@ -921,12 +1172,6 @@ async function handlePlaylistRequest(
   env?: Env,
   request?: Request
 ): Promise<Response> {
-  // SECURITY: Validate origin first
-  if (!origin || !isAllowedOrigin(origin)) {
-    logger.warn('Unauthorized origin', { origin });
-    return jsonResponse({ error: 'Forbidden - invalid origin' }, 403, origin);
-  }
-
   // SECURITY: Rate limiting for playlist requests
   const ip = request?.headers.get('cf-connecting-ip') || '127.0.0.1';
   if (env?.RATE_LIMIT_KV) {
@@ -1050,10 +1295,23 @@ async function handlePlaylistRequest(
       return jsonResponse({ error: 'Invalid M3U8 response', preview: content.substring(0, 100) }, 502, origin);
     }
 
-    // Rewrite M3U8 to proxy keys through RPI and segments through our worker
-    const proxiedM3U8 = rewriteM3U8(content, proxyOrigin, m3u8Url, session.jwt, env?.RPI_PROXY_URL, env?.RPI_PROXY_KEY);
+    // Rewrite M3U8 based on mode:
+    // - direct=1 (external players): direct CDN URLs, user's IP must be whitelisted
+    // - default (browser): proxy keys/segments through worker → RPI
+    const isDirect = request?.url?.includes('direct=1');
+    
+    let outputM3U8: string;
+    if (isDirect) {
+      // External player mode — all URLs point directly to CDN
+      // User must have whitelisted their IP via /play page first
+      outputM3U8 = rewriteM3U8Direct(content, m3u8Url);
+      logger.info('Serving direct M3U8 for external player', { channel });
+    } else {
+      // Browser mode — proxy everything through worker
+      outputM3U8 = rewriteM3U8(content, proxyOrigin, m3u8Url, session.jwt, env?.RPI_PROXY_URL, env?.RPI_PROXY_KEY);
+    }
 
-    return new Response(proxiedM3U8, {
+    return new Response(outputM3U8, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',
@@ -1104,68 +1362,31 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
 
   try {
     let data: ArrayBuffer;
-    let fetchedVia = 'direct';
+    let fetchedVia = 'rpi-dlhd-key-v5';
     
-    // UPDATED February 25, 2026: Key endpoint requires full V5 auth (EPlayerAuth + PoW + channelSalt).
-    // Use RPI proxy's dedicated /dlhd-key endpoint which handles the entire auth flow.
-    
-    // Try direct fetch first (may work from CF IPs for some domains)
-    try {
-      logger.info('Trying direct key fetch');
-      
-      const directResponse = await fetch(normalizedKeyUrl, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Origin': `https://${PLAYER_DOMAIN}`,
-          'Referer': `https://${PLAYER_DOMAIN}/`,
-        },
-      });
-      
-      data = await directResponse.arrayBuffer();
-      const text = new TextDecoder().decode(data);
-      
-      // Valid key is exactly 16 bytes (AES-128) and not a JSON error
-      if (data.byteLength === 16 && !text.startsWith('{') && !text.startsWith('[')) {
-        // Verify it's not the known fake error key
-        const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
-        if (hex !== '455806f8bc592fdacb6ed5e071a517b1') {
-          logger.info('Direct key fetch succeeded');
-          fetchedVia = 'direct';
-        } else {
-          throw new Error('Got fake error key (455806...) - need V5 auth');
-        }
-      } else {
-        throw new Error(`Invalid key response: ${data.byteLength} bytes, preview: ${text.substring(0, 50)}`);
-      }
-    } catch (directError) {
-      logger.warn('Direct key fetch failed, trying RPI /dlhd-key (V5 auth)', { error: (directError as Error).message });
-      
-      // Fall back to RPI proxy's /dlhd-key endpoint which handles full V5 auth
-      if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
-        const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key?url=${encodeURIComponent(normalizedKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
-        const rpiRes = await fetch(rpiKeyUrl);
-        
-        if (!rpiRes.ok) {
-          const errText = await rpiRes.text();
-          logger.warn('RPI key fetch also failed', { status: rpiRes.status, error: errText });
-          return jsonResponse({ 
-            error: 'Key fetch failed (both direct and RPI)', 
-            directError: (directError as Error).message,
-            rpiStatus: rpiRes.status,
-            rpiError: errText.substring(0, 200)
-          }, 502, origin);
-        }
-        
-        data = await rpiRes.arrayBuffer();
-        fetchedVia = 'rpi-dlhd-key-v5';
-      } else {
-        return jsonResponse({ 
-          error: 'Key fetch failed (direct)', 
-          details: (directError as Error).message,
-          hint: 'Configure RPI_PROXY_URL and RPI_PROXY_KEY if DLHD CDN blocks CF IPs',
-        }, 502, origin);
-      }
+    // CF worker IPs are blocked by DLHD CDN and limited to 13 channels.
+    // Always use RPI proxy (residential IP) for key fetching — it handles V5 auth.
+    if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
+      return jsonResponse({ 
+        error: 'RPI proxy not configured', 
+        hint: 'DLHD keys require residential IP. Configure RPI_PROXY_URL and RPI_PROXY_KEY.',
+      }, 503, origin);
     }
+    
+    const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key?url=${encodeURIComponent(normalizedKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
+    const rpiRes = await fetch(rpiKeyUrl);
+    
+    if (!rpiRes.ok) {
+      const errText = await rpiRes.text();
+      logger.warn('RPI key fetch failed', { status: rpiRes.status, error: errText });
+      return jsonResponse({ 
+        error: 'Key fetch failed via RPI', 
+        rpiStatus: rpiRes.status,
+        rpiError: errText.substring(0, 200),
+      }, 502, origin);
+    }
+    
+    data = await rpiRes.arrayBuffer();
 
     const text = new TextDecoder().decode(data);
 
@@ -1348,7 +1569,14 @@ export async function handleDLHDRequest(request: Request, env: Env): Promise<Res
   const origin = request.headers.get('origin');
 
   // SECURITY: Validate origin for all non-health endpoints
-  if (path !== '/health' && (!origin || !isAllowedOrigin(origin))) {
+  // External players (VLC, mpv, etc.) don't send Origin headers.
+  // /play and /whitelist are browser pages meant to be accessed directly.
+  // Allow originless requests for stream endpoints — they're protected by rate limiting
+  // and keys are proxied server-side anyway.
+  const isExternalPlayer = !origin;
+  const isPublicEndpoint = path === '/play' || path === '/whitelist' || path === '/health';
+  
+  if (!isPublicEndpoint && !isExternalPlayer && !isAllowedOrigin(origin!)) {
     logger.warn('Blocked request from unauthorized origin', { origin, path });
     return jsonResponse({ error: 'Forbidden - invalid origin' }, 403, origin);
   }
@@ -1380,6 +1608,16 @@ export async function handleDLHDRequest(request: Request, env: Env): Promise<Res
 
     if (path === '/segment') {
       return handleSegmentProxy(url, logger, origin, env, request);
+    }
+
+    // External player whitelist: solve reCAPTCHA, return token for user to POST
+    if (path === '/whitelist') {
+      return handleWhitelistToken(url, logger, origin);
+    }
+
+    // External player landing page: auto-whitelists user's IP, shows M3U8 URL
+    if (path === '/play') {
+      return handlePlayPage(url, logger);
     }
 
     // Main playlist request
