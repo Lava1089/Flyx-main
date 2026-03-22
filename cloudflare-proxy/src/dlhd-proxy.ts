@@ -937,17 +937,15 @@ const FALLBACK_SERVER_KEYS = ['wiki', 'hzt', 'x4', 'zeko', 'wind', 'nfs', 'ddy6'
  * Uses RPI proxy as fallback since DLHD CDN may block CF IPs
  */
 async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promise<string | null> {
-  // Try multiple lookup domains (vovlacosa.sbs is the primary as of Feb 28, 2026)
   const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou'];
-  
+
   for (const domain of lookupDomains) {
     const url = `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`;
-    
-    // Try direct fetch
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
+
       const response = await fetch(url, {
         headers: {
           'User-Agent': USER_AGENT,
@@ -973,7 +971,7 @@ async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promi
       logger.warn('Direct server lookup error', { error: (error as Error).message, domain });
     }
   }
-  
+
   // Try RPI proxy as fallback
   if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
     try {
@@ -982,10 +980,10 @@ async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promi
         rpiBase = `https://${rpiBase}`;
       }
       rpiBase = rpiBase.replace(/\/+$/, '');
-      
-      const rpiUrl = `${rpiBase}/dlhd/stream?url=${encodeURIComponent(url)}&key=${env.RPI_PROXY_KEY}`;
+      const lookupUrl = `https://chevy.${lookupDomains[lookupDomains.length - 1]}/server_lookup?channel_id=${channelKey}`;
+      const rpiUrl = `${rpiBase}/dlhd/stream?url=${encodeURIComponent(lookupUrl)}&key=${env.RPI_PROXY_KEY}`;
       logger.info('Trying server lookup via RPI', { channelKey });
-      
+
       const rpiRes = await fetch(rpiUrl);
       if (rpiRes.ok) {
         const text = await rpiRes.text();
@@ -1001,10 +999,11 @@ async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promi
       logger.warn('RPI server lookup error', { error: (error as Error).message });
     }
   }
-  
+
   logger.warn('All server lookup methods failed, using fallback', { channelKey });
   return FALLBACK_SERVER_KEYS[0];
 }
+
 
 /**
  * Construct M3U8 URL for a channel
