@@ -56,7 +56,6 @@ function loadTurnstileScript(): Promise<void> {
 export default function PrimeSrcTurnstile({ onToken, onError, autoSolve = true }: PrimeSrcTurnstileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
-  const [ready, setReady] = useState(false);
 
   const renderWidget = useCallback(() => {
     if (!containerRef.current) return;
@@ -103,7 +102,6 @@ export default function PrimeSrcTurnstile({ onToken, onError, autoSolve = true }
     let cancelled = false;
     loadTurnstileScript().then(() => {
       if (cancelled) return;
-      setReady(true);
       // Small delay to ensure DOM is ready
       setTimeout(() => {
         if (!cancelled) renderWidget();
