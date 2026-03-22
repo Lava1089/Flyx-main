@@ -104,6 +104,7 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
       const providersData = await providersRes.json();
       
       const availability = {
+        primesrc: providersData.providers?.primesrc?.enabled ?? true,
         flixer: providersData.providers?.flixer?.enabled ?? true,
         uflix: providersData.providers?.uflix?.enabled ?? true,
         hexa: providersData.providers?.hexa?.enabled ?? true,
@@ -148,8 +149,8 @@ export default function VideoPlayerWrapper(props: VideoPlayerWrapperProps) {
 
       // Add any remaining available providers as fallback
       const allProviders = isAnime
-        ? ['animekai', 'flixer', 'uflix', 'hexa', 'vidsrc', '1movies']
-        : ['flixer', 'uflix', 'hexa', 'vidsrc', '1movies'];
+        ? ['animekai', 'primesrc', 'flixer', 'uflix', 'hexa', 'vidsrc', '1movies']
+        : ['primesrc', 'flixer', 'uflix', 'hexa', 'vidsrc', '1movies'];
       for (const p of allProviders) {
         if (providerOrder.includes(p)) continue;
         if (disabledProviders.has(p)) continue;

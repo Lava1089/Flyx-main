@@ -35,6 +35,7 @@ import { handlePPVRequest } from './ppv-proxy';
 import { handleVIPRowRequest } from './viprow-proxy';
 import { handleVidSrcRequest } from './vidsrc-proxy';
 import { handleHiAnimeRequest } from './hianime-proxy';
+import { handlePrimeSrcRequest } from './primesrc-proxy';
 import { runHealthChecks } from './hexa-monitor';
 import { createLogger, type LogLevel } from './logger';
 import { incrementMetric } from './metrics';
@@ -263,6 +264,14 @@ export function buildRouteTable(): RouteEntry[] {
         incrementMetric('hianimeRequests');
         logger.info('Routing to HiAnime proxy', { path: new URL(request.url).pathname });
         return await handleHiAnimeRequest(request, env);
+      },
+    },
+    {
+      prefix: '/primesrc',
+      handler: async (request, env, _ctx, logger) => {
+        incrementMetric('primesrcRequests');
+        logger.info('Routing to PrimeSrc proxy', { path: new URL(request.url).pathname });
+        return await handlePrimeSrcRequest(request, env);
       },
     },
 

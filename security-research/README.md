@@ -13,6 +13,7 @@ This folder documents the anti-scraping measures, security mechanisms, and bypas
 | Uflix (uflix.to) | ✅ Integrated | [uflix.md](./uflix.md) | 2026-03-19 |
 | Nepoflix (nepoflix.site) | 🔍 Not Integrated | [nepoflix.md](./nepoflix.md) | 2026-03-19 |
 | Streamversea (streamversea.site) | 🔍 Not Integrated | [streamversea.md](./streamversea.md) | 2026-03-19 |
+| PrimeSrc (primesrc.me) | ✅ Integrated | [primesrc.md](./primesrc.md) | 2026-03-20 |
 
 ## How to Use This Folder
 
@@ -38,6 +39,7 @@ bun test security-research/tapemotion/e2e.test.ts --timeout 60000
 bun test security-research/uflix/e2e.test.ts --timeout 60000
 bun test security-research/nepoflix/e2e.test.ts --timeout 60000
 bun test security-research/streamversea/e2e.test.ts --timeout 60000
+bun test security-research/primesrc/e2e.test.ts --timeout 60000
 ```
 
 ### Test Categories
@@ -51,6 +53,7 @@ bun test security-research/streamversea/e2e.test.ts --timeout 60000
 | Uflix | Full pipeline | Search → slug → IMDB extraction → gStream API → 5 embed URLs |
 | Nepoflix | Reconnaissance | Protection analysis, UA testing, infrastructure ID |
 | Streamversea | Reconnaissance | SPA analysis, JS bundle inspection, API discovery |
+| PrimeSrc | Full pipeline | Server list API, PrimeVid cloudnestra extraction, Turnstile bypass, CDN domain resolution |
 
 ### Notes
 

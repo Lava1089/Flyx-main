@@ -18,14 +18,22 @@ import { FLIXER_ENABLED } from '@/app/lib/services/flixer-extractor';
 import { MULTI_EMBED_ENABLED } from '@/app/lib/services/multi-embed-extractor';
 import { UFLIX_ENABLED } from '@/app/lib/services/uflix-extractor';
 
+import { PRIMESRC_ENABLED } from '@/app/lib/services/primesrc-extractor';
+
 export async function GET() {
   return NextResponse.json({
     providers: {
+      primesrc: {
+        enabled: PRIMESRC_ENABLED,
+        name: 'PrimeSrc',
+        primary: true,
+        description: 'Primary streaming source (CF Worker extraction, no RPI needed)',
+      },
       flixer: {
         enabled: FLIXER_ENABLED,
         name: 'Flixer',
-        primary: true,
-        description: 'Primary streaming source (WASM-based extraction)',
+        primary: false,
+        description: 'Flixer streaming source (WASM-based extraction)',
       },
       uflix: {
         enabled: UFLIX_ENABLED,

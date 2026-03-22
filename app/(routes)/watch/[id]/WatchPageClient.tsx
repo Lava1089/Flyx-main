@@ -376,7 +376,7 @@ function WatchContent() {
       }
       
       // Check provider availability first
-      let providerAvailability = { vidsrc: true, flixer: true, '1movies': true, uflix: true, animekai: true, hianime: true };
+      let providerAvailability = { vidsrc: true, flixer: true, '1movies': true, uflix: true, animekai: true, hianime: true, primesrc: true };
       try {
         const providerRes = await fetch('/api/providers');
         const providerData = await providerRes.json();
@@ -387,6 +387,7 @@ function WatchContent() {
           uflix: providerData.providers?.uflix?.enabled ?? true,
           animekai: providerData.providers?.animekai?.enabled ?? true,
           hianime: providerData.providers?.hianime?.enabled ?? true,
+          primesrc: providerData.providers?.primesrc?.enabled ?? true,
         };
       } catch (e) {
         console.warn('[WatchPage] Failed to fetch provider availability, using defaults');
@@ -396,15 +397,15 @@ function WatchContent() {
       const userSettings = getProviderSettings();
       const userOrder = userSettings.providerOrder || [];
       const disabledProviders = new Set(userSettings.disabledProviders || []);
-      const providerOrder: Array<'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa'> = [];
+      const providerOrder: Array<'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa' | 'primesrc'> = [];
       
       // Determine if this is anime content - use malId OR previously detected anime
       const isAnime = !!(malId || isAnimeDetectedRef.current);
       
       const animeOnlyProviders = ['animekai', 'hianime'];
-      const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa'> = isAnime
-        ? ['hianime', 'animekai', 'flixer', 'uflix', 'vidsrc', '1movies', 'hexa']
-        : ['flixer', 'uflix', 'vidsrc', '1movies', 'hexa'];
+      const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa' | 'primesrc'> = isAnime
+        ? ['hianime', 'animekai', 'primesrc', 'flixer', 'uflix', 'vidsrc', '1movies', 'hexa']
+        : ['primesrc', 'flixer', 'uflix', 'vidsrc', '1movies', 'hexa'];
 
       // For ANIME content: always put HiAnime + AnimeKai first (sub/dub toggle needs them)
       if (isAnime) {

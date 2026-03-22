@@ -13,6 +13,7 @@ A Cloudflare Worker that proxies HLS streams and live TV with proper headers and
 - **DLHD Proxy** (`/dlhd/`) - Proxies DLHD via Oxylabs residential IPs
 - **Analytics Proxy** (`/analytics/`) - Routes analytics to the dedicated Analytics Worker
 - **Decoder Sandbox** (`/decode`) - Isolated script execution environment
+- **PrimeSrc Proxy** (`/primesrc/`) - Extracts PrimeVid streams via cloudnestra chain (bypasses Turnstile)
 - **Health Check** (`/health`) - Status and metrics endpoint
 - **Full Observability** - Structured JSON logging with request tracing
 

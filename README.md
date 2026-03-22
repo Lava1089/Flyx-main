@@ -30,17 +30,18 @@ All streaming sources are managed through a unified Provider Registry with prior
 
 | # | Provider | Content | Method | Priority | Status |
 |---|----------|---------|--------|----------|--------|
-| 1 | Flixer | Movies, TV | WASM decryption via Hexa API | 10 | ✅ Enabled |
-| 2 | Uflix | Movies, TV | Multi-embed aggregator (5 servers) | 20 | ✅ Enabled |
-| 3 | AnimeKai | Anime | 183-table substitution cipher | 30 | ✅ Enabled |
-| 4 | HiAnime | Anime | MegaCloud TLS fingerprint bypass | 35 | ✅ Enabled |
-| 5 | VidSrc | Movies, TV | Multi-embed scraping | 40 | ✅ Enabled |
-| 6 | MultiEmbed | Movies, TV | Direct HTML scraping | 50 | ❌ Disabled |
-| 7 | DLHD | Live TV | PoW auth + AES segment decryption | 100 | ✅ Enabled |
-| 8 | CDN-Live | Live TV | CDN stream extraction | 105 | ✅ Enabled |
-| 9 | VIPRow | Live Sports | Casthill token + manifest rewrite | 110 | ✅ Enabled |
-| 10 | PPV | PPV Events | Residential proxy extraction | 120 | ✅ Enabled |
-| 11 | IPTV | IPTV | Stalker portal + MAC auth | 130 | ✅ Enabled |
+| 1 | PrimeSrc | Movies, TV | PrimeVid extraction via CF Worker | 10 | ✅ Enabled |
+| 2 | Flixer | Movies, TV | WASM decryption via Hexa API | 10 | ✅ Enabled |
+| 3 | Uflix | Movies, TV | Multi-embed aggregator (5 servers) | 20 | ✅ Enabled |
+| 4 | AnimeKai | Anime | 183-table substitution cipher | 30 | ✅ Enabled |
+| 5 | HiAnime | Anime | MegaCloud TLS fingerprint bypass | 35 | ✅ Enabled |
+| 6 | VidSrc | Movies, TV | Multi-embed scraping | 40 | ✅ Enabled |
+| 7 | MultiEmbed | Movies, TV | Direct HTML scraping | 50 | ❌ Disabled |
+| 8 | DLHD | Live TV | PoW auth + AES segment decryption | 100 | ✅ Enabled |
+| 9 | CDN-Live | Live TV | CDN stream extraction | 105 | ✅ Enabled |
+| 10 | VIPRow | Live Sports | Casthill token + manifest rewrite | 110 | ✅ Enabled |
+| 11 | PPV | PPV Events | Residential proxy extraction | 120 | ✅ Enabled |
+| 12 | IPTV | IPTV | Stalker portal + MAC auth | 130 | ✅ Enabled |
 
 Lower priority number = tried first. Providers are selected automatically based on content type.
 

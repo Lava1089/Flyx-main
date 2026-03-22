@@ -609,3 +609,50 @@ export function getVIPRowSegmentProxyUrl(segmentUrl: string): string {
   const baseUrl = cfProxyUrl.replace(/\/stream\/?$/, '');
   return `${baseUrl}/viprow/segment?url=${encodeURIComponent(segmentUrl)}`;
 }
+
+// ─── PrimeSrc Proxy ─────────────────────────────────────────────
+
+function getPrimeSrcProxyBaseUrl(): string {
+  const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL ||
+                     process.env.CF_STREAM_PROXY_URL ||
+                     'https://media-proxy.vynx.workers.dev/stream';
+  return cfProxyUrl.replace(/\/stream\/?$/, '');
+}
+
+/**
+ * Check if PrimeSrc proxy is configured
+ */
+export function isPrimeSrcProxyConfigured(): boolean {
+  return !!process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL;
+}
+
+/**
+ * Get PrimeSrc extraction URL (calls CF Worker /primesrc/extract)
+ * Optionally includes a Turnstile token for full server resolution.
+ */
+export function getPrimeSrcExtractUrl(
+  tmdbId: string,
+  type: 'movie' | 'tv',
+  season?: number,
+  episode?: number,
+  turnstileToken?: string,
+): string {
+  const baseUrl = getPrimeSrcProxyBaseUrl();
+  const params = new URLSearchParams({ tmdbId, type });
+  if (type === 'tv' && season && episode) {
+    params.set('season', season.toString());
+    params.set('episode', episode.toString());
+  }
+  if (turnstileToken) {
+    params.set('token', turnstileToken);
+  }
+  return `${baseUrl}/primesrc/extract?${params.toString()}`;
+}
+
+/**
+ * Get PrimeSrc stream proxy URL (proxies m3u8/segments via CF Worker)
+ */
+export function getPrimeSrcStreamProxyUrl(url: string): string {
+  const baseUrl = getPrimeSrcProxyBaseUrl();
+  return `${baseUrl}/primesrc/stream?url=${encodeURIComponent(url)}`;
+}

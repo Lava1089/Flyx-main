@@ -15,9 +15,15 @@ interface ProviderInfo {
 
 const PROVIDERS: ProviderInfo[] = [
   {
+    id: 'primesrc',
+    name: 'PrimeSrc',
+    description: 'Primary provider — CF Worker, no RPI needed',
+    icon: '⚡',
+  },
+  {
     id: 'flixer',
     name: 'Flixer',
-    description: 'Primary provider — WASM-based, fastest',
+    description: 'WASM-based extraction, fast',
     icon: '📺',
   },
   {

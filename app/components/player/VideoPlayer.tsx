@@ -28,6 +28,8 @@ import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useCast, CastMedia } from '@/hooks/useCast';
 import { CastOverlay } from './CastButton';
 import TranscriptButton from './TranscriptButton';
+import PrimeSrcTurnstile from './PrimeSrcTurnstile';
+import { setTurnstileToken } from '@/app/lib/services/primesrc-extractor';
 // Player Core hooks — shared logic extracted for reuse by both desktop and mobile players
 // These hooks encapsulate HLS management, subtitle handling, progress tracking, and source switching.
 // The desktop player integrates these hooks for shared functionality while retaining
@@ -956,8 +958,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       const defaultOrder: string[] = isAnime
         ? (isMalDirect
           ? ['hianime', 'animekai']
-          : ['hianime', 'animekai', 'flixer', 'uflix', 'vidsrc'])
-        : ['flixer', 'uflix', 'vidsrc'];
+          : ['hianime', 'animekai', 'primesrc', 'flixer', 'uflix', 'vidsrc'])
+        : ['primesrc', 'flixer', 'uflix', 'vidsrc'];
 
       const priorityOrder: string[] = [];
       for (const p of userOrder) {
@@ -3288,6 +3290,15 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       onClick={handleContainerClick}
       data-tv-skip-navigation="true"
     >
+      {/* PrimeSrc Turnstile solver — invisible, solves challenge in background */}
+      <PrimeSrcTurnstile
+        onToken={(token) => {
+          setTurnstileToken(token);
+          console.log('[VideoPlayer] PrimeSrc Turnstile token set');
+        }}
+        onError={(err) => console.warn('[VideoPlayer] Turnstile error:', err)}
+      />
+
       {/* Back button - controlled by showControls */}
       {onBack && (showControls || !isPlaying) && (
         <button 
