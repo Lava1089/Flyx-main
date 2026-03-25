@@ -239,9 +239,13 @@ GET /dlhd/segment?url=<encoded_url>
 GET /dlhd/health
 ```
 
-**Configuration (optional):**
+**⚠️ REQUIRES RPI PROXY** - DLHD's CDN (dvalna.ru) blocks all datacenter IPs including Cloudflare Workers. All M3U8 playlists, encryption keys, and segments are routed through a residential IP proxy.
+
+**Configuration Required:**
 - `RPI_PROXY_URL` - URL of your residential IP proxy server
 - `RPI_PROXY_KEY` - Authentication key for the proxy
+
+Without RPI proxy configured, all DLHD requests will return 503 Service Unavailable.
 
 ### AnimeKai Proxy (MegaUp CDN)
 
