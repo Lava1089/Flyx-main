@@ -61,16 +61,17 @@ const ALLOWED_ORIGINS = [
   '.workers.dev',
 ];
 
-// UPDATED February 25, 2026: www.ksohls.ru is the new player domain (was lefttoplay.xyz, before that epaly.fun)
-const PLAYER_DOMAIN = 'www.ksohls.ru';
+// UPDATED March 24, 2026: enviromentalspace.sbs is the new player domain (was ksohls.ru → lefttoplay.xyz → epaly.fun)
+const PLAYER_DOMAIN = 'enviromentalspace.sbs';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 
-// UPDATED February 25, 2026: M3U8 now via proxy pattern
+// UPDATED March 24, 2026: ai.the-sunmoon.site is new primary M3U8/verify server
 const ALL_SERVER_KEYS = [
   'ddy6',     // ONLY server we use - most reliable
 ];
 const CDN_DOMAIN = 'soyspace.cyou';
+const M3U8_SERVER = 'ai.the-sunmoon.site'; // Primary M3U8 + verify server
 
 // CORRECT SECRET - extracted from WASM module (January 2026)
 // The old 64-char hex secret is WRONG! This is the real one from the WASM.
@@ -293,17 +294,17 @@ const channelKeyToTopembed = new Map<string, string>();
 const dlhdIdToChannelKey = new Map<string, string>();
 
 /**
- * Fetch JWT from www.ksohls.ru or hitsplay.fun player page - this is the REAL auth token needed for key requests
- * 
- * UPDATED February 25, 2026: 
- * - www.ksohls.ru is the new primary player domain (replaces epaly.fun/lefttoplay.xyz)
+ * Fetch JWT from player page - this is the REAL auth token needed for key requests
+ *
+ * UPDATED March 24, 2026:
+ * - enviromentalspace.sbs is the new primary player domain (was ksohls.ru)
  * - hitsplay.fun provides JWT directly but uses 'premium{id}' keys which may not work on all servers
- * - PRIORITY: www.ksohls.ru first (fast), then hitsplay.fun (fallback)
+ * - PRIORITY: enviromentalspace.sbs first (fast), then ksohls.ru (fallback), then hitsplay.fun
  */
 async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<string | null> {
   const cacheKey = channel;
   const cached = jwtCache.get(cacheKey);
-  
+
   // Check cache - use if not expired
   if (cached && Date.now() - cached.fetchedAt < JWT_CACHE_TTL_MS) {
     const now = Math.floor(Date.now() / 1000);
@@ -312,59 +313,62 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
       return cached.jwt;
     }
   }
-  
+
   logger.info('Fetching fresh JWT', { channel });
-  
+
   // ============================================================================
-  // METHOD 1: Try www.ksohls.ru first (primary domain - Feb 25, 2026)
+  // METHOD 1: Try player domains (enviromentalspace.sbs primary, ksohls.ru fallback)
   // ============================================================================
-  try {
-    const epalyUrl = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`;
-    logger.info('Trying www.ksohls.ru for JWT (primary)', { channel });
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
+  const playerDomains = [PLAYER_DOMAIN, 'www.ksohls.ru'];
+  for (const domain of playerDomains) {
     try {
-      const res = await fetch(epalyUrl, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Referer': 'https://daddylive.mp/',
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const html = await res.text();
-        const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-        if (jwtMatch) {
-          const jwt = jwtMatch[0];
-          let channelKey = `premium${channel}`;
-          let exp = Math.floor(Date.now() / 1000) + 18000;
-          
-          try {
-            const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-            const payload = JSON.parse(atob(payloadB64));
-            channelKey = payload.sub || channelKey;
-            exp = payload.exp || exp;
-            logger.info('JWT from www.ksohls.ru', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
-          } catch (e) {
-            logger.warn('JWT decode failed, using defaults');
+      const playerUrl = `https://${domain}/premiumtv/daddyhd.php?id=${channel}`;
+      logger.info(`Trying ${domain} for JWT`, { channel });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const res = await fetch(playerUrl, {
+          headers: {
+            'User-Agent': USER_AGENT,
+            'Referer': `https://dlstreams.top/`,
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const html = await res.text();
+          const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+          if (jwtMatch) {
+            const jwt = jwtMatch[0];
+            let channelKey = `premium${channel}`;
+            let exp = Math.floor(Date.now() / 1000) + 18000;
+
+            try {
+              const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+              const payload = JSON.parse(atob(payloadB64));
+              channelKey = payload.sub || channelKey;
+              exp = payload.exp || exp;
+              logger.info(`JWT from ${domain}`, { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
+            } catch (e) {
+              logger.warn('JWT decode failed, using defaults');
+            }
+
+            jwtCache.set(cacheKey, { jwt, channelKey, exp, fetchedAt: Date.now() });
+            channelKeyToTopembed.set(channelKey, channel);
+            dlhdIdToChannelKey.set(channel, channelKey);
+
+            return jwt;
           }
-          
-          jwtCache.set(cacheKey, { jwt, channelKey, exp, fetchedAt: Date.now() });
-          channelKeyToTopembed.set(channelKey, channel);
-          dlhdIdToChannelKey.set(channel, channelKey);
-          
-          return jwt;
         }
+      } catch (e) {
+        clearTimeout(timeoutId);
+        logger.warn(`${domain} fetch error`, { error: (e as Error).message });
       }
     } catch (e) {
-      clearTimeout(timeoutId);
-      logger.warn('www.ksohls.ru fetch error', { error: (e as Error).message });
+      logger.warn(`${domain} JWT fetch failed`, { error: (e as Error).message });
     }
-  } catch (e) {
-    logger.warn('www.ksohls.ru JWT fetch failed', { error: (e as Error).message });
   }
 
   // ============================================================================
@@ -460,37 +464,43 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
 async function getServerKey(channelKey: string, logger: any, env?: Env): Promise<string> {
   const cached = serverKeyCache.get(channelKey);
   if (cached && Date.now() - cached.fetchedAt < SERVER_KEY_CACHE_TTL_MS) return cached.serverKey;
-  
-  const lookupUrl = `https://chevy.${CDN_DOMAIN}/server_lookup?channel_id=${channelKey}`;
-  
-  try {
-    // Try direct fetch first
-    const res = await fetch(lookupUrl, {
-      headers: { 'User-Agent': USER_AGENT, 'Referer': `https://${PLAYER_DOMAIN}/` },
-    });
-    if (res.ok) {
-      const text = await res.text();
-      if (!text.startsWith('<')) {
-        const data = JSON.parse(text);
-        if (data.server_key) {
-          logger.info('Server lookup success (direct)', { channelKey, serverKey: data.server_key });
-          serverKeyCache.set(channelKey, { serverKey: data.server_key, fetchedAt: Date.now() });
-          return data.server_key;
+
+  // March 24, 2026: Try ai.the-sunmoon.site first (new primary), then chevy.soyspace.cyou
+  const lookupUrls = [
+    `https://${M3U8_SERVER}/server_lookup?channel_id=${channelKey}`,
+    `https://chevy.${CDN_DOMAIN}/server_lookup?channel_id=${channelKey}`,
+  ];
+
+  for (const lookupUrl of lookupUrls) {
+    try {
+      const res = await fetch(lookupUrl, {
+        headers: { 'User-Agent': USER_AGENT, 'Origin': `https://${PLAYER_DOMAIN}`, 'Referer': `https://${PLAYER_DOMAIN}/` },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (!text.startsWith('<')) {
+          const data = JSON.parse(text);
+          if (data.server_key) {
+            logger.info('Server lookup success (direct)', { channelKey, serverKey: data.server_key, url: lookupUrl });
+            serverKeyCache.set(channelKey, { serverKey: data.server_key, fetchedAt: Date.now() });
+            return data.server_key;
+          }
+        } else {
+          logger.warn('Server lookup returned HTML (blocked?)', { channelKey, url: lookupUrl });
         }
       } else {
-        logger.warn('Server lookup returned HTML (blocked?)', { channelKey });
+        logger.warn('Server lookup HTTP error', { channelKey, status: res.status, url: lookupUrl });
       }
-    } else {
-      logger.warn('Server lookup HTTP error', { channelKey, status: res.status });
+    } catch (e) {
+      logger.warn('Server lookup direct fetch failed', { channelKey, error: (e as Error).message, url: lookupUrl });
     }
-  } catch (e) {
-    logger.warn('Server lookup direct fetch failed', { channelKey, error: (e as Error).message });
   }
   
   // Try RPI proxy if configured
   if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
     try {
-      const rpiUrl = `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(lookupUrl)}&key=${env.RPI_PROXY_KEY}`;
+      const rpiUrl = `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(lookupUrls[0])}&key=${env.RPI_PROXY_KEY}`;
       const rpiRes = await fetch(rpiUrl);
       if (rpiRes.ok) {
         const text = await rpiRes.text();
@@ -523,8 +533,9 @@ function constructM3U8Url(serverKey: string, channelKey: string): string {
  * This returns the correct server for a given channel key
  */
 async function fetchServerKeyFromLookup(channelKey: string, logger: any, env?: Env): Promise<string | null> {
-  const lookupUrl = `https://chevy.${CDN_DOMAIN}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`;
-  
+  // March 24, 2026: ai.the-sunmoon.site is new primary lookup server
+  const lookupUrl = `https://${M3U8_SERVER}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`;
+
   try {
     let res: Response;
     if (env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY) {
@@ -534,6 +545,7 @@ async function fetchServerKeyFromLookup(channelKey: string, logger: any, env?: E
       res = await fetch(lookupUrl, {
         headers: {
           'User-Agent': USER_AGENT,
+          'Origin': `https://${PLAYER_DOMAIN}`,
           'Referer': `https://${PLAYER_DOMAIN}/`,
         },
       });
@@ -1001,7 +1013,7 @@ interface MoveonjoyResult {
 //   → The upstream whitelists the client's IP for ~30 minutes
 //
 // After whitelist, the client's browser can fetch keys directly from
-// chevy.soyspace.cyou/key/... or go.ai-chatx.site/key/... — no RPI needed.
+// key.keylocking.ru/key/... or chevy.soyspace.cyou/key/... — needs reCAPTCHA whitelist.
 // ============================================================================
 
 const RECAPTCHA_SITE_KEY = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
@@ -1116,7 +1128,7 @@ async function handleWhitelistToken(
       success: true,
       token,
       channel_id: channel,
-      verify_url: `https://chevy.${CDN_DOMAIN}/verify`,
+      verify_url: `https://${M3U8_SERVER}/verify`,
     }, 200, origin);
   } catch (err) {
     logger.error('reCAPTCHA solve failed', { channel, error: (err as Error).message });
@@ -1128,7 +1140,87 @@ async function handleWhitelistToken(
   }
 }
 
-// handleWhitelistVerify REMOVED — client POSTs directly to chevy.soyspace.cyou/verify
+/**
+ * GET /whitelist/verify?channel=premium51
+ * Routes through the RPI proxy's /dlhd-whitelist endpoint which uses
+ * rust-fetch via ProxyJet residential SOCKS5 to:
+ *   1. Solve reCAPTCHA v3
+ *   2. POST token to ai.the-sunmoon.site/verify
+ *   3. Whitelist the residential proxy IP (same IP used for key fetches)
+ *
+ * March 24, 2026: The verify MUST come from the same IP that fetches keys.
+ * CF worker IPs are useless — DLHD whitelists the caller's IP, and CF workers
+ * have rotating IPs. The RPI's ProxyJet sticky session ensures the same
+ * residential IP is used for both verify and key fetches.
+ */
+const whitelistVerifyRateLimit = new Map<string, { count: number; resetAt: number }>();
+
+async function handleWhitelistVerify(
+  url: URL, logger: any, origin: string | null, request?: Request, env?: Env
+): Promise<Response> {
+  const channel = url.searchParams.get('channel');
+  if (!channel || !/^premium\d+$/.test(channel)) {
+    return jsonResponse({ error: 'Missing or invalid channel (e.g. premium51)' }, 400, origin);
+  }
+
+  // Rate limit per IP
+  const clientIP = request?.headers.get('cf-connecting-ip') || 'unknown';
+  const now = Date.now();
+  const rl = whitelistVerifyRateLimit.get(clientIP);
+  if (rl && now < rl.resetAt) {
+    if (rl.count >= WHITELIST_TOKEN_RATE_LIMIT) {
+      logger.warn('Whitelist verify rate limit exceeded', { ip: clientIP, count: rl.count });
+      return jsonResponse({ error: 'Rate limit exceeded', retryAfter: Math.ceil((rl.resetAt - now) / 1000) }, 429, origin);
+    }
+    rl.count++;
+  } else {
+    whitelistVerifyRateLimit.set(clientIP, { count: 1, resetAt: now + WHITELIST_TOKEN_RATE_WINDOW_MS });
+  }
+
+  // Route through RPI proxy — it uses rust-fetch via ProxyJet SOCKS5
+  // so the residential IP gets whitelisted (same IP used for key fetches)
+  if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
+    logger.error('RPI proxy not configured for whitelist verify');
+    return jsonResponse({ error: 'Proxy not configured', hint: 'RPI_PROXY_URL and RPI_PROXY_KEY required' }, 503, origin);
+  }
+
+  try {
+    const rpiUrl = `${env.RPI_PROXY_URL}/dlhd-whitelist?channel=${channel}&key=${env.RPI_PROXY_KEY}`;
+    logger.info('Calling RPI /dlhd-whitelist via ProxyJet', { channel });
+
+    const rpiResp = await fetch(rpiUrl, {
+      headers: { 'X-API-Key': env.RPI_PROXY_KEY },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    const rpiText = await rpiResp.text();
+    logger.info('RPI whitelist response', { status: rpiResp.status, body: rpiText.substring(0, 200) });
+
+    let rpiData: any = {};
+    try { rpiData = JSON.parse(rpiText); } catch { /* not JSON */ }
+
+    if (rpiData.success) {
+      return jsonResponse({
+        success: true,
+        ip: rpiData.ip || 'residential-proxy',
+        message: rpiData.message,
+      }, 200, origin);
+    }
+
+    return jsonResponse({
+      success: false,
+      error: rpiData.error || 'whitelist_failed',
+      message: rpiData.message || rpiText.substring(0, 200),
+    }, 200, origin);
+  } catch (err) {
+    logger.error('Whitelist verify failed', { channel, error: (err as Error).message });
+    return jsonResponse({
+      success: false,
+      error: 'whitelist_verify_failed',
+      details: (err as Error).message,
+    }, 502, origin);
+  }
+}
 // (upstream has Access-Control-Allow-Origin: *, so browser can POST without proxy)
 
 
@@ -1179,6 +1271,7 @@ export default {
         return jsonResponse({ status: 'healthy', domain: CDN_DOMAIN, method: 'pow-auth' }, 200, origin);
       }
       if (path === '/whitelist/token') return handleWhitelistToken(url, logger, origin, request);
+      if (path === '/whitelist/verify') return handleWhitelistVerify(url, logger, origin, request, env);
       if (path === '/key') return handleKeyProxy(url, logger, origin, env);
       if (path === '/segment') {
         // Pass client IP for rate limiting
@@ -1359,8 +1452,8 @@ async function tryCdnLiveBackend(
  * Returns the content if successful, null otherwise
  * 
  * CRITICAL: DLHD CDN requires:
- * - Origin: https://www.ksohls.ru
- * - Referer: https://www.ksohls.ru/
+ * - Origin: https://enviromentalspace.sbs
+ * - Referer: https://enviromentalspace.sbs/
  * - Authorization: Bearer <JWT> (optional - not always needed)
  */
 async function tryDvalnaServer(
@@ -1376,17 +1469,36 @@ async function tryDvalnaServer(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   
   try {
-    // Use RPI proxy with www.ksohls.ru referer - JWT is optional
-    let rpiUrl = env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY
-      ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`
-      : null;
-    
-    if (!rpiUrl) {
-      logger.warn('RPI proxy not configured for dvalna');
-      return null;
+    // Try direct fetch first (fast, ~1s) — M3U8 doesn't need residential IP
+    // Only fall back to RPI if direct fails (e.g., DLHD blocks CF IPs)
+    let m3u8Res: Response | null = null;
+    try {
+      m3u8Res = await fetch(m3u8Url, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Origin': `https://${PLAYER_DOMAIN}`,
+          'Referer': `https://${PLAYER_DOMAIN}/`,
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!m3u8Res.ok || !(await m3u8Res.clone().text()).includes('#EXTM3U')) {
+        m3u8Res = null; // fall through to RPI
+      }
+    } catch {
+      m3u8Res = null;
     }
-    
-    const m3u8Res = await fetch(rpiUrl, { signal: controller.signal });
+
+    // Fallback: RPI proxy
+    if (!m3u8Res) {
+      const rpiUrl = env?.RPI_PROXY_URL && env?.RPI_PROXY_KEY
+        ? `${env.RPI_PROXY_URL}/dlhd/stream?url=${encodeURIComponent(m3u8Url)}&key=${env.RPI_PROXY_KEY}&referer=${encodeURIComponent(`https://${PLAYER_DOMAIN}/`)}`
+        : null;
+      if (!rpiUrl) {
+        logger.warn('RPI proxy not configured for dvalna');
+        return null;
+      }
+      m3u8Res = await fetch(rpiUrl, { signal: controller.signal });
+    }
     
     clearTimeout(timeout);
     
@@ -1522,9 +1634,13 @@ async function handlePlaylistRequest(channel: string, proxyOrigin: string, logge
   // Try fastest/simplest backends first, fall back to slower ones
   // ============================================================================
 
-  // Start JWT fetch early in background (needed for dvalna if we get there)
-  const jwtPromise = !skipBackends.includes('dvalna') 
-    ? fetchPlayerJWT(channel, logger, env) 
+  // JWT is OPTIONAL — M3U8 works without it. Race JWT fetch against a 3s timeout
+  // so we never block playlist delivery waiting for dead JWT sources.
+  const jwtPromise = !skipBackends.includes('dvalna')
+    ? Promise.race([
+        fetchPlayerJWT(channel, logger, env),
+        new Promise<null>(r => setTimeout(() => { logger.info('JWT fetch timeout (3s) — proceeding without'); r(null); }, 3000)),
+      ])
     : Promise.resolve(null);
 
 
@@ -1847,12 +1963,13 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
   // - X-Key-Path, X-Fingerprint headers
   // The /dlhd-key endpoint on RPI handles ALL of this automatically.
 
+  // March 25, 2026: chevy.soyspace.cyou is primary (key.keylocking.ru returns 403 from Cloudflare)
   const newKeyUrl = `https://chevy.${CDN_DOMAIN}/key/${channelKey}/${keyNumber}`;
 
   try {
     let data: ArrayBuffer;
     let fetchedVia = 'rpi-dlhd-key-v6';
-    
+
     // Use RPI proxy's /dlhd-key-v6 endpoint - uses rust-fetch binary mode with reCAPTCHA whitelist
     if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
       return jsonResponse({ 
@@ -1868,8 +1985,9 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
     
     // Add timeout to prevent hanging
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-    
+    // 50s timeout — RPI may need to solve reCAPTCHA + whitelist ProxyJet IP + retry (can take 20-30s)
+    const timeoutId = setTimeout(() => controller.abort(), 50000);
+
     let rpiRes: Response;
     try {
       rpiRes = await fetch(rpiKeyUrl, { signal: controller.signal });
@@ -1903,7 +2021,8 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
       const FAKE_KEYS = new Set([
         '455806f8bc592fdacb6ed5e071a517b1',
         '45db13cfa0ed393fdb7da4dfe9b5ac81',
-        '4542956ed8680eaccb615f7faad4da8f', // Discovered Mar 7 2026
+        '4542956ed8680eaccb615f7faad4da8f',
+        '45a542173e0b81d2a9c13cbc2bdcfd8c', // Discovered Mar 25 2026 — same for all key numbers
       ]);
       if (FAKE_KEYS.has(hex)) {
         logger.warn(`Got fake/poison key (${hex.substring(0, 8)}...) - IP not whitelisted`);
@@ -1943,7 +2062,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
 }
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['soyspace.cyou', 'go.ai-chatx.site', 'arbitrageai.cc', 'r2.cloudflarestorage.com'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'keylocking.ru', 'the-sunmoon.site', 'arbitrageai.cc', 'r2.cloudflarestorage.com'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs
@@ -1994,7 +2113,8 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
   // SECURITY: Validate domain whitelist to prevent proxying arbitrary URLs
   const allowedDomains = [
     'soyspace.cyou',
-    'go.ai-chatx.site',
+    'keylocking.ru',
+    'the-sunmoon.site',
     'arbitrageai.cc',
     'r2.cloudflarestorage.com',
     'cdn-live-tv.ru',
@@ -2035,10 +2155,10 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     } else if (urlHost.includes('moveonjoy.com')) {
       referer = 'https://tv-bu1.blogspot.com/';
       requestOrigin = 'https://tv-bu1.blogspot.com';
-    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('go.ai-chatx.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
-      // DLHD CDN requires www.ksohls.ru referer (updated Mar 2026)
-      referer = 'https://www.ksohls.ru/';
-      requestOrigin = 'https://www.ksohls.ru';
+    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('keylocking.ru') || urlHost.includes('the-sunmoon.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
+      // DLHD CDN requires enviromentalspace.sbs referer (updated Mar 24, 2026)
+      referer = `https://${PLAYER_DOMAIN}/`;
+      requestOrigin = `https://${PLAYER_DOMAIN}`;
     }
   } catch {}
   
@@ -2150,17 +2270,18 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
 function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string): string {
   let modified = content;
 
-  // KEY URLs: Leave as direct CDN URLs — client's IP is whitelisted via DLHDWhitelist,
-  // so the browser can fetch keys directly from chevy.soyspace.cyou without proxy.
-  // This eliminates the slow 6-8s RPI round-trip for key fetching.
-  // Just resolve relative key URLs to absolute CDN URLs.
+  // March 25, 2026: Route keys through /tv/key proxy.
+  // E2E testing proves chevy.soyspace.cyou returns a NEW fake key
+  // (45a542173e0b81d2a9c13cbc2bdcfd8c — same for all key numbers) to
+  // non-whitelisted IPs. Keys MUST go through RPI residential proxy which
+  // handles reCAPTCHA whitelist via ProxyJet SOCKS5.
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
     let absoluteKeyUrl = originalKeyUrl;
     if (!absoluteKeyUrl.startsWith('http')) {
       const base = new URL(m3u8BaseUrl);
       absoluteKeyUrl = new URL(originalKeyUrl, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
     }
-    return `URI="${absoluteKeyUrl}"`;
+    return `URI="${proxyOrigin}/key?url=${encodeURIComponent(absoluteKeyUrl)}"`;
   });
 
   modified = modified.replace(/\n?#EXT-X-ENDLIST\s*$/m, '');

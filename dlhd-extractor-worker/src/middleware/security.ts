@@ -18,23 +18,28 @@ const DEFAULT_ALLOWED_ORIGINS = [
 // Domains allowed for proxy requests
 const ALLOWED_PROXY_DOMAINS = [
   'soyspace.cyou',
-  'go.ai-chatx.site',  // reCAPTCHA-gated key server (Mar 2026)
+  'keylocking.ru',       // New key server (Mar 24, 2026)
+  'the-sunmoon.site',   // New primary M3U8 server (Mar 24, 2026)
   'dvalna.ru',
   'dlhd.link',
-  'dlhd.sx',
   'dlhd.dad',
-  'daddylive.sx',
-  'thedaddy.top',      // New main site (Mar 2026, replaces daddylive.mp)
-  'dlstreams.top',     // New main domain (Mar 2026, dlhd.link redirects here)
+  'daddylivestream.com',
+  'thedaddy.top',
+  'dlstreams.top',       // Current main domain (Mar 2026)
   'daddyhd.com',
-  'adffdafdsafds.sbs', // Current primary player domain (Mar 2026)
-  'www.ksohls.ru',     // Previous player domain (Feb 2026)
+  'adffdafdsafds.sbs',
+  'enviromentalspace.sbs', // Current player domain (Mar 24, 2026)
+  'www.ksohls.ru',       // Previous player domain (fallback)
   'ksohls.ru',
   'topembed.pw',
-  'allaivideo.fun',  // DLHD CDN for encrypted segments
-  'r2.cloudflarestorage.com', // New segment CDN (Cloudflare R2)
-  '333418.fun',      // DLHD WASM/PoW server
-  'arbitrageai.cc',  // Backup M3U8 proxy
+  'allaivideo.fun',
+  'r2.cloudflarestorage.com',
+  '333418.fun',
+  'arbitrageai.cc',
+  'vmvmv.shop',
+  'vovlacosa.sbs',
+  'goalwagon.net',       // New P2P embed domain
+  'extinctdeprive.net',  // Redirect target for goalwagon.net
 ];
 
 /**

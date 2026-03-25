@@ -17,11 +17,25 @@ export interface Env {
   RATE_LIMIT_WINDOW_MS?: string;
   RATE_LIMIT_MAX_REQUESTS?: string;
   
-  // RPI Proxy Configuration
+  // RPI Proxy Configuration (legacy — being replaced by residential proxy)
   /** Optional RPI proxy URL for bypassing Cloudflare protection */
   RPI_PROXY_URL?: string;
   /** API key for the RPI proxy */
   RPI_PROXY_API_KEY?: string;
+
+  // Residential SOCKS5 Proxy Configuration
+  /** SOCKS5 proxy hostname (e.g., geo.iproyal.com) */
+  RESIDENTIAL_PROXY_HOST?: string;
+  /** SOCKS5 proxy port (e.g., 12321) */
+  RESIDENTIAL_PROXY_PORT?: string;
+  /** Proxy username (e.g., customer-xxxx) */
+  RESIDENTIAL_PROXY_USER?: string;
+  /** Proxy password */
+  RESIDENTIAL_PROXY_PASS?: string;
+  /** Fly.io proxy relay URL (e.g., https://flyx-proxy-relay.fly.dev) */
+  PROXY_RELAY_URL?: string;
+  /** API key for the proxy relay */
+  PROXY_RELAY_KEY?: string;
 }
 
 /**

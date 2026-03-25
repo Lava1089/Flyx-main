@@ -20,10 +20,12 @@ const DLHD_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'];
 const DLHD_DOMAINS = ['soyspace.cyou', 'dvalna.ru'];
 
 // The ONLY working lookup endpoint
-const LOOKUP_ENDPOINT = 'https://chevy.soyspace.cyou/server_lookup';
+// March 24, 2026: ai.the-sunmoon.site is the new primary M3U8/lookup server
+const LOOKUP_ENDPOINT = 'https://ai.the-sunmoon.site/server_lookup';
 
 // Auth source
-const JWT_SOURCE_URL = 'https://www.ksohls.ru/premiumtv/daddyhd.php';
+// March 24, 2026: enviromentalspace.sbs replaces ksohls.ru as player domain
+const JWT_SOURCE_URL = 'https://enviromentalspace.sbs/premiumtv/daddyhd.php';
 
 /**
  * Auth data from JWT source
@@ -78,7 +80,7 @@ export async function fetchAuthData(
     response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://daddylive.mp/',
+        'Referer': 'https://dlstreams.top/',
       },
     });
   }
@@ -146,7 +148,7 @@ export async function lookupServer(
       response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://www.ksohls.ru/',
+          'Referer': 'https://enviromentalspace.sbs/',
         },
       });
     }
@@ -186,7 +188,7 @@ export async function findWorkingServer(
         let response: Response;
         
         if (proxyConfig.url && proxyConfig.apiKey) {
-          const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}&origin=${encodeURIComponent('https://www.ksohls.ru')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
+          const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://enviromentalspace.sbs/')}&origin=${encodeURIComponent('https://enviromentalspace.sbs')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
           response = await fetch(proxyUrl, {
             headers: { 'X-API-Key': proxyConfig.apiKey },
           });
@@ -194,8 +196,8 @@ export async function findWorkingServer(
           response = await fetch(m3u8Url, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Referer': 'https://www.ksohls.ru/',
-              'Origin': 'https://www.ksohls.ru',
+              'Referer': 'https://enviromentalspace.sbs/',
+              'Origin': 'https://enviromentalspace.sbs',
               'Authorization': `Bearer ${authData.token}`,
             },
           });
@@ -237,7 +239,7 @@ export async function findWorkingServer(
           
           if (proxyConfig.url && proxyConfig.apiKey) {
             // Route through RPI proxy with auth
-            const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}&origin=${encodeURIComponent('https://www.ksohls.ru')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
+            const proxyUrl = `${proxyConfig.url}/animekai?url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://enviromentalspace.sbs/')}&origin=${encodeURIComponent('https://enviromentalspace.sbs')}&auth=${encodeURIComponent(`Bearer ${authData.token}`)}`;
             response = await fetch(proxyUrl, {
               headers: {
                 'X-API-Key': proxyConfig.apiKey,
@@ -247,8 +249,8 @@ export async function findWorkingServer(
             response = await fetch(m3u8Url, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.ksohls.ru/',
-                'Origin': 'https://www.ksohls.ru',
+                'Referer': 'https://enviromentalspace.sbs/',
+                'Origin': 'https://enviromentalspace.sbs',
                 'Authorization': `Bearer ${authData.token}`,
               },
             });
@@ -341,16 +343,16 @@ export async function extractDirectStream(
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://www.ksohls.ru/',
-    'Origin': 'https://www.ksohls.ru',
+    'Referer': 'https://enviromentalspace.sbs/',
+    'Origin': 'https://enviromentalspace.sbs',
     'Authorization': `Bearer ${authData.token}`,
   };
 
   return {
     m3u8Url,
     headers,
-    referer: 'https://www.ksohls.ru/',
-    origin: 'https://www.ksohls.ru',
+    referer: 'https://enviromentalspace.sbs/',
+    origin: 'https://enviromentalspace.sbs',
     quality: undefined,
     isEncrypted: true, // DLHD streams are always encrypted
   };

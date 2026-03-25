@@ -22,7 +22,9 @@ import { fetchKeyWithAuth, extractChannelFromKeyUrl } from './direct/key-fetcher
 import { DLHDAuthDataV5 } from './direct/dlhd-auth-v5';
 import { hasMoveonjoyChannel, fetchMoveonjoyPlaylist } from './direct/moveonjoy';
 import { hasPlayer6Channel, fetchPlayer6Playlist } from './direct/player6';
-import { fetchKeyViaSocks5, getProxyStats } from './direct/socks5-proxy';
+import { fetchKeyViaSocks5, getProxyStats, fetchViaResidentialProxy, postViaResidentialProxy, createStickySession, ResidentialProxyConfig } from './direct/socks5-proxy';
+import { solveDLHDRecaptcha } from './direct/recaptcha-v3';
+import { extractKeyPath, getCachedKey, cacheKey, getActiveSession, saveSession, isSessionExpiringSoon, WhitelistSession } from './direct/key-cache';
 import { 
   validateOrigin, 
   validateApiKey, 
@@ -36,7 +38,7 @@ import {
 // Keys expire after 5 minutes
 const keyCache = new Map<string, { data: Uint8Array; expires: number }>();
 
-// In-memory cache for auth data (avoids re-fetching from www.ksohls.ru on every key request)
+// In-memory cache for auth data (avoids re-fetching from enviromentalspace.sbs on every key request)
 // Auth tokens are valid for ~24 hours, we cache for 5 minutes
 const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const authCache = new Map<string, { authToken: string; channelSalt: string; expires: number }>();
@@ -100,14 +102,15 @@ async function rewriteM3u8ForPlayEndpoint(
   for (const line of lines) {
     const trimmed = line.trim();
     
-    // Resolve key URIs to absolute CDN URLs — browser fetches keys DIRECTLY
-    // User's IP is whitelisted via DLHDWhitelist client-side reCAPTCHA flow
-    // CORS is * on all key servers so cross-origin fetch works from any origin
+    // March 24, 2026: Route key URLs through our /key proxy endpoint
+    // Browser can no longer fetch keys directly — DLHD tightened CORS on verify
+    // endpoint so client-side IP whitelist is broken. All keys must go through
+    // server-side proxy (RPI residential IP) which IS whitelisted.
     if (trimmed.startsWith('#EXT-X-KEY') && trimmed.includes('URI="')) {
       const uriMatch = trimmed.match(/URI="([^"]+)"/);
       if (uriMatch) {
         const uri = uriMatch[1];
-        
+
         let absoluteKeyUrl: string;
         if (uri.startsWith('http')) {
           absoluteKeyUrl = uri;
@@ -120,10 +123,11 @@ async function rewriteM3u8ForPlayEndpoint(
             absoluteKeyUrl = `https://chevy.soyspace.cyou${uri.startsWith('/') ? '' : '/'}${uri}`;
           }
         }
-        
-        // Leave as direct CDN URL — browser fetches with its own whitelisted IP
-        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${absoluteKeyUrl}"`);
-        console.log(`[rewriteM3u8] Key URL (direct CDN) → ${absoluteKeyUrl.substring(0, 100)}...`);
+
+        // Route through our /key proxy — server-side fetching with whitelisted IP
+        const proxiedKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(absoluteKeyUrl)}`;
+        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${proxiedKeyUrl}"`);
+        console.log(`[rewriteM3u8] Key URL (proxied) → ${proxiedKeyUrl.substring(0, 100)}...`);
         rewrittenLines.push(newLine);
         continue;
       }
@@ -149,6 +153,65 @@ async function rewriteM3u8ForPlayEndpoint(
 }
 
 /**
+ * Background whitelist refresh via relay: solve reCAPTCHA + POST verify.
+ * Called via ctx.waitUntil() when the current session is expiring soon.
+ */
+async function refreshWhitelistViaRelay(
+  relayUrl: string,
+  relayKey: string,
+  baseUsername: string,
+  channel: string,
+  kv: KVNamespace | undefined,
+): Promise<void> {
+  console.log(`[/key] background whitelist refresh for ${channel}...`);
+
+  const { username, sessionId } = createStickySession(baseUsername);
+
+  const token = await solveDLHDRecaptcha(channel);
+  if (!token) {
+    console.log(`[/key] background refresh: reCAPTCHA solve failed`);
+    return;
+  }
+
+  const verifyBody = JSON.stringify({ 'recaptcha-token': token, 'channel_id': channel });
+
+  const resp = await fetch(`${relayUrl}/fetch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': relayKey },
+    body: JSON.stringify({
+      url: 'https://ai.the-sunmoon.site/verify',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://enviromentalspace.sbs', 'Referer': 'https://enviromentalspace.sbs/' },
+      body: verifyBody,
+      username,
+    }),
+    signal: AbortSignal.timeout(25000),
+  });
+
+  if (!resp.ok) {
+    console.log(`[/key] background refresh relay error: ${resp.status}`);
+    return;
+  }
+
+  const data = await resp.json() as { status: number; body: string };
+  const text = atob(data.body);
+  let success = false;
+  try { success = JSON.parse(text).success === true; } catch { /* */ }
+
+  if (success) {
+    await saveSession(kv, {
+      proxySessionId: sessionId,
+      proxyUsername: username,
+      whitelistedAt: Date.now(),
+      expiresAt: Date.now() + 18 * 60 * 1000,
+    });
+    console.log(`[/key] ✅ background whitelist refresh succeeded: ${sessionId}`);
+  } else {
+    console.log(`[/key] background whitelist refresh failed: ${text.substring(0, 100)}`);
+  }
+}
+
+/**
  * Create all routes for the Worker
  */
 export function createRoutes(router: Router): void {
@@ -160,14 +223,15 @@ export function createRoutes(router: Router): void {
     });
   });
 
-  // Key proxy endpoint — proxies key requests to RPI server-side
-  // Browser calls this instead of hitting RPI directly
+  // Key proxy endpoint — proxies key requests server-side
+  // Browser calls this instead of hitting key servers directly
   // The M3U8 rewriter points EXT-X-KEY URIs here
   //
   // Strategy (March 2026):
-  //   1. Try RPI /fetch endpoint (residential IP, IPv4 forced) — multiple key servers
-  //   2. Fallback: direct fetch from CF worker (usually gets fake keys but worth trying)
-  //   3. Return first valid (non-fake) 16-byte key, or best available result
+  //   1. Check L1 (memory) + L2 (KV) cache
+  //   2. If RESIDENTIAL_PROXY_HOST set: fetch via residential SOCKS5 proxy
+  //      → on fake key: solve reCAPTCHA v3, POST verify, retry
+  //   3. Fallback: RPI proxy (legacy) or direct fetch
   router.get('/key', async (request, env, params) => {
     const url = new URL(request.url);
     const keyUrlParam = url.searchParams.get('url');
@@ -189,194 +253,260 @@ export function createRoutes(router: Router): void {
     const keyUrl = decodeURIComponent(keyUrlParam);
     console.log(`[/key] Proxying key request: ${keyUrl.substring(0, 80)}...`);
 
-    const rpiProxyUrl = env.RPI_PROXY_URL;
-    const rpiApiKey = env.RPI_PROXY_API_KEY;
-
     // Known fake keys that key servers return to non-whitelisted IPs
-    // These are universal poison keys — same value regardless of channel
     const FAKE_KEYS = new Set([
       '45db13cfa0ed393fdb7da4dfe9b5ac81',
       '455806f8bc592fdacb6ed5e071a517b1',
-      '4542956ed8680eaccb615f7faad4da8f', // New poison key discovered Mar 7 2026
+      '4542956ed8680eaccb615f7faad4da8f',
+      '45a542173e0b81d2a9c13cbc2bdcfd8c', // Discovered Mar 25 2026 — same for all key numbers
     ]);
 
-    // Extract key path from URL (e.g., /key/premium44/5909725)
-    const keyPathMatch = keyUrl.match(/(\/key\/[^?]+)/);
-    const keyPath = keyPathMatch ? keyPathMatch[1] : null;
+    const keyPath = extractKeyPath(keyUrl);
 
     // Build list of key URLs to try (different servers, same key path)
-    // UPDATED Mar 9 2026: go.ai-chatx.site SSL cert broken (only covers chevy.soyspace.cyou, chevy.vmvmv.shop)
-    // New domain: chevy.vmvmv.shop (from SSL cert SAN)
-    const keyServers = [keyUrl]; // Original URL first
+    const keyServers = [keyUrl];
     if (keyPath) {
       const servers = [
-        `https://chevy.vmvmv.shop${keyPath}`,
         `https://chevy.soyspace.cyou${keyPath}`,
+        `https://chevy.vmvmv.shop${keyPath}`,
         `https://chevy.vovlacosa.sbs${keyPath}`,
+        `https://key.keylocking.ru${keyPath}`,
       ];
       for (const s of servers) {
         if (!keyServers.includes(s)) keyServers.push(s);
       }
     }
 
-    const fetchHeaders = JSON.stringify({
-      'Referer': 'https://www.ksohls.ru/',
-      'Origin': 'https://www.ksohls.ru',
-    });
+    const dlhdHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+      'Referer': 'https://enviromentalspace.sbs/',
+      'Origin': 'https://enviromentalspace.sbs',
+    };
 
-    // Helper: try fetching a key from a URL via RPI /dlhd-key-v6 endpoint
-    // Uses rust-fetch (Chrome TLS fingerprint) + auto-whitelist retry
-    async function tryRpiFetch(targetUrl: string): Promise<{ hex: string; data: ArrayBuffer } | null> {
-      if (!rpiProxyUrl || !rpiApiKey) return null;
-      try {
-        const rpiUrl = `${rpiProxyUrl}/dlhd-key-v6?url=${encodeURIComponent(targetUrl)}&key=${rpiApiKey}`;
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 45000);
-        const res = await fetch(rpiUrl, {
-          headers: { 'X-API-Key': rpiApiKey },
-          signal: controller.signal,
-        });
-        clearTimeout(tid);
-        if (!res.ok) return null;
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength !== 16) return null;
-        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-        return { hex, data: buf };
-      } catch {
-        return null;
-      }
+    function toHex(data: Uint8Array): string {
+      return Array.from(data).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // Helper: try fetching a key directly from CF worker
-    async function tryDirectFetch(targetUrl: string): Promise<{ hex: string; data: ArrayBuffer } | null> {
-      try {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 10000);
-        const res = await fetch(targetUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-            'Referer': 'https://www.ksohls.ru/',
-            'Origin': 'https://www.ksohls.ru',
-          },
-          signal: controller.signal,
-        });
-        clearTimeout(tid);
-        if (!res.ok) return null;
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength !== 16) return null;
-        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-        return { hex, data: buf };
-      } catch {
-        return null;
-      }
+    function makeKeyResponse(data: Uint8Array, source: string): Response {
+      return new Response(data as unknown as ArrayBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': '16',
+          ...corsHeaders,
+          'Cache-Control': 'no-store',
+          'X-Key-Source': source,
+        },
+      });
     }
 
     try {
-      let bestFakeKey: ArrayBuffer | null = null;
-
-      // Strategy 1: Try RPI /dlhd-key-v6 (handles multiple servers + auto-whitelist internally)
-      console.log(`[/key] RPI /dlhd-key-v6: ${keyServers[0].substring(0, 80)}...`);
-      const rpiResult = await tryRpiFetch(keyServers[0]);
-      if (rpiResult) {
-        if (!FAKE_KEYS.has(rpiResult.hex)) {
-          console.log(`[/key] ✅ Valid key via RPI: ${rpiResult.hex.substring(0, 8)}...`);
-          return new Response(rpiResult.data, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              'Content-Length': '16',
-              ...corsHeaders,
-              'Cache-Control': 'no-store',
-              'X-Key-Source': 'rpi-v6',
-            },
-          });
-        }
-        console.log(`[/key] RPI returned fake key: ${rpiResult.hex.substring(0, 8)}...`);
-        bestFakeKey = rpiResult.data;
+      // ─── Step 1: Check cache (L1 memory → L2 KV) ─────────────────
+      const cached = await getCachedKey(env.KEY_CACHE_KV, keyPath);
+      if (cached) {
+        return makeKeyResponse(cached, 'kv-cache');
       }
 
-      // Strategy 2: Try direct fetch from CF worker
-      for (const serverUrl of keyServers) {
-        console.log(`[/key] Direct fetch: ${serverUrl.substring(0, 80)}...`);
-        const result = await tryDirectFetch(serverUrl);
-        if (result) {
-          if (!FAKE_KEYS.has(result.hex)) {
-            console.log(`[/key] ✅ Valid key via direct: ${result.hex.substring(0, 8)}...`);
-            return new Response(result.data, {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/octet-stream',
-                'Content-Length': '16',
-                ...corsHeaders,
-                'Cache-Control': 'no-store',
-                'X-Key-Source': 'cf-direct',
-              },
+      // ─── Step 2: Proxy relay path (disabled — RPI handles keys, relay for future use)
+      // TODO: Fix relay POST through ProxyJet SOCKS5, then re-enable
+      const RELAY_ENABLED = false;
+      if (RELAY_ENABLED && env.PROXY_RELAY_URL) {
+        const relayUrl = env.PROXY_RELAY_URL.replace(/\/+$/, '');
+        const relayKey = env.PROXY_RELAY_KEY || '';
+        const baseUsername = env.RESIDENTIAL_PROXY_USER || '';
+        console.log(`[/key] using relay: ${relayUrl} user=${baseUsername.substring(0, 8)}...`);
+
+        // Helper: call the relay to fetch a URL through the residential proxy
+        async function relayFetch(
+          targetUrl: string,
+          targetHeaders: Record<string, string>,
+          stickyUsername?: string,
+        ): Promise<{ status: number; body: Uint8Array } | null> {
+          try {
+            const resp = await fetch(`${relayUrl}/fetch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-API-Key': relayKey },
+              body: JSON.stringify({ url: targetUrl, method: 'GET', headers: targetHeaders, username: stickyUsername }),
+              signal: AbortSignal.timeout(20000),
             });
+            if (!resp.ok) return null;
+            const data = await resp.json() as { status: number; body: string; bodyLength: number };
+            const bodyBytes = Uint8Array.from(atob(data.body), c => c.charCodeAt(0));
+            return { status: data.status, body: bodyBytes };
+          } catch (e) {
+            console.log(`[/key] relay fetch error: ${e}`);
+            return null;
           }
-          if (!bestFakeKey) bestFakeKey = result.data;
+        }
+
+        // Helper: call the relay to POST through the residential proxy
+        async function relayPost(
+          targetUrl: string,
+          targetHeaders: Record<string, string>,
+          targetBody: string,
+          stickyUsername?: string,
+        ): Promise<{ status: number; body: Uint8Array } | null> {
+          try {
+            const resp = await fetch(`${relayUrl}/fetch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-API-Key': relayKey },
+              body: JSON.stringify({ url: targetUrl, method: 'POST', headers: targetHeaders, body: targetBody, username: stickyUsername }),
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json() as { status: number; body: string; bodyLength: number };
+            const bodyBytes = Uint8Array.from(atob(data.body), c => c.charCodeAt(0));
+            return { status: data.status, body: bodyBytes };
+          } catch (e) {
+            console.log(`[/key] relay post error: ${e}`);
+            return null;
+          }
+        }
+
+        // Get or create a sticky session
+        let session = await getActiveSession(env.KEY_CACHE_KV);
+        let stickyUsername: string | undefined;
+
+        if (session) {
+          stickyUsername = session.proxyUsername;
+          console.log(`[/key] reusing session ${session.proxySessionId}`);
+
+          // Background refresh if expiring soon
+          if (isSessionExpiringSoon(session) && router.ctx) {
+            console.log(`[/key] session expiring soon — scheduling background refresh`);
+            const channelMatch = keyUrl.match(/\/(premium\d+)\//);
+            const channel = channelMatch ? channelMatch[1] : 'premium44';
+            router.ctx.waitUntil(
+              refreshWhitelistViaRelay(relayUrl, relayKey, baseUsername, channel, env.KEY_CACHE_KV)
+                .catch(e => console.log(`[/key] background refresh failed: ${e}`))
+            );
+          }
+        } else {
+          const { username, sessionId } = createStickySession(baseUsername);
+          stickyUsername = username;
+          console.log(`[/key] new session ${sessionId}`);
+          session = { proxySessionId: sessionId, proxyUsername: username, whitelistedAt: 0, expiresAt: 0 };
+        }
+
+        // Try fetching key via relay
+        for (const serverUrl of keyServers.slice(0, 3)) {
+          const result = await relayFetch(serverUrl, dlhdHeaders, stickyUsername);
+          if (result && result.status === 200 && result.body.length === 16) {
+            const hex = toHex(result.body);
+            if (!FAKE_KEYS.has(hex)) {
+              console.log(`[/key] ✅ real key via relay: ${hex.substring(0, 8)}...`);
+              await cacheKey(env.KEY_CACHE_KV, keyPath, result.body);
+              if (session && !session.whitelistedAt) {
+                session.whitelistedAt = Date.now();
+                session.expiresAt = Date.now() + 18 * 60 * 1000;
+                await saveSession(env.KEY_CACHE_KV, session);
+              }
+              return makeKeyResponse(result.body, 'relay-proxy');
+            }
+            console.log(`[/key] fake key via relay: ${hex.substring(0, 8)}...`);
+          }
+        }
+
+        // Got fake keys — solve reCAPTCHA + whitelist via relay
+        console.log(`[/key] all keys fake — solving reCAPTCHA + whitelisting via relay...`);
+        const channelMatch = keyUrl.match(/\/(premium\d+)\//);
+        const channel = channelMatch ? channelMatch[1] : 'premium44';
+
+        const token = await solveDLHDRecaptcha(channel);
+        if (token) {
+          console.log(`[/key] reCAPTCHA token obtained (${token.length}b), POSTing verify via relay...`);
+
+          const verifyResult = await relayPost(
+            'https://ai.the-sunmoon.site/verify',
+            { 'Content-Type': 'application/json', 'Origin': 'https://enviromentalspace.sbs', 'Referer': 'https://enviromentalspace.sbs/' },
+            JSON.stringify({ 'recaptcha-token': token, 'channel_id': channel }),
+            stickyUsername,
+          );
+
+          if (verifyResult) {
+            const verifyText = new TextDecoder().decode(verifyResult.body);
+            console.log(`[/key] verify response: ${verifyResult.status} ${verifyText.substring(0, 100)}`);
+
+            let verifySuccess = false;
+            try { verifySuccess = JSON.parse(verifyText).success === true; } catch { /* */ }
+
+            if (verifySuccess) {
+              session!.whitelistedAt = Date.now();
+              session!.expiresAt = Date.now() + 18 * 60 * 1000;
+              await saveSession(env.KEY_CACHE_KV, session!);
+              console.log(`[/key] ✅ proxy IP whitelisted, retrying key fetch via relay...`);
+
+              for (const serverUrl of keyServers.slice(0, 3)) {
+                const retryResult = await relayFetch(serverUrl, dlhdHeaders, stickyUsername);
+                if (retryResult && retryResult.status === 200 && retryResult.body.length === 16) {
+                  const hex = toHex(retryResult.body);
+                  if (!FAKE_KEYS.has(hex)) {
+                    console.log(`[/key] ✅ real key after whitelist: ${hex.substring(0, 8)}...`);
+                    await cacheKey(env.KEY_CACHE_KV, keyPath, retryResult.body);
+                    return makeKeyResponse(retryResult.body, 'relay-after-whitelist');
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          console.log(`[/key] reCAPTCHA solve failed`);
         }
       }
 
-      // All attempts returned fake keys or failed
-      // Trigger RPI whitelist refresh via reCAPTCHA so next request gets real keys
+      // ─── Step 3: Legacy RPI fallback ──────────────────────────────
+      const rpiProxyUrl = env.RPI_PROXY_URL;
+      const rpiApiKey = env.RPI_PROXY_API_KEY;
+
       if (rpiProxyUrl && rpiApiKey) {
-        console.log(`[/key] All keys fake — triggering RPI reCAPTCHA whitelist...`);
+        console.log(`[/key] falling back to RPI proxy...`);
         try {
-          // Extract channel from key URL for targeted whitelist
-          const channelMatch = keyUrl.match(/\/(premium\d+)\//);
-          const channel = channelMatch ? channelMatch[1] : 'premium44';
-          const refreshUrl = `${rpiProxyUrl}/dlhd-whitelist?channel=${channel}&key=${rpiApiKey}`;
-          const rc = new AbortController();
-          const rt = setTimeout(() => rc.abort(), 25000);
-          const refreshResp = await fetch(refreshUrl, { 
-            headers: { 'X-API-Key': rpiApiKey }, 
-            signal: rc.signal 
+          const rpiUrl = `${rpiProxyUrl}/dlhd-key-v6?url=${encodeURIComponent(keyServers[0])}&key=${rpiApiKey}`;
+          const res = await fetch(rpiUrl, {
+            headers: { 'X-API-Key': rpiApiKey },
+            signal: AbortSignal.timeout(45000),
           });
-          clearTimeout(rt);
-          const refreshData = await refreshResp.json() as Record<string, unknown>;
-          console.log(`[/key] Whitelist refresh: ${JSON.stringify(refreshData).substring(0, 200)}`);
-          
-          // If whitelist succeeded, retry key fetch via RPI
-          if (refreshData.success) {
-            console.log(`[/key] Whitelist OK — retrying key fetch...`);
-            const retryResult = await tryRpiFetch(keyServers[0]);
-            if (retryResult && !FAKE_KEYS.has(retryResult.hex)) {
-              console.log(`[/key] ✅ Got real key after whitelist: ${retryResult.hex.substring(0, 8)}...`);
-              return new Response(retryResult.data, {
-                status: 200,
-                headers: {
-                  'Content-Type': 'application/octet-stream',
-                  'Content-Length': '16',
-                  ...corsHeaders,
-                  'Cache-Control': 'no-store',
-                  'X-Key-Source': 'rpi-after-whitelist',
-                },
-              });
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            if (buf.byteLength === 16) {
+              const data = new Uint8Array(buf);
+              const hex = toHex(data);
+              if (!FAKE_KEYS.has(hex)) {
+                console.log(`[/key] ✅ real key via RPI: ${hex.substring(0, 8)}...`);
+                await cacheKey(env.KEY_CACHE_KV, keyPath, data);
+                return makeKeyResponse(data, 'rpi-fallback');
+              }
             }
           }
         } catch (e) {
-          console.log(`[/key] Whitelist refresh error: ${(e as Error).message}`);
+          console.log(`[/key] RPI fallback error: ${e}`);
         }
       }
 
-      // Return the fake key anyway — HLS.js needs SOMETHING to not error out,
-      // and sometimes "fake" keys actually work for certain channels
-      if (bestFakeKey) {
-        const hex = Array.from(new Uint8Array(bestFakeKey)).map(b => b.toString(16).padStart(2, '0')).join('');
-        console.log(`[/key] ⚠️ Returning best available key (possibly fake): ${hex.substring(0, 8)}...`);
-        return new Response(bestFakeKey, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': '16',
-            ...corsHeaders,
-            'Cache-Control': 'no-store',
-            'X-Key-Source': 'fallback-fake',
-          },
-        });
+      // ─── Step 4: Direct CF fetch (last resort) ────────────────────
+      for (const serverUrl of keyServers.slice(0, 2)) {
+        try {
+          const res = await fetch(serverUrl, {
+            headers: dlhdHeaders,
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) continue;
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength !== 16) continue;
+          const data = new Uint8Array(buf);
+          const hex = toHex(data);
+          if (!FAKE_KEYS.has(hex)) {
+            console.log(`[/key] ✅ real key via direct: ${hex.substring(0, 8)}...`);
+            await cacheKey(env.KEY_CACHE_KV, keyPath, data);
+            return makeKeyResponse(data, 'cf-direct');
+          }
+          // Return fake key as last resort — HLS.js needs something
+          console.log(`[/key] ⚠️ returning fake key: ${hex.substring(0, 8)}...`);
+          return makeKeyResponse(data, 'fallback-fake');
+        } catch { /* try next */ }
       }
 
-      console.log(`[/key] ❌ All key fetch attempts failed`);
+      console.log(`[/key] ❌ all key fetch attempts failed`);
       return new Response(JSON.stringify({ error: 'All key servers failed' }), {
         status: 502,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -539,8 +669,8 @@ export function createRoutes(router: Router): void {
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://www.ksohls.ru/',
-          'Origin': 'https://www.ksohls.ru',
+          'Referer': 'https://enviromentalspace.sbs/',
+          'Origin': 'https://enviromentalspace.sbs',
         }));
         
         const controller = new AbortController();
@@ -628,9 +758,10 @@ export function createRoutes(router: Router): void {
     // Also test shouldUseRpiProxy
     const testUrl = 'https://chevy.soyspace.cyou/test';
     const RPI_PROXY_DOMAINS = [
-      'dlhd.link', 'dlhd.sx', 'thedaddy.top', 'soyspace.cyou',
-      'topembed.pw', 'www.ksohls.ru', 'dvalna.ru', 'go.ai-chatx.site',
-      'adffdafdsafds.sbs', 'dlstreams.top', 'vovlacosa.sbs',
+      'dlhd.link', 'dlhd.dad', 'thedaddy.top', 'soyspace.cyou',
+      'topembed.pw', 'enviromentalspace.sbs', 'dvalna.ru', 'keylocking.ru',
+      'adffdafdsafds.sbs', 'dlstreams.top', 'vovlacosa.sbs', 'the-sunmoon.site',
+      'vmvmv.shop', 'daddylivestream.com',
     ];
     const hostname = new URL(testUrl).hostname;
     const shouldProxy = RPI_PROXY_DOMAINS.some(domain => 
@@ -784,8 +915,8 @@ export function createRoutes(router: Router): void {
         const m3u8Resp = await fetch(m3u8Url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.ksohls.ru/',
-            'Origin': 'https://www.ksohls.ru',
+            'Referer': 'https://enviromentalspace.sbs/',
+            'Origin': 'https://enviromentalspace.sbs',
             'Authorization': `Bearer ${jwtToken}`,
           },
         });
@@ -1002,8 +1133,8 @@ export function createRoutes(router: Router): void {
       const m3u8Headers: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
-        'Referer': 'https://www.ksohls.ru/',
-        'Origin': 'https://www.ksohls.ru',
+        'Referer': 'https://enviromentalspace.sbs/',
+        'Origin': 'https://enviromentalspace.sbs',
         'Authorization': `Bearer ${token}`,
       };
       
@@ -1200,9 +1331,7 @@ export function createRoutes(router: Router): void {
       // Step 4: Rewrite M3U8 URLs — keys left as direct CDN URLs (client-side whitelist flow)
       const rewriteStart = Date.now();
       // Build the actual M3U8 URL that was fetched — needed for resolving relative key URIs
-      const m3u8Url = workingDomain === 'go.ai-chatx.site'
-        ? `https://go.ai-chatx.site/proxy/${workingServer}/${channelKey}/mono.css`
-        : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
+      const m3u8Url = `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
       
       // Rewrite the M3U8 content — keys as direct CDN URLs (browser fetches with whitelisted IP), segments left as-is
       const rewrittenM3u8 = await rewriteM3u8ForPlayEndpoint(
@@ -1513,8 +1642,8 @@ export function createRoutes(router: Router): void {
     console.log(`[/dlhdprivate] Direct fetch: ${targetUrl.substring(0, 60)}...`);
     
     try {
-      const upstreamReferer = customReferer || 'https://www.ksohls.ru/';
-      const upstreamOrigin = customReferer ? customReferer.replace(/\/$/, '') : 'https://www.ksohls.ru';
+      const upstreamReferer = customReferer || 'https://enviromentalspace.sbs/';
+      const upstreamOrigin = customReferer ? customReferer.replace(/\/$/, '') : 'https://enviromentalspace.sbs';
       const response = await fetch(targetUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

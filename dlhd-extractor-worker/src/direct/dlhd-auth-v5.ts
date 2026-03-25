@@ -426,10 +426,10 @@ export async function fetchAuthData(channel: string): Promise<DLHDAuthDataV5 | n
   console.log(`[AuthV5] Fetching auth for channel ${channel}...`);
   
   // Try multiple player domains - DLHD rotates these frequently
-  // Domain history: epicplayplay.cfd â†’ codepcplay.fun â†’ epaly.fun â†’ lefttoplay.xyz â†’ www.ksohls.ru â†’ www.ksohls.ru (Mar 2026)
+  // Domain history: epicplayplay.cfd → codepcplay.fun → epaly.fun → lefttoplay.xyz → ksohls.ru → enviromentalspace.sbs (Mar 24, 2026)
   // Dead: epaly.fun (SSL), eplayer.to (DNS), codepcplay.fun (DNS), hitsplay.fun (403), lefttoplay.xyz (403)
   const endpoints = [
-    `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`,
+    `https://enviromentalspace.sbs/premiumtv/daddyhd.php?id=${channel}`,
     `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`,
   ];
   
@@ -557,8 +557,8 @@ export async function generateKeyHeadersWithOffset(
   return {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Origin': 'https://www.ksohls.ru',
-    'Referer': 'https://www.ksohls.ru/',
+    'Origin': 'https://enviromentalspace.sbs',
+    'Referer': 'https://enviromentalspace.sbs/',
     'Authorization': `Bearer ${authData.authToken}`,
     'X-Key-Timestamp': timestamp.toString(),
     'X-Key-Nonce': nonce.toString(),

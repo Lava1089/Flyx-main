@@ -13,6 +13,28 @@ import { sendJsonError, sendJson } from '../utils';
 import { isAllowedProxyDomain } from '../services/domain-allowlist';
 
 /**
+ * Inject a sticky session ID into a ProxyJet SOCKS5 URL.
+ * Transforms: socks5://USER:PASS@HOST:PORT → socks5://USER-ip-SESSIONID:PASS@HOST:PORT
+ * This ensures the same residential IP is used for whitelist + key fetch.
+ */
+function injectStickySession(proxyUrl: string, sessionId: string): string {
+  try {
+    const url = new URL(proxyUrl);
+    // Only inject if not already sticky (no "-ip-" in username)
+    if (url.username && !url.username.includes('-ip-')) {
+      url.username = `${url.username}-ip-${sessionId}`;
+    }
+    return url.toString();
+  } catch {
+    // Fallback: try regex replacement for non-standard URLs
+    return proxyUrl.replace(
+      /^(socks5:\/\/)([^:]+)(:.+@)/,
+      `$1$2-ip-${sessionId}$3`
+    );
+  }
+}
+
+/**
  * /dlhd-key-v4 — Simple passthrough with pre-computed auth headers.
  * CF Worker computes PoW and sends jwt/timestamp/nonce.
  */
@@ -42,8 +64,8 @@ export async function handleDLHDKeyV4(req: RPIRequest, res: ServerResponse): Pro
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: '*/*',
-        Origin: 'https://www.ksohls.ru',
-        Referer: 'https://www.ksohls.ru/',
+        Origin: 'https://enviromentalspace.sbs',
+        Referer: 'https://enviromentalspace.sbs/',
         Authorization: `Bearer ${jwt}`,
         'X-Key-Timestamp': timestamp,
         'X-Key-Nonce': nonce,
@@ -189,12 +211,18 @@ interface AuthData {
 }
 
 function fetchAuthToken(channel: string): Promise<AuthData | null> {
+  // March 24, 2026: Try enviromentalspace.sbs first, fall back to ksohls.ru
+  return fetchAuthTokenFromDomain(channel, 'enviromentalspace.sbs')
+    .then(result => result || fetchAuthTokenFromDomain(channel, 'www.ksohls.ru'));
+}
+
+function fetchAuthTokenFromDomain(channel: string, domain: string): Promise<AuthData | null> {
   return new Promise((resolve) => {
-    const url = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`;
+    const url = `https://${domain}/premiumtv/daddyhd.php?id=${channel}`;
     https.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Referer: 'https://daddyhd.com/',
+        Referer: 'https://dlstreams.top/',
       },
     }, (res) => {
       let data = '';
@@ -236,8 +264,8 @@ function establishHeartbeatSession(
       headers: {
         'User-Agent': userAgent,
         Accept: '*/*',
-        Origin: 'https://www.ksohls.ru',
-        Referer: 'https://www.ksohls.ru/',
+        Origin: 'https://enviromentalspace.sbs',
+        Referer: 'https://enviromentalspace.sbs/',
         Authorization: `Bearer ${authToken}`,
         'X-Channel-Key': channelKey,
         'X-Client-Token': clientToken,
@@ -270,10 +298,10 @@ function establishHeartbeatSession(
  * /dlhd-whitelist — Trigger reCAPTCHA v3 whitelist refresh via rust-fetch.
  * 
  * March 2026: DLHD key servers require IP whitelisting via reCAPTCHA v3.
- * This endpoint runs rust-fetch --mode dlhd-whitelist from the RPI's residential IP
- * to solve reCAPTCHA and POST to chevy.soyspace.cyou/verify.
- * 
- * The whitelist lasts ~30 minutes. The CF worker should call this before key fetches.
+ * This endpoint runs rust-fetch --mode dlhd-whitelist via ProxyJet residential SOCKS5
+ * to solve reCAPTCHA and POST to ai.the-sunmoon.site/verify.
+ *
+ * The whitelist lasts ~20 minutes. The CF worker should call this before key fetches.
  */
 export async function handleDLHDWhitelist(req: RPIRequest, res: ServerResponse): Promise<void> {
   const channel = req.url.searchParams.get('channel') ?? 'premium44';
@@ -283,12 +311,19 @@ export async function handleDLHDWhitelist(req: RPIRequest, res: ServerResponse):
   const { promisify } = await import('util');
   const execFileAsync = promisify(execFile);
 
+  // Build args — route through SOCKS5 proxy with sticky session
+  const baseProxyUrl = process.env.PROXY_SOCKS5_URL || '';
+  // Use caller-provided session or create new one for standalone whitelist
+  const sessionId = req.url.searchParams.get('session') || `w${Date.now().toString(36)}`;
+  const proxyUrl = baseProxyUrl ? injectStickySession(baseProxyUrl, sessionId) : '';
+  const args = ['--mode', 'dlhd-whitelist', '--url', channel, '--timeout', '20'];
+  if (proxyUrl) {
+    args.push('--proxy', proxyUrl);
+    console.log(`[DLHD-Whitelist] routing through proxy: ${proxyUrl.substring(0, 40)}...`);
+  }
+
   try {
-    const { stdout, stderr } = await execFileAsync('rust-fetch', [
-      '--mode', 'dlhd-whitelist',
-      '--url', channel,
-      '--timeout', '20',
-    ], { timeout: 25000, windowsHide: true });
+    const { stdout, stderr } = await execFileAsync('rust-fetch', args, { timeout: 25000, windowsHide: true });
 
     console.log(`[DLHD-Whitelist] stderr: ${stderr.substring(0, 200)}`);
 
@@ -352,12 +387,13 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
   const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
   const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
 
-  // UPDATED Mar 10 2026: Removed go.ai-chatx.site — SSL cert broken (ERR_TLS_CERT_ALTNAME_INVALID)
+  // UPDATED Mar 25 2026: chevy.soyspace.cyou is primary (key.keylocking.ru 403s behind Cloudflare)
   const keyServers = [
     decoded,
+    `https://chevy.soyspace.cyou${keyPath}`,
     `https://chevy.vmvmv.shop${keyPath}`,
     `https://chevy.vovlacosa.sbs${keyPath}`,
-    `https://chevy.soyspace.cyou${keyPath}`,
+    `https://key.keylocking.ru${keyPath}`,
   ];
   const uniqueServers = [...new Set(keyServers)];
 
@@ -366,116 +402,76 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
     '45db13cfa0ed393fdb7da4dfe9b5ac81',
     '455806f8bc592fdacb6ed5e071a517b1',
     '4542956ed8680eaccb615f7faad4da8f',
+    '45a542173e0b81d2a9c13cbc2bdcfd8c', // Discovered Mar 25 2026 — same for all key numbers
   ]);
 
   const { spawn } = await import('child_process');
-  let validKey: Buffer | null = null;
-  let gotFakeKey = false;
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const execFileAsync = promisify(execFile);
 
-  for (const keyUrl of uniqueServers) {
-    try {
-      console.log(`[DLHD-Key-V6] Trying: ${keyUrl.substring(0, 80)}`);
+  // Fresh ProxyJet IP every time — avoids 4-channel concurrent limit
+  const baseProxyUrl = process.env.PROXY_SOCKS5_URL || '';
+  const sessionId = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const proxyUrl = baseProxyUrl ? injectStickySession(baseProxyUrl, sessionId) : '';
+  const primaryUrl = uniqueServers[0];
+  const channelMatch = keyPath.match(/\/(premium\d+)\//);
+  const channel = channelMatch ? channelMatch[1] : 'premium44';
 
-      const keyBuf = await new Promise<Buffer>((resolve, reject) => {
-        const args = [
-          '--url', keyUrl,
-          '--timeout', '10',
-          '--mode', 'fetch-bin',
-          '--headers', JSON.stringify({
-            Referer: 'https://www.ksohls.ru/',
-            Origin: 'https://www.ksohls.ru',
-          }),
-        ];
+  console.log(`[DLHD-Key-V6] session=${sessionId} channel=${channel}`);
 
-        const proc = spawn('rust-fetch', args);
-        const chunks: Buffer[] = [];
-        let stderr = '';
-
-        proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-        proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-        proc.on('error', (err: Error) => reject(err));
-        proc.on('close', (code: number) => {
-          if (code !== 0) {
-            reject(new Error(`rust-fetch exit ${code}: ${stderr}`));
-            return;
-          }
-          resolve(Buffer.concat(chunks));
-        });
-      });
-
-      if (keyBuf.length !== 16) {
-        console.log(`[DLHD-Key-V6] ❌ Not 16 bytes (${keyBuf.length})`);
-        continue;
-      }
-
-      const keyHex = keyBuf.toString('hex');
-      console.log(`[DLHD-Key-V6] Got 16-byte key: ${keyHex}`);
-
-      if (FAKE_KEYS.has(keyHex)) {
-        console.log(`[DLHD-Key-V6] ❌ Known fake key, skipping`);
-        gotFakeKey = true;
-        continue;
-      }
-
-      validKey = keyBuf;
-      console.log(`[DLHD-Key-V6] ✅ Key accepted: ${keyHex}`);
-      break;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.log(`[DLHD-Key-V6] Error: ${msg}`);
-      continue;
-    }
+  // Helper: fetch key via rust-fetch (3s timeout)
+  function fetchKey(url: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const args = ['--url', url, '--timeout', '3', '--mode', 'fetch-bin',
+        '--headers', JSON.stringify({ Referer: 'https://enviromentalspace.sbs/', Origin: 'https://enviromentalspace.sbs' })];
+      if (proxyUrl) args.push('--proxy', proxyUrl);
+      const proc = spawn('rust-fetch', args);
+      const chunks: Buffer[] = [];
+      proc.stdout.on('data', (c: Buffer) => chunks.push(c));
+      proc.on('error', reject);
+      proc.on('close', (code: number) => code !== 0 ? reject(new Error(`exit ${code}`)) : resolve(Buffer.concat(chunks)));
+    });
   }
 
-  // If all keys were fake, trigger whitelist refresh and retry once
-  if (!validKey && gotFakeKey) {
-    console.log(`[DLHD-Key-V6] All keys fake — triggering whitelist refresh...`);
-    try {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-      
-      // Extract channel from key path (e.g., /key/premium44/123 → premium44)
-      const channelMatch = keyPath.match(/\/(premium\d+)\//);
-      const channel = channelMatch ? channelMatch[1] : 'premium44';
-      
-      const { stdout } = await execFileAsync('rust-fetch', [
-        '--mode', 'dlhd-whitelist',
-        '--url', channel,
-        '--timeout', '20',
-      ], { timeout: 25000, windowsHide: true });
-      
-      console.log(`[DLHD-Key-V6] Whitelist result: ${stdout.trim().substring(0, 200)}`);
-      
-      // Retry key fetch after whitelist
-      const retryUrl = uniqueServers[0];
-      console.log(`[DLHD-Key-V6] Retrying key after whitelist: ${retryUrl.substring(0, 80)}`);
-      
-      const retryBuf = await new Promise<Buffer>((resolve, reject) => {
-        const proc = spawn('rust-fetch', [
-          '--url', retryUrl,
-          '--timeout', '10',
-          '--mode', 'fetch-bin',
-          '--headers', JSON.stringify({
-            Referer: 'https://www.ksohls.ru/',
-            Origin: 'https://www.ksohls.ru',
-          }),
-        ]);
-        const chunks: Buffer[] = [];
-        proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-        proc.on('error', reject);
-        proc.on('close', () => resolve(Buffer.concat(chunks)));
-      });
-      
-      if (retryBuf.length === 16) {
-        const retryHex = retryBuf.toString('hex');
-        if (!FAKE_KEYS.has(retryHex)) {
-          validKey = retryBuf;
-          console.log(`[DLHD-Key-V6] ✅ Key after whitelist: ${retryHex}`);
-        }
+  let validKey: Buffer | null = null;
+
+  // Whitelist + fetch key — do whitelist FIRST since fresh IP is never whitelisted.
+  // reCAPTCHA solves direct (no proxy, ~1-2s), only verify goes through proxy (~1s).
+  console.log(`[DLHD-Key-V6] Whitelisting via ${sessionId}...`);
+  try {
+    const wlArgs = ['--mode', 'dlhd-whitelist', '--url', channel, '--timeout', '10'];
+    if (proxyUrl) wlArgs.push('--proxy', proxyUrl);
+    const { stdout } = await execFileAsync('rust-fetch', wlArgs, { timeout: 15000, windowsHide: true });
+    const wlResult = stdout.trim();
+    console.log(`[DLHD-Key-V6] Whitelist: ${wlResult.substring(0, 200)}`);
+
+    // Now fetch key with whitelisted IP
+    const keyBuf = await fetchKey(primaryUrl);
+    if (keyBuf.length === 16) {
+      const hex = keyBuf.toString('hex');
+      if (!FAKE_KEYS.has(hex)) {
+        validKey = keyBuf;
+        console.log(`[DLHD-Key-V6] ✅ Key: ${hex}`);
+      } else {
+        console.log(`[DLHD-Key-V6] ❌ Still fake after whitelist: ${hex}`);
       }
-    } catch (e: unknown) {
-      console.log(`[DLHD-Key-V6] Whitelist refresh failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } catch (e: unknown) {
+    console.log(`[DLHD-Key-V6] Whitelist+key failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Fallback: try other servers with same session
+  if (!validKey) {
+    for (const url of uniqueServers.slice(1, 3)) {
+      try {
+        const buf = await fetchKey(url);
+        if (buf.length === 16 && !FAKE_KEYS.has(buf.toString('hex'))) {
+          validKey = buf;
+          console.log(`[DLHD-Key-V6] ✅ Fallback key: ${buf.toString('hex')}`);
+          break;
+        }
+      } catch { continue; }
     }
   }
 
@@ -496,4 +492,213 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
       timestamp: Date.now(),
     });
   }
+}
+
+// =============================================================================
+// RESTREAM — Clean M3U8 for VRChat / external players
+// =============================================================================
+
+const RESTREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'];
+const CDN_DOMAIN = 'soyspace.cyou';
+const NEW_M3U8_SERVER = 'ai.the-sunmoon.site';
+
+/** Fetch a URL via https and return the body as a string */
+function httpGet(url: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    https.get({
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      headers: { 'User-Agent': RESTREAM_UA, ...headers },
+      timeout: 10000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => (data += chunk));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
+    }).on('error', reject);
+  });
+}
+
+/** Fetch server key for a channel from lookup endpoints */
+async function fetchServerKey(channelKey: string): Promise<string | null> {
+  // Try new primary M3U8 server first (March 24, 2026)
+  try {
+    const { status, body } = await httpGet(
+      `https://${NEW_M3U8_SERVER}/server_lookup?channel_id=${channelKey}`,
+      { Origin: 'https://enviromentalspace.sbs', Referer: 'https://enviromentalspace.sbs/' }
+    );
+    if (status === 200 && body.startsWith('{')) {
+      const data = JSON.parse(body);
+      if (data.server_key) return data.server_key;
+    }
+  } catch { /* try fallbacks */ }
+
+  for (const domain of LOOKUP_DOMAINS) {
+    try {
+      const { status, body } = await httpGet(
+        `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`,
+        { Origin: 'https://enviromentalspace.sbs', Referer: 'https://enviromentalspace.sbs/' }
+      );
+      if (status === 200 && body.startsWith('{')) {
+        const data = JSON.parse(body);
+        if (data.server_key) return data.server_key;
+      }
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+/**
+ * /dlhd/restream — Returns a rewritten M3U8 for VRChat / external players.
+ *
+ * All key and segment URLs point back to this RPI proxy so the residential IP
+ * handles DLHD's whitelist requirements. VRChat clients just consume the stream.
+ *
+ * Usage: GET /dlhd/restream?channel=303&key=<api_key>
+ */
+export async function handleDLHDRestream(req: RPIRequest, res: ServerResponse): Promise<void> {
+  const channel = req.url.searchParams.get('channel');
+  if (!channel || !/^\d{1,10}$/.test(channel)) {
+    sendJsonError(res, 400, { error: 'Missing or invalid channel parameter', timestamp: Date.now() });
+    return;
+  }
+
+  const apiKey = req.url.searchParams.get('key') ?? '';
+  console.log(`[DLHD-Restream] Channel ${channel} requested`);
+
+  // Step 1: Fetch auth token (enviromentalspace.sbs → ksohls.ru fallback)
+  const auth = await fetchAuthToken(channel);
+  if (!auth) {
+    sendJsonError(res, 502, { error: 'Failed to fetch auth token', timestamp: Date.now() });
+    return;
+  }
+
+  // Decode JWT to get channelKey
+  let channelKey = `premium${channel}`;
+  try {
+    const payload = JSON.parse(Buffer.from(auth.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+    if (payload.sub) channelKey = payload.sub;
+  } catch { /* use default */ }
+
+  console.log(`[DLHD-Restream] Auth OK, channelKey=${channelKey}`);
+
+  // Step 2: Fetch server key
+  const serverKey = await fetchServerKey(channelKey);
+  if (!serverKey) {
+    sendJsonError(res, 502, { error: 'Failed to fetch server key', timestamp: Date.now() });
+    return;
+  }
+
+  console.log(`[DLHD-Restream] Server key: ${serverKey}`);
+
+  // Step 3: Fetch M3U8 from DLHD CDN (RPI residential IP)
+  // Try new primary M3U8 server first, fall back to chevy.soyspace.cyou
+  const m3u8Url = `https://${NEW_M3U8_SERVER}/proxy/${serverKey}/${channelKey}/mono.css`;
+  let m3u8Content: string;
+  try {
+    let { status, body } = await httpGet(m3u8Url, {
+      Origin: 'https://enviromentalspace.sbs',
+      Referer: 'https://enviromentalspace.sbs/',
+    });
+    // Fallback to chevy.soyspace.cyou if primary fails
+    if (status !== 200 || !body.includes('#EXTM3U')) {
+      const fallbackUrl = `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
+      const fallback = await httpGet(fallbackUrl, {
+        Origin: 'https://enviromentalspace.sbs',
+        Referer: 'https://enviromentalspace.sbs/',
+      });
+      status = fallback.status;
+      body = fallback.body;
+    }
+    if (status !== 200 || !body.includes('#EXTM3U')) {
+      sendJsonError(res, 502, {
+        error: 'M3U8 fetch failed',
+        status,
+        preview: body.substring(0, 200),
+        timestamp: Date.now(),
+      });
+      return;
+    }
+    m3u8Content = body;
+  } catch (e: unknown) {
+    sendJsonError(res, 502, { error: 'M3U8 fetch error', details: (e as Error).message, timestamp: Date.now() });
+    return;
+  }
+
+  console.log(`[DLHD-Restream] M3U8 fetched (${m3u8Content.length} bytes)`);
+
+  // Step 4: Build the base URL for this RPI proxy (so VRChat can reach us)
+  const host = req.raw.headers['host'] ?? 'localhost:3001';
+  const proto = req.raw.headers['x-forwarded-proto'] ?? 'http';
+  const rpiBase = `${proto}://${host}`;
+
+  // Step 5: Rewrite M3U8
+  // - Key URIs → /dlhd-key-v6?url=<absolute_key_url>&key=<api_key>
+  // - Segment URLs → /proxy?url=<absolute_segment_url>&key=<api_key>
+  let rewritten = m3u8Content;
+
+  // Rewrite key URIs
+  rewritten = rewritten.replace(/URI="([^"]+)"/g, (_, keyUrl) => {
+    let absoluteKey = keyUrl;
+    if (!absoluteKey.startsWith('http')) {
+      const base = new URL(m3u8Url);
+      absoluteKey = new URL(keyUrl, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
+    }
+    return `URI="${rpiBase}/dlhd-key-v6?url=${encodeURIComponent(absoluteKey)}&key=${apiKey}"`;
+  });
+
+  // Remove ENDLIST for live streams
+  rewritten = rewritten.replace(/\n?#EXT-X-ENDLIST\s*$/m, '');
+
+  // Join split URLs (DLHD sometimes splits long URLs across lines)
+  const lines = rewritten.split('\n');
+  const joined: string[] = [];
+  let cur = '';
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) {
+      if (cur) { joined.push(cur); cur = ''; }
+      joined.push(line);
+    } else if (t.startsWith('http://') || t.startsWith('https://')) {
+      if (cur) joined.push(cur);
+      cur = t;
+    } else {
+      cur += t;
+    }
+  }
+  if (cur) joined.push(cur);
+
+  // Rewrite segment URLs
+  const output = joined.map((line) => {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) return line;
+    // Already rewritten
+    if (t.includes('/proxy?url=') || t.includes('/dlhd-key-v6?')) return line;
+    // Absolute DLHD segment URL
+    if ((t.startsWith('http://') || t.startsWith('https://')) && !t.includes('mono.css')) {
+      return `${rpiBase}/proxy?url=${encodeURIComponent(t)}&key=${apiKey}`;
+    }
+    // Relative segment URL — make absolute then proxy
+    if (!t.startsWith('http')) {
+      try {
+        const base = new URL(m3u8Url);
+        const abs = new URL(t, base.origin + base.pathname.replace(/\/[^/]*$/, '/')).toString();
+        return `${rpiBase}/proxy?url=${encodeURIComponent(abs)}&key=${apiKey}`;
+      } catch { return line; }
+    }
+    return line;
+  });
+
+  const finalM3U8 = output.join('\n');
+  console.log(`[DLHD-Restream] Serving rewritten M3U8 (${finalM3U8.length} bytes)`);
+
+  res.writeHead(200, {
+    'Content-Type': 'application/vnd.apple.mpegurl',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
+  });
+  res.end(finalM3U8);
 }

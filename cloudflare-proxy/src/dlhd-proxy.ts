@@ -1,17 +1,25 @@
 /**
- * DLHD Proxy - March 2026 Update
+ * DLHD Proxy - March 24, 2026 Update
  *
  * Proxies daddylive live streams through Cloudflare Workers.
- * M3U8 via proxy: chevy.soyspace.cyou/proxy/{server}/...
- * Keys via: go.ai-chatx.site/key/... (browser fetches directly after reCAPTCHA whitelist)
- * Main site: thedaddy.top (daddylive.mp is DNS-dead)
- * Player page: www.ksohls.ru (EPlayerAuth REMOVED, reCAPTCHA v3 replaces it)
+ * Main site: thedaddy.top → daddylivestream.com → dlhd.dad → dlhd.link → dlstreams.top
+ * Player page: enviromentalspace.sbs (was ksohls.ru, behind Cloudflare now)
+ * M3U8 servers: ai.the-sunmoon.site (primary), chevy.soyspace.cyou (fallback)
+ * Key servers: key.keylocking.ru (new), chevy.soyspace.cyou (fallback, requires whitelist)
+ * go.ai-chatx.site is DEAD (ECONNREFUSED), daddylive.mp is DEAD
  *
- * Authentication Flow (March 2026):
- *   1. Hidden iframe loads player page → reCAPTCHA v3 whitelists user's IP
- *   2. Server lookup → Get server key (zeko, wind, etc.)
- *   3. Fetch M3U8 → Get playlist with key URLs
- *   4. Browser fetches keys directly from go.ai-chatx.site (IP whitelisted)
+ * Authentication Flow (March 24, 2026):
+ *   1. Player page on enviromentalspace.sbs → reCAPTCHA v3 whitelists user's IP
+ *      - Site key: 6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj
+ *      - POST to {M3U8_SERVER}/verify with recaptcha-token + channel_id
+ *      - Background re-verification every 20 minutes
+ *   2. Server lookup → Get server key (zeko, nfs, wind, etc.)
+ *   3. Fetch M3U8 → Get playlist with relative key URLs (/key/premiumXXX/NNNNN)
+ *   4. Keys fetched from key.keylocking.ru (requires reCAPTCHA whitelist + TLS fingerprint)
+ *   5. Channel limits: 4 concurrent, 13 per 30-minute rolling window
+ *
+ * NOTE: Some channels (e.g. 44) have moved to a P2P/token-signed system via
+ * goalwagon.net/extinctdeprive.net — no reCAPTCHA, uses Clappr + p2p-media-loader.
  *
  * Routes:
  *   GET /?channel=<id>           - Get proxied M3U8 playlist
@@ -106,9 +114,10 @@ async function generateSignature(sessionId: string, resource: string, timestamp:
 // CONSTANTS
 // =============================================================================
 
-// UPDATED February 25, 2026: www.ksohls.ru is the new player domain (was lefttoplay.xyz, before that epaly.fun)
-const PLAYER_DOMAIN = 'www.ksohls.ru';
-const PARENT_DOMAIN = 'daddylive.mp';
+// UPDATED March 24, 2026: enviromentalspace.sbs is the new player domain (was ksohls.ru → lefttoplay.xyz → epaly.fun)
+// Main site redirect chain: thedaddy.top → daddylivestream.com → dlhd.dad → dlhd.link → dlstreams.top
+const PLAYER_DOMAIN = 'enviromentalspace.sbs';
+const PARENT_DOMAIN = 'dlstreams.top';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
 // Channel ID to topembed.pw channel name mapping
@@ -152,8 +161,10 @@ const CHANNEL_TO_TOPEMBED: Record<string, string> = {
   '92': 'BeinSports2[Arab]',
 };
 
-/** New domain (March 2026) - M3U8 via proxy, keys via go.ai-chatx.site (browser-side) */
+/** M3U8 servers (March 24, 2026): ai.the-sunmoon.site is primary, soyspace.cyou is fallback */
+/** go.ai-chatx.site is dead (ECONNREFUSED). Keys now via key.keylocking.ru */
 const CDN_DOMAIN = 'soyspace.cyou';
+const M3U8_SERVERS = ['ai.the-sunmoon.site', 'soyspace.cyou'];
 
 /** HMAC secret for PoW computation - loaded from environment variable */
 // SECURITY: Never hardcode secrets in source code
@@ -188,7 +199,7 @@ interface SessionData {
   iat: number;
   exp: number;
   fetchedAt: number;
-  source?: 'www.ksohls.ru' | 'hitsplay.fun' | 'topembed.pw'; // Track where JWT was obtained from
+  source?: 'enviromentalspace.sbs' | 'www.ksohls.ru' | 'hitsplay.fun' | 'topembed.pw'; // Track where JWT was obtained from
 }
 const sessionCache = new Map<string, SessionData>();
 
@@ -416,67 +427,71 @@ async function fetchAuthData(channel: string, logger: any, env?: Env): Promise<S
   logger.info('Fetching fresh JWT', { channel });
 
   // ============================================================================
-  // METHOD 1: Try www.ksohls.ru first (FAST, new primary domain - Feb 25, 2026)
+  // METHOD 1: Try enviromentalspace.sbs first (March 24, 2026 - replaces ksohls.ru)
+  // Then fall back to ksohls.ru (still works but may be deprecated)
   // ============================================================================
-  try {
-    const playerUrl = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel}`;
-    logger.info('Trying www.ksohls.ru for auth', { channel });
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
+  const playerDomains = ['enviromentalspace.sbs', 'www.ksohls.ru'];
+  for (const playerDomain of playerDomains) {
     try {
-      const res = await fetch(playerUrl, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Referer': 'https://daddylive.mp/',
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        const html = await res.text();
-        // Look for EPlayerAuth.init() or JWT token
-        const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-        if (jwtMatch) {
-          const jwt = jwtMatch[0];
-          let channelKey = `premium${channel}`;
-          let country = 'US';
-          let iat = Math.floor(Date.now() / 1000);
-          let exp = iat + 18000;
-          
-          try {
-            const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-            const payload = JSON.parse(atob(payloadB64));
-            channelKey = payload.sub || channelKey;
-            country = payload.country || country;
-            iat = payload.iat || iat;
-            exp = payload.exp || exp;
-            logger.info('JWT from www.ksohls.ru', { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
-          } catch (e) {
-            logger.warn('JWT decode failed, using defaults');
+      const playerUrl = `https://${playerDomain}/premiumtv/daddyhd.php?id=${channel}`;
+      logger.info(`Trying ${playerDomain} for auth`, { channel });
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const res = await fetch(playerUrl, {
+          headers: {
+            'User-Agent': USER_AGENT,
+            'Referer': `https://${PARENT_DOMAIN}/`,
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const html = await res.text();
+          // Look for EPlayerAuth.init() or JWT token
+          const jwtMatch = html.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+          if (jwtMatch) {
+            const jwt = jwtMatch[0];
+            let channelKey = `premium${channel}`;
+            let country = 'US';
+            let iat = Math.floor(Date.now() / 1000);
+            let exp = iat + 18000;
+
+            try {
+              const payloadB64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+              const payload = JSON.parse(atob(payloadB64));
+              channelKey = payload.sub || channelKey;
+              country = payload.country || country;
+              iat = payload.iat || iat;
+              exp = payload.exp || exp;
+              logger.info(`JWT from ${playerDomain}`, { channelKey, exp, expiresIn: exp - Math.floor(Date.now() / 1000) });
+            } catch (e) {
+              logger.warn('JWT decode failed, using defaults');
+            }
+
+            const session: SessionData = {
+              jwt,
+              channelKey,
+              country,
+              iat,
+              exp,
+              fetchedAt: Date.now(),
+              source: playerDomain === 'enviromentalspace.sbs' ? 'enviromentalspace.sbs' : 'www.ksohls.ru',
+            };
+
+            addToSessionCache(channel, session);
+            return session;
           }
-          
-          const session: SessionData = {
-            jwt,
-            channelKey,
-            country,
-            iat,
-            exp,
-            fetchedAt: Date.now(),
-            source: 'www.ksohls.ru',
-          };
-          
-          addToSessionCache(channel, session);
-          return session;
         }
+      } catch (e) {
+        clearTimeout(timeoutId);
+        logger.warn(`${playerDomain} fetch error`, { error: (e as Error).message });
       }
     } catch (e) {
-      clearTimeout(timeoutId);
-      logger.warn('www.ksohls.ru fetch error', { error: (e as Error).message });
+      logger.warn(`${playerDomain} auth fetch failed`, { error: (e as Error).message });
     }
-  } catch (e) {
-    logger.warn('www.ksohls.ru auth fetch failed', { error: (e as Error).message });
   }
 
   // ============================================================================
@@ -595,7 +610,7 @@ async function fetchAuthData(channel: string, logger: any, env?: Env): Promise<S
       // Try to get the topembed name from DLHD /watch/ page
       logger.info('Channel not in mapping, fetching from DLHD', { channel });
       try {
-        const dlhdUrl = `https://daddylive.mp/watch/stream-${channel}.php`;
+        const dlhdUrl = `https://dlstreams.top/watch/stream-${channel}.php`;
         const dlhdRes = await fetch(dlhdUrl, {
           headers: {
             'User-Agent': USER_AGENT,
@@ -686,8 +701,39 @@ const FALLBACK_SERVER_KEYS = ['wiki', 'hzt', 'x4', 'zeko', 'wind', 'nfs', 'ddy6'
  * Uses RPI proxy as fallback since DLHD CDN may block CF IPs
  */
 async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promise<string | null> {
-  // Try multiple lookup domains (vovlacosa.sbs is the primary as of Feb 28, 2026)
+  // Try multiple lookup domains (March 24, 2026: ai.the-sunmoon.site is new primary)
+  // Also try direct (non-chevy) lookup on the new M3U8 server
   const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou'];
+
+  // Try ai.the-sunmoon.site first (new primary M3U8 server)
+  try {
+    const url = `https://ai.the-sunmoon.site/server_lookup?channel_id=${channelKey}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Origin': `https://${PLAYER_DOMAIN}`,
+        'Referer': `https://${PLAYER_DOMAIN}/`,
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const text = await response.text();
+      if (text.startsWith('{')) {
+        const data = JSON.parse(text) as { server_key?: string };
+        if (data.server_key) {
+          logger.info('Server lookup success (ai.the-sunmoon.site)', { channelKey, serverKey: data.server_key });
+          return data.server_key;
+        }
+      }
+    }
+  } catch (error) {
+    logger.warn('ai.the-sunmoon.site lookup error', { error: (error as Error).message });
+  }
   
   for (const domain of lookupDomains) {
     const url = `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`;
@@ -981,7 +1027,7 @@ async function handlePlaylistRequest(
     logger.info('Unauthenticated request (allowed)', { channel });
   }
 
-  // Step 1: Get auth data via RPI proxy (www.ksohls.ru is primary, hitsplay.fun is dead)
+  // Step 1: Get auth data (enviromentalspace.sbs is primary, ksohls.ru fallback)
   const session = await fetchAuthData(channel, logger, env);
   if (!session) {
     return jsonResponse({ error: 'Failed to fetch auth data - player endpoints may be blocking requests' }, 502, origin);
@@ -1016,7 +1062,7 @@ async function handlePlaylistRequest(
     rpiBase = rpiBase.replace(/\/+$/, '');
     
     // Use /dlhd/stream endpoint with referer header - DLHD CDN requires it
-    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent('https://www.ksohls.ru/')}`;
+    const rpiUrl = `${rpiBase}/dlhd/stream?key=${env.RPI_PROXY_KEY}&url=${encodeURIComponent(m3u8Url)}&referer=${encodeURIComponent(`https://${PLAYER_DOMAIN}/`)}`;
     logger.info('Calling RPI /dlhd/stream for M3U8', { 
       rpiBase,
       rpiUrl: rpiUrl.substring(0, 200),
@@ -1097,7 +1143,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
   const resource = keyMatch[1];
   const keyNumber = keyMatch[2];
   
-  // Normalize key URL to chevy.soyspace.cyou (the key server)
+  // March 25, 2026: chevy.soyspace.cyou is primary (key.keylocking.ru returns 403 behind Cloudflare)
   const normalizedKeyUrl = `https://chevy.soyspace.cyou/key/${resource}/${keyNumber}`;
   
   logger.info('Key fetch request', { resource, keyNumber, normalizedKeyUrl });
@@ -1126,13 +1172,14 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
       
       // Valid key is exactly 16 bytes (AES-128) and not a JSON error
       if (data.byteLength === 16 && !text.startsWith('{') && !text.startsWith('[')) {
-        // Verify it's not the known fake error key
+        // Verify it's not a known fake/poison key (DLHD serves these to non-whitelisted IPs)
         const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
-        if (hex !== '455806f8bc592fdacb6ed5e071a517b1') {
+        const FAKE_KEYS = ['45db13cfa0ed393fdb7da4dfe9b5ac81', '455806f8bc592fdacb6ed5e071a517b1', '4542956ed8680eaccb615f7faad4da8f', '45a542173e0b81d2a9c13cbc2bdcfd8c'];
+        if (!FAKE_KEYS.includes(hex)) {
           logger.info('Direct key fetch succeeded');
           fetchedVia = 'direct';
         } else {
-          throw new Error('Got fake error key (455806...) - need V5 auth');
+          throw new Error(`Got fake/poison key (${hex.substring(0, 12)}...) - IP not whitelisted`);
         }
       } else {
         throw new Error(`Invalid key response: ${data.byteLength} bytes, preview: ${text.substring(0, 50)}`);

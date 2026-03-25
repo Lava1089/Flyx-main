@@ -31,9 +31,8 @@ const ALL_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'] as const;
 
 // All known DLHD domains for M3U8 proxy
 // SECURITY: Keep these private - don't expose via public APIs  
-// UPDATED Mar 2026: adsfadfds.cfd is DEAD (CF 403). soyspace.cyou is primary.
-// New key domain: go.ai-chatx.site (reCAPTCHA-gated, browser fetches keys directly)
-// Mar 7 2026: Player script now uses go.ai-chatx.site/proxy/ as primary M3U8 proxy too
+// UPDATED Mar 24 2026: ai.the-sunmoon.site is new primary M3U8 server
+// go.ai-chatx.site is DEAD (ECONNREFUSED). Keys now via key.keylocking.ru
 const ALL_DOMAINS = ['soyspace.cyou'] as const;
 
 // Domains for server_lookup API (ordered by reliability)
@@ -42,8 +41,12 @@ const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'] as const;
 // Default domain (for M3U8 proxy)
 const DEFAULT_DOMAIN = 'soyspace.cyou';
 
+// New primary M3U8 server (March 24, 2026)
+const NEW_M3U8_SERVER = 'ai.the-sunmoon.site';
+
 // Key domain - browser fetches keys directly from here after reCAPTCHA whitelist
-export const KEY_DOMAIN = 'go.ai-chatx.site';
+// UPDATED Mar 25 2026: key.keylocking.ru returns 403 (Cloudflare). chevy.soyspace.cyou works with CORS *.
+export const KEY_DOMAIN = 'soyspace.cyou';
 
 // Fallback request timeout (ms)
 const FALLBACK_REQUEST_TIMEOUT = 8000;
@@ -89,8 +92,8 @@ export async function lookupServer(channelId: number): Promise<string | null> {
             {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.ksohls.ru/',
-                'Origin': 'https://www.ksohls.ru',
+                'Referer': 'https://enviromentalspace.sbs/',
+                'Origin': 'https://enviromentalspace.sbs',
               },
               signal: controller.signal,
             }
@@ -223,12 +226,12 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   const m3u8Url = buildM3U8Url(channelId, server);
 
   // Step 3: Build headers - NO AUTH NEEDED for M3U8!
-  // Updated Mar 2026: Referer changed to www.ksohls.ru (current player domain)
+  // Updated Mar 24, 2026: Referer changed to enviromentalspace.sbs (current player domain)
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://www.ksohls.ru/',
-    'Origin': 'https://www.ksohls.ru',
+    'Referer': 'https://enviromentalspace.sbs/',
+    'Origin': 'https://enviromentalspace.sbs',
   };
 
   const elapsed = Date.now() - startTime;
@@ -237,8 +240,8 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   return {
     m3u8Url,
     headers,
-    referer: 'https://www.ksohls.ru/',
-    origin: 'https://www.ksohls.ru',
+    referer: 'https://enviromentalspace.sbs/',
+    origin: 'https://enviromentalspace.sbs',
     quality: undefined,
     isEncrypted: true,
   };
@@ -325,8 +328,8 @@ export async function extractWithFallback(
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://www.ksohls.ru/',
-          'Origin': 'https://www.ksohls.ru',
+          'Referer': 'https://enviromentalspace.sbs/',
+          'Origin': 'https://enviromentalspace.sbs',
           'Authorization': `Bearer ${token}`,
         }));
 
@@ -356,12 +359,12 @@ export async function extractWithFallback(
                   headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': '*/*',
-                    'Referer': 'https://www.ksohls.ru/',
-                    'Origin': 'https://www.ksohls.ru',
+                    'Referer': 'https://enviromentalspace.sbs/',
+                    'Origin': 'https://enviromentalspace.sbs',
                     'Authorization': `Bearer ${token}`,
                   },
-                  referer: 'https://www.ksohls.ru/',
-                  origin: 'https://www.ksohls.ru',
+                  referer: 'https://enviromentalspace.sbs/',
+                  origin: 'https://enviromentalspace.sbs',
                   quality: undefined,
                   isEncrypted: true,
                 },
@@ -464,7 +467,7 @@ export async function generateJWT(channelId: string): Promise<{ token: string; c
   const chNum = parseInt(channelId, 10);
   const channelKey = `premium${chNum}`;
   
-  // Fetch auth data from player page (www.ksohls.ru primary, www.ksohls.ru fallback)
+  // Fetch auth data from player page (enviromentalspace.sbs primary, ksohls.ru fallback)
   const authData = await fetchAuthData(channelId);
   
   if (authData && authData.authToken) {

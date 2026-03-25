@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh vynx@vynx-pi.local \"mkdir -p /tmp/rust-fetch-build\")",
+      "Bash(scp \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/Cargo.toml\" vynx@vynx-pi.local:/tmp/rust-fetch-build/)",
+      "Bash(scp -r \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/src\" vynx@vynx-pi.local:/tmp/rust-fetch-build/)",
+      "Bash(ssh -o ConnectTimeout=10 vynx@vynx-pi.local \"mkdir -p /tmp/rust-fetch-build/src\")",
+      "Bash(scp \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/Cargo.toml\" vynx@vynx-pi.local:/tmp/rust-fetch-build/Cargo.toml)",
+      "Bash(scp -o ConnectTimeout=10 \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/Cargo.toml\" vynx@vynx-pi.local:/tmp/rust-fetch-build/Cargo.toml)",
+      "Bash(scp -o ConnectTimeout=10 \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/src/main.rs\" vynx@vynx-pi.local:/tmp/rust-fetch-build/src/main.rs)",
+      "Bash(scp -o ConnectTimeout=10 \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/src/animekai.rs\" vynx@vynx-pi.local:/tmp/rust-fetch-build/src/animekai.rs)",
+      "Bash(scp -o ConnectTimeout=10 \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/rust-fetch/src/animekai_tables.rs\" vynx@vynx-pi.local:/tmp/rust-fetch-build/src/animekai_tables.rs)",
+      "Bash(ssh vynx@vynx-pi.local \"ls -la /tmp/rust-fetch-build/ /tmp/rust-fetch-build/src/\")",
+      "Bash(ssh vynx@vynx-pi.local \"which cargo 2>/dev/null || \\(curl --proto ''=https'' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y 2>&1 | tail -5\\)\")",
+      "Bash(ssh vynx@vynx-pi.local \"ls ~/.cargo/bin/cargo 2>/dev/null && echo RUST_INSTALLED || echo NOT_YET\")",
+      "Bash(ssh vynx@vynx-pi.local 'source \"\"$HOME/.cargo/env\"\" && cd /tmp/rust-fetch-build && cargo build --release 2>&1 | tail -10')",
+      "Bash(ssh vynx@vynx-pi.local \"ls ~/rpi-proxy/src/routes/ 2>/dev/null\")",
+      "Bash(scp \"c:/Users/Nicks/Desktop/Flyx-main/rpi-proxy/src/routes/dlhd.ts\" vynx@vynx-pi.local:~/rpi-proxy/src/routes/dlhd.ts)",
+      "Bash(ssh vynx@vynx-pi.local \"ls -la /tmp/rust-fetch-build/target/release/rust-fetch 2>/dev/null && echo BUILD_DONE || echo STILL_BUILDING\")",
+      "Bash(ssh vynx@vynx-pi.local \"sudo cp /tmp/rust-fetch-build/target/release/rust-fetch /usr/local/bin/rust-fetch && rust-fetch --help 2>&1 | grep proxy\")",
+      "Bash(ssh -o ConnectTimeout=10 vynx@vynx-pi.local 'sudo cp /tmp/rust-fetch-build/target/release/rust-fetch /usr/local/bin/rust-fetch && rust-fetch --help 2>&1 | grep -i proxy')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo systemctl stop rpi-proxy 2>/dev/null; sudo pm2 stop rpi-proxy 2>/dev/null; sudo cp /tmp/rust-fetch-build/target/release/rust-fetch /usr/local/bin/rust-fetch && echo \"\"REPLACED\"\" && rust-fetch --help 2>&1 | grep -i proxy')",
+      "Bash(ssh vynx@vynx-pi.local 'cat /etc/systemd/system/rpi-proxy.service')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo sed -i \"\"/^Environment=PORT/a Environment=PROXY_SOCKS5_URL=socks5://250119xUvJ4-resi-any:z8mSICKOCGarEPw@proxy-jet.io:2020\"\" /etc/systemd/system/rpi-proxy.service && sudo systemctl daemon-reload && sudo systemctl start rpi-proxy && sleep 2 && sudo systemctl status rpi-proxy | head -8')",
+      "Bash(ssh vynx@vynx-pi.local 'cd ~/rpi-proxy && npm run build 2>&1 | tail -5; sudo systemctl restart rpi-proxy && sleep 2 && sudo systemctl status rpi-proxy | head -5')",
+      "Bash(ssh vynx@vynx-pi.local 'export NVM_DIR=\"\"$HOME/.nvm\"\" && source \"\"$NVM_DIR/nvm.sh\"\" && cd ~/rpi-proxy && npm run build 2>&1 | tail -5')",
+      "Bash(ssh vynx@vynx-pi.local 'export NVM_DIR=\"\"$HOME/.nvm\"\" && source \"\"$NVM_DIR/nvm.sh\"\" && cd ~/rpi-proxy && npx tsc 2>&1 | tail -5 && echo \"\"BUILD OK\"\"')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo systemctl restart rpi-proxy && sleep 2 && sudo systemctl status rpi-proxy | head -5')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo journalctl -u rpi-proxy --since \"\"1 min ago\"\" --no-pager 2>/dev/null | tail -30')",
+      "Bash(ssh vynx@vynx-pi.local 'grep \"\"PROXY_SOCKS5\"\" ~/rpi-proxy/dist/routes/dlhd.js 2>/dev/null || grep \"\"PROXY_SOCKS5\"\" ~/rpi-proxy/server.js 2>/dev/null || echo \"\"NOT FOUND IN COMPILED JS\"\"')",
+      "Bash(ssh vynx@vynx-pi.local 'export NVM_DIR=\"\"$HOME/.nvm\"\" && source \"\"$NVM_DIR/nvm.sh\"\" && cd ~/rpi-proxy && ls node_modules/.bin/tsc 2>/dev/null && node_modules/.bin/tsc 2>&1 | tail -10')",
+      "Bash(ssh vynx@vynx-pi.local 'export NVM_DIR=\"\"$HOME/.nvm\"\" && source \"\"$NVM_DIR/nvm.sh\"\" && cd ~/rpi-proxy && chmod +x node_modules/.bin/tsc && node node_modules/typescript/bin/tsc 2>&1 | tail -10 && echo \"\"BUILD OK\"\"')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo systemctl restart rpi-proxy')",
+      "Bash(curl -s -D - https://dlhd.vynx.workers.dev/key?url=https%3A%2F%2Fkey.keylocking.ru%2Fkey%2Fpremium44%2F5914677)",
+      "Bash(ssh vynx@vynx-pi.local 'sudo journalctl -u rpi-proxy --since \"\"\"\"15 sec ago\"\"\"\" --no-pager | grep -i \"\"\"\"dlhd\\\\|key\\\\|whitelist\\\\|proxy\"\"\"\" | head -20')",
+      "Bash(ssh vynx@vynx-pi.local 'grep PROXY_SOCKS5 /etc/systemd/system/rpi-proxy.service')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo journalctl -u rpi-proxy --since \"\"2 min ago\"\" --no-pager | grep -i \"\"whitelist\\\\|fake\\\\|recaptcha\"\" | head -20')",
+      "Bash(ssh vynx@vynx-pi.local 'grep \"\"PROXY_SOCKS5\\\\|rust-fetch.*proxy\\\\|--proxy\"\" ~/rpi-proxy/dist/routes/dlhd.js | head -10')",
+      "Bash(ssh vynx@vynx-pi.local 'sudo journalctl -u rpi-proxy --since \"\"5 min ago\"\" --no-pager | grep -i \"\"action\\\\|recaptcha\\\\|puppeteer\\\\|verify\\\\|whitelist\"\" | tail -20')",
+      "Bash(ssh -o ConnectTimeout=10 vynx@vynx-pi.local 'sudo journalctl -u rpi-proxy -n 100 --no-pager | grep -i \"\"action\\\\|recaptcha\\\\|puppeteer\\\\|verify\\\\|whitelist\\\\|mismatch\"\" | tail -20')"
+    ]
+  }
+}

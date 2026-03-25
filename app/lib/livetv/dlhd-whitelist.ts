@@ -4,18 +4,21 @@
  * Whitelists the user's IP for DLHD key fetching without loading any
  * Google reCAPTCHA scripts, tracking pixels, or third-party content.
  *
- * Flow:
- *   1. GET /whitelist/token → CF worker solves reCAPTCHA v3 server-side
- *   2. Browser POSTs token directly to chevy.soyspace.cyou/verify
- *      → User's own IP gets whitelisted (CORS is *, so this works)
- *   3. HLS.js fetches keys directly from CDN — no proxy needed
+ * Flow (updated March 24, 2026):
+ *   1. Browser calls CF worker: /tv/whitelist/verify?channel=premiumXXX
+ *   2. CF worker solves reCAPTCHA v3 server-side, POSTs token to
+ *      ai.the-sunmoon.site/verify with proper Origin/Referer headers
+ *   3. CF worker returns whitelist result to browser
+ *   4. HLS.js fetches keys — server-side key proxy as fallback
  *
- * Privacy: Zero Google JS loads in the browser. The CF worker talks to
- * Google on the user's behalf, and only a clean JSON token is returned.
+ * IMPORTANT: The verify request MUST go through the CF worker, not directly
+ * from the browser. Browsers cannot spoof Origin headers, and DLHD's verify
+ * endpoint rejects non-DLHD origins with 403 "unauthorized_domain".
+ *
+ * Privacy: Zero Google JS loads in the browser.
  */
 
-const VERIFY_URL = 'https://chevy.soyspace.cyou/verify';
-const WHITELIST_TTL_MS = 25 * 60 * 1000; // 25 min (actual ~30, leave buffer)
+const WHITELIST_TTL_MS = 20 * 60 * 1000; // 20 min (DLHD re-verifies every 20 min now)
 
 interface WhitelistResult {
   success: boolean;
@@ -50,51 +53,30 @@ export class DLHDWhitelist {
     }
 
     try {
-      // Step 1: CF worker solves reCAPTCHA server-side, returns token
-      const tokenResp = await fetch(
-        `${this.proxyBase}/tv/whitelist/token?channel=${channel}`,
+      // Single call to CF worker which handles:
+      //   1. reCAPTCHA v3 solve (server-side)
+      //   2. POST to ai.the-sunmoon.site/verify with proper Origin/Referer
+      //   3. Returns whitelist result
+      //
+      // This CANNOT be done directly from the browser because:
+      //   - Browsers enforce Origin header = actual page origin (e.g. flyx.tv)
+      //   - DLHD's verify endpoint rejects non-DLHD origins with 403
+      //   - Only a server-side proxy can set Origin: https://enviromentalspace.sbs
+      const verifyResp = await fetch(
+        `${this.proxyBase}/tv/whitelist/verify?channel=${channel}`,
         { credentials: 'omit' }
       );
 
-      if (!tokenResp.ok) {
-        const err = await tokenResp.json().catch(() => ({})) as any;
-        return { success: false, error: err.error || `HTTP ${tokenResp.status}` };
+      if (!verifyResp.ok) {
+        const err = await verifyResp.json().catch(() => ({})) as any;
+        return { success: false, error: err.error || `HTTP ${verifyResp.status}` };
       }
-
-      const tokenData = await tokenResp.json() as {
-        success: boolean; token?: string; channel_id?: string; error?: string;
-      };
-
-      if (!tokenData.success || !tokenData.token) {
-        return { success: false, error: tokenData.error || 'No token' };
-      }
-
-      // Step 2: Browser POSTs directly to upstream verify — whitelists THIS IP
-      // CORS is * on chevy.soyspace.cyou so this works from any origin
-      const verifyResp = await fetch(VERIFY_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Origin': 'https://www.ksohls.ru',
-          'Referer': 'https://www.ksohls.ru/',
-        },
-        credentials: 'omit',
-        body: JSON.stringify({
-          'recaptcha-token': tokenData.token,
-          'channel_id': tokenData.channel_id,
-        }),
-      });
 
       const verifyData = await verifyResp.json() as {
         success?: boolean; ip?: string; error?: string; message?: string;
       };
 
       if (verifyData.success) {
-        // SECURITY NOTE: If verifyData.ip is present, it shows which IP was whitelisted.
-        // If the CF worker's IP was whitelisted instead of the user's, key fetches will
-        // still return fake keys. The caller should verify by attempting a key fetch
-        // after whitelist and falling back to direct POST if keys are still fake.
-        
         this.cache.set(channel, {
           whitelistedAt: Date.now(),
           expiresAt: Date.now() + WHITELIST_TTL_MS,

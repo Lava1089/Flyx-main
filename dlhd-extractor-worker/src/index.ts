@@ -14,6 +14,7 @@ export default {
     }
     
     const router = new Router(env);
+    router.ctx = ctx;
     createRoutes(router);
     return router.handle(request);
   },

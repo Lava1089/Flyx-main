@@ -29,6 +29,7 @@ const QUERY_AUTH_ROUTES = ['/live/', '/play/', '/dlhdprivate', '/debug/'];
 export class Router {
   private routes: Route[] = [];
   private env: Env;
+  public ctx?: ExecutionContext;
 
   constructor(env: Env) {
     this.env = env;

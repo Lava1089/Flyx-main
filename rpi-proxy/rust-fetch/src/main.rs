@@ -220,6 +220,7 @@ fn build_client(
     timeout: Duration,
     follow_redirects: bool,
     custom_headers: &HashMap<String, String>,
+    proxy_url: &str,
 ) -> Result<Client> {
     let mut headers = header::HeaderMap::new();
     headers.insert(header::USER_AGENT, header::HeaderValue::from_static(
@@ -237,7 +238,7 @@ fn build_client(
         headers.insert(name, val);
     }
 
-    Client::builder()
+    let mut builder = Client::builder()
         .timeout(timeout)
         .redirect(if follow_redirects {
             reqwest::redirect::Policy::limited(10)
@@ -247,9 +248,17 @@ fn build_client(
         .default_headers(headers)
         .cookie_store(true)
         .gzip(true)
-        .brotli(true)
-        .build()
-        .context("client build failed")
+        .brotli(true);
+
+    // Add SOCKS5 proxy if specified
+    if !proxy_url.is_empty() {
+        eprintln!("[proxy] routing through {}", proxy_url);
+        let proxy = reqwest::Proxy::all(proxy_url)
+            .context(format!("bad proxy URL: {}", proxy_url))?;
+        builder = builder.proxy(proxy);
+    }
+
+    builder.build().context("client build failed")
 }
 
 async fn fetch_text(client: &Client, url: &str) -> Result<String> {
@@ -631,7 +640,7 @@ async fn mode_megaup(client: &Client, embed_url: &str) -> Result<()> {
 
 // ─── CLI ────────────────────────────────────────────────
 
-fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, String) {
+fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, String, String) {
     let args: Vec<String> = std::env::args().collect();
     let mut url = String::new();
     let mut mode = String::from("fetch");
@@ -640,6 +649,7 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, 
     let mut follow = true;
     let mut site_key = String::new();
     let mut action = String::new();
+    let mut proxy = String::new();
     let mut i = 1;
 
     while i < args.len() {
@@ -648,6 +658,7 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, 
             "--mode" | "-m" => { i += 1; mode = args.get(i).cloned().unwrap_or_default(); }
             "--site-key" => { i += 1; site_key = args.get(i).cloned().unwrap_or_default(); }
             "--action" => { i += 1; action = args.get(i).cloned().unwrap_or_default(); }
+            "--proxy" | "-p" => { i += 1; proxy = args.get(i).cloned().unwrap_or_default(); }
             "--headers" | "-H" => {
                 i += 1;
                 if let Some(json) = args.get(i) {
@@ -685,6 +696,7 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, 
                 eprintln!("  --headers '{{...}}'  Custom headers JSON");
                 eprintln!("  --timeout N        Timeout in seconds (default: 15)");
                 eprintln!("  --no-redirect      Don't follow redirects");
+                eprintln!("  --proxy URL        SOCKS5 proxy (e.g., socks5://user:pass@proxy-jet.io:2020)");
                 std::process::exit(0);
             }
             _ => {}
@@ -697,13 +709,13 @@ fn parse_args() -> (String, String, HashMap<String, String>, u64, bool, String, 
         std::process::exit(1);
     }
 
-    (url, mode, headers, timeout, follow, site_key, action)
+    (url, mode, headers, timeout, follow, site_key, action, proxy)
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let (url, mode, custom_headers, timeout_secs, follow, site_key, action) = parse_args();
-    let client = build_client(Duration::from_secs(timeout_secs), follow, &custom_headers)?;
+    let (url, mode, custom_headers, timeout_secs, follow, site_key, action, proxy) = parse_args();
+    let client = build_client(Duration::from_secs(timeout_secs), follow, &custom_headers, &proxy)?;
 
     match mode.as_str() {
         "fetch" => {
@@ -760,38 +772,43 @@ async fn main() -> Result<()> {
         }
         "dlhd-whitelist" => {
             // Full DLHD whitelist flow:
-            // 1. Generate reCAPTCHA v3 token
-            // 2. POST to chevy.soyspace.cyou/verify
-            // 3. Output JSON result
+            // 1. Solve reCAPTCHA v3 DIRECTLY (no proxy — talks to Google, not DLHD)
+            // 2. POST verify through proxy (whitelists the proxy IP)
             let channel = if url.is_empty() { "premium44".to_string() } else { url };
-            let page = format!("https://www.ksohls.ru/premiumtv/daddyhd.php?id={}", 
+            let page = format!("https://enviromentalspace.sbs/premiumtv/daddyhd.php?id={}",
                 channel.strip_prefix("premium").unwrap_or("44"));
             let sk = "6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj";
-            
+
             eprintln!("[dlhd-whitelist] channel={}, page={}", channel, page);
-            
-            // Step 1: Get reCAPTCHA token
-            let token = recaptcha_v3::solve(&client, sk, &page, "player_access").await?;
-            eprintln!("[dlhd-whitelist] token: {}b", token.len());
-            
-            // Step 2: POST to verify
+
+            // Step 1: Solve reCAPTCHA DIRECTLY (no proxy needed — Google doesn't care about IP)
+            // Build a direct client without proxy for speed
+            let direct_client = Client::builder()
+                .timeout(std::time::Duration::from_secs(8))
+                .cookie_store(true)
+                .gzip(true)
+                .build()
+                .context("direct client build failed")?;
+            let token = recaptcha_v3::solve(&direct_client, sk, &page, "player_access").await?;
+            eprintln!("[dlhd-whitelist] token: {}b (solved direct)", token.len());
+
+            // Step 2: POST verify through PROXY (this whitelists the proxy IP)
             let verify_body = serde_json::json!({
                 "recaptcha-token": token,
                 "channel_id": channel,
             });
-            let verify_resp = client.post("https://chevy.soyspace.cyou/verify")
+            let verify_resp = client.post("https://ai.the-sunmoon.site/verify")
                 .header("Content-Type", "application/json")
-                .header("Origin", "https://www.ksohls.ru")
-                .header("Referer", "https://www.ksohls.ru/")
+                .header("Origin", "https://enviromentalspace.sbs")
+                .header("Referer", "https://enviromentalspace.sbs/")
                 .json(&verify_body)
                 .send().await
                 .context("verify request failed")?;
-            
+
             let status = verify_resp.status();
             let body = verify_resp.text().await.context("read verify body")?;
             eprintln!("[dlhd-whitelist] verify: {} {}", status.as_u16(), &body[..body.len().min(200)]);
-            
-            // Output the verify response
+
             println!("{}", body);
         }
         other => {
