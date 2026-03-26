@@ -8,7 +8,6 @@
  */
 
 import {
-  colors,
   PageHeader,
   EmptyState,
 } from '../components/ui';

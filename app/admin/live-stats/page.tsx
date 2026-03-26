@@ -8,7 +8,7 @@
  * client-side for sparkline graphs and trend indicators.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRealtimeSlice, useUserSlice } from '../context/slices';
 import {
   colors,
@@ -47,7 +47,6 @@ export default function LiveStatsPage() {
 
   // Rolling history for sparklines
   const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const prevLiveUsersRef = useRef<number | null>(null);
 
   // Record snapshot to history whenever realtime data updates
   useEffect(() => {
@@ -72,7 +71,6 @@ export default function LiveStatsPage() {
       return next;
     });
 
-    prevLiveUsersRef.current = rd.liveUsers;
   }, [realtime.lastUpdate, rd.liveUsers, rd.watching, rd.browsing, rd.livetv]);
 
   // Compute trend from last 6 data points
