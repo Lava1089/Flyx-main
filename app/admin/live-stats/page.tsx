@@ -326,7 +326,7 @@ export default function LiveStatsPage() {
         <div style={{ marginTop: '24px' }}>
           <Card title="Activity Timeline" icon="📈">
             <div style={{ height: '120px' }}>
-              <Sparkline data={history.map(h => h.liveUsers)} color={colors.success} fill showDots labels={history.map(h => h.time)} />
+              <Sparkline data={history.map(h => h.liveUsers)} color={colors.success} fill showDots />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <span style={{ color: colors.text.muted, fontSize: '11px' }}>
@@ -492,13 +492,11 @@ function Sparkline({
   color,
   fill = false,
   showDots = false,
-  labels,
 }: {
   data: number[];
   color: string;
   fill?: boolean;
   showDots?: boolean;
-  labels?: number[];
 }) {
   if (data.length < 2) return null;
 
