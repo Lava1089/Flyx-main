@@ -55,7 +55,7 @@ export interface ILocalTracker {
 const OFFLINE_QUEUE_KEY = 'flyx_v2_offline_queue';
 const HEARTBEAT_ENABLED_KEY = 'flyx_v2_heartbeat_enabled';
 const MAX_QUEUE_SIZE = 100;
-const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const QUEUE_DRAIN_DELAY_MS = 1000;
 
 // ---------------------------------------------------------------------------
@@ -99,6 +99,7 @@ export class LocalTracker implements ILocalTracker {
 
   // Online/offline listener reference
   private onlineHandler: (() => void) | null = null;
+  private beforeUnloadHandler: (() => void) | null = null;
 
   private constructor(store?: LocalStore) {
     this.store = store ?? new LocalStore();
@@ -136,6 +137,10 @@ export class LocalTracker implements ILocalTracker {
     this.onlineHandler = () => this.drainOfflineQueue();
     if (typeof window !== 'undefined') {
       window.addEventListener('online', this.onlineHandler);
+
+      // Send a final heartbeat on page unload via sendBeacon (reliable delivery)
+      this.beforeUnloadHandler = () => this.sendBeaconHeartbeat();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
     }
   }
 
@@ -146,10 +151,16 @@ export class LocalTracker implements ILocalTracker {
       this.stopWatch();
     }
 
-    if (this.onlineHandler && typeof window !== 'undefined') {
-      window.removeEventListener('online', this.onlineHandler);
+    if (typeof window !== 'undefined') {
+      if (this.onlineHandler) {
+        window.removeEventListener('online', this.onlineHandler);
+      }
+      if (this.beforeUnloadHandler) {
+        window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      }
     }
     this.onlineHandler = null;
+    this.beforeUnloadHandler = null;
     this.initialized = false;
   }
 
@@ -179,7 +190,11 @@ export class LocalTracker implements ILocalTracker {
     };
 
     this.writeCurrentProgress();
-    this.sendHeartbeat('watching', contentType === 'livetv' ? 'livetv' : contentType);
+    // Send immediately on activity change (bypass rate limit)
+    this.sendHeartbeatImmediate(
+      contentType === 'livetv' ? 'livetv' : 'watching',
+      contentType === 'livetv' ? 'livetv' : contentType,
+    );
   }
 
   updateProgress(position: number, duration?: number): void {
@@ -196,7 +211,8 @@ export class LocalTracker implements ILocalTracker {
   pauseWatch(): void {
     if (!this.currentWatch) return;
     this.writeCurrentProgress();
-    this.sendHeartbeat('browsing');
+    // Send immediately on activity change (bypass rate limit)
+    this.sendHeartbeatImmediate('browsing');
   }
 
   stopWatch(): void {
@@ -235,7 +251,7 @@ export class LocalTracker implements ILocalTracker {
 
   /**
    * Construct and send a heartbeat beacon.
-   * Rate-limited to at most once per 5 minutes.
+   * Rate-limited to at most once per HEARTBEAT_INTERVAL_MS.
    * Queued offline if no connectivity.
    */
   sendHeartbeat(
@@ -247,6 +263,20 @@ export class LocalTracker implements ILocalTracker {
     const now = Date.now();
     if (now - this.lastHeartbeatTime < HEARTBEAT_INTERVAL_MS) return;
 
+    this.sendHeartbeatImmediate(activityType, contentCategory);
+  }
+
+  /**
+   * Send a heartbeat immediately, bypassing the rate limit.
+   * Used for activity type changes (start watching, pause, etc.)
+   */
+  private sendHeartbeatImmediate(
+    activityType: HeartbeatPayload['activityType'],
+    contentCategory?: string,
+  ): void {
+    if (!this.heartbeatEnabled) return;
+
+    const now = Date.now();
     const payload: HeartbeatPayload = {
       activityType,
       contentCategory,
@@ -264,6 +294,26 @@ export class LocalTracker implements ILocalTracker {
     this.deliverHeartbeat(payload).catch(() => {
       this.enqueueOffline(payload);
     });
+  }
+
+  /**
+   * Send a heartbeat via navigator.sendBeacon for reliable delivery on page unload.
+   */
+  private sendBeaconHeartbeat(): void {
+    if (!this.heartbeatEnabled) return;
+
+    const syncWorkerUrl = this.getSyncWorkerUrl();
+    if (!syncWorkerUrl) return;
+    if (typeof navigator === 'undefined' || !navigator.sendBeacon) return;
+
+    const payload: HeartbeatPayload = {
+      activityType: this.currentWatch ? 'watching' : 'browsing',
+      contentCategory: this.currentWatch?.contentType,
+      timestamp: Date.now(),
+    };
+
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    navigator.sendBeacon(`${syncWorkerUrl}/heartbeat`, blob);
   }
 
   /** Reset the heartbeat timer — exposed for testing. */

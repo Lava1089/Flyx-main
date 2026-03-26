@@ -4,8 +4,6 @@ import { ReactNode } from 'react';
 import { AdminProvider } from '../context/AdminContext';
 import {
   RealtimeSliceProvider,
-  ContentSliceProvider,
-  GeoSliceProvider,
   UserSliceProvider,
   SSEConnectionProvider,
 } from '../context/slices';
@@ -18,32 +16,28 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     return (
         <AdminProvider>
             <RealtimeSliceProvider>
-                <ContentSliceProvider>
-                    <GeoSliceProvider>
-                        <UserSliceProvider>
-                            <SSEConnectionProvider>
-                                <ResponsiveLayout
-                                    sidebar={<AdminSidebar />}
-                                >
-                                    <AdminHeader />
-                                    <UnifiedStatsBar />
-                                    <main 
-                                        style={{
-                                            flex: 1,
-                                            padding: '32px',
-                                            overflowY: 'auto',
-                                            minWidth: 0,
-                                        }}
-                                        role="main"
-                                        aria-label="Admin panel main content"
-                                    >
-                                        {children}
-                                    </main>
-                                </ResponsiveLayout>
-                            </SSEConnectionProvider>
-                        </UserSliceProvider>
-                    </GeoSliceProvider>
-                </ContentSliceProvider>
+                <UserSliceProvider>
+                    <SSEConnectionProvider>
+                        <ResponsiveLayout
+                            sidebar={<AdminSidebar />}
+                        >
+                            <AdminHeader />
+                            <UnifiedStatsBar />
+                            <main
+                                style={{
+                                    flex: 1,
+                                    padding: '32px',
+                                    overflowY: 'auto',
+                                    minWidth: 0,
+                                }}
+                                role="main"
+                                aria-label="Admin panel main content"
+                            >
+                                {children}
+                            </main>
+                        </ResponsiveLayout>
+                    </SSEConnectionProvider>
+                </UserSliceProvider>
             </RealtimeSliceProvider>
         </AdminProvider>
     );

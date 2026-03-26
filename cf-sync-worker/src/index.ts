@@ -2,24 +2,23 @@
  * Flyx Sync Worker
  *
  * Cloudflare Worker for anonymous cross-device sync + real-time admin panel.
- * Handles: watch progress, watchlist, provider settings, subtitle/player preferences,
- *          heartbeat buffering, SSE push, and admin stats.
+ * All real-time analytics live in worker memory — zero D1 reads/writes on hot path.
+ * D1 is only written once per day (midnight cron) for historical daily stats.
  *
  * Endpoints:
  *   GET  /sync        - Pull sync data (requires X-Sync-Code header)
  *   POST /sync        - Push sync data (requires X-Sync-Code header)
  *   DELETE /sync      - Delete sync account (requires X-Sync-Code header)
  *   GET  /health      - Health check
- *   POST /heartbeat   - Record user heartbeat (buffered)
- *   GET  /admin/live  - Live activity stats
- *   GET  /admin/stats - Aggregated stats (reads from cache when available)
+ *   POST /heartbeat   - Record user heartbeat (in-memory only, zero D1)
+ *   GET  /admin/live  - Live activity stats (from memory)
+ *   GET  /admin/stats - Stats (memory for today, D1 for historical)
  *   GET  /admin/sse   - SSE real-time data stream (JWT required)
  */
 
-import { HeartbeatBuffer, HeartbeatEntry } from './heartbeat-buffer';
+import { InMemoryAnalyticsState } from './in-memory-analytics';
 import { DeltaEngine } from './delta-engine';
-import { SSEManager, SSEChannel, VALID_CHANNELS } from './sse-manager';
-import { CronAggregator } from './cron-aggregator';
+import { SSEManager, SSEChannel } from './sse-manager';
 import { handleConsolidatedStats } from './stats-api';
 
 // ============================================================================
@@ -93,10 +92,9 @@ interface PlayerSettings {
 
 // ============================================================================
 // Worker-level singletons (persist across requests within same isolate)
-// Requirements: 2.1, 2.2, 7.1, 7.4, 1.1
 // ============================================================================
 
-let heartbeatBuffer: HeartbeatBuffer | null = null;
+let analyticsState: InMemoryAnalyticsState | null = null;
 let deltaEngine: DeltaEngine | null = null;
 let sseManager: SSEManager | null = null;
 let flushIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -104,11 +102,11 @@ let flushIntervalId: ReturnType<typeof setInterval> | null = null;
 /** Flush interval in ms — triggers delta computation + SSE broadcast */
 const FLUSH_INTERVAL_MS = 10_000;
 
-function getHeartbeatBuffer(): HeartbeatBuffer {
-  if (!heartbeatBuffer) {
-    heartbeatBuffer = new HeartbeatBuffer();
+function getAnalyticsState(): InMemoryAnalyticsState {
+  if (!analyticsState) {
+    analyticsState = new InMemoryAnalyticsState();
   }
-  return heartbeatBuffer;
+  return analyticsState;
 }
 
 function getDeltaEngine(): DeltaEngine {
@@ -181,20 +179,16 @@ function createJWTValidator(env: Env): (token: string) => Promise<{ sub: string;
 }
 
 // ============================================================================
-// Flush timer — triggers buffer flush → delta computation → SSE broadcast
-// Requirements: 2.2, 2.3, 1.2, 7.1
+// Flush timer — computes deltas from in-memory state + broadcasts via SSE
+// Zero D1 reads/writes
 // ============================================================================
 
-/**
- * Start the periodic flush timer if not already running.
- * After each flush, computes deltas from current live data and broadcasts via SSE.
- */
 function ensureFlushTimer(env: Env): void {
   if (flushIntervalId !== null) return;
 
-  flushIntervalId = setInterval(async () => {
+  flushIntervalId = setInterval(() => {
     try {
-      await flushAndBroadcast(env);
+      flushAndBroadcast(env);
     } catch (err) {
       console.error('[Sync Worker] Flush timer error:', err);
     }
@@ -202,75 +196,39 @@ function ensureFlushTimer(env: Env): void {
 }
 
 /**
- * Core flush-and-broadcast pipeline:
- * 1. Flush heartbeat buffer to D1
- * 2. Query current live state from D1
- * 3. Compute deltas via DeltaEngine
- * 4. Broadcast deltas to SSE subscribers
+ * Compute deltas from in-memory analytics state and broadcast via SSE.
+ * Pure in-memory operation — zero D1 reads/writes.
  */
-export async function flushAndBroadcast(env: Env): Promise<void> {
-  if (!env.SYNC_DB) return;
-
-  const buffer = getHeartbeatBuffer();
+export function flushAndBroadcast(env: Env): void {
+  const state = getAnalyticsState();
   const delta = getDeltaEngine();
   const sse = getSSEManager(env);
 
-  // 1. Flush buffer to D1
-  if (buffer.size > 0) {
-    await buffer.flush(env.SYNC_DB);
-  }
-
-  // 2. Only compute deltas if there are SSE subscribers
+  // Only compute deltas if there are SSE subscribers
   if (sse.getConnectionCount() === 0) return;
 
-  // 3. Query current live state and compute deltas per channel
-  const tenMinAgo = Date.now() - 10 * 60 * 1000;
+  // Get real-time snapshot from memory
+  const snapshot = state.getRealtimeSnapshot();
 
-  // Realtime channel: live user counts and activity breakdown
-  try {
-    const statsResult = await env.SYNC_DB.prepare(`
-      SELECT activity_type, COUNT(*) as count
-      FROM admin_heartbeats
-      WHERE timestamp >= ?
-      GROUP BY activity_type
-    `).bind(tenMinAgo).all();
+  // Compute and broadcast realtime delta
+  const realtimeDelta = delta.computeDelta('realtime', snapshot);
+  if (realtimeDelta) {
+    sse.broadcastDelta('realtime' as SSEChannel, realtimeDelta);
+  }
 
-    const topContentResult = await env.SYNC_DB.prepare(`
-      SELECT content_category, COUNT(*) as viewers
-      FROM admin_heartbeats
-      WHERE timestamp >= ? AND content_category IS NOT NULL
-      GROUP BY content_category
-      ORDER BY viewers DESC
-      LIMIT 10
-    `).bind(tenMinAgo).all();
-
-    let watching = 0, browsing = 0, livetv = 0;
-    for (const row of (statsResult.results || [])) {
-      const count = row.count as number;
-      switch (row.activity_type) {
-        case 'watching': watching = count; break;
-        case 'browsing': browsing = count; break;
-        case 'livetv': livetv = count; break;
-      }
-    }
-
-    const realtimeState: Record<string, unknown> = {
-      liveUsers: watching + browsing + livetv,
-      watching,
-      browsing,
-      livetv,
-      topActiveContent: (topContentResult.results || []).map(r => ({
-        title: r.content_category,
-        viewers: r.viewers,
-      })),
-    };
-
-    const realtimeDelta = delta.computeDelta('realtime', realtimeState);
-    if (realtimeDelta) {
-      sse.broadcastDelta('realtime' as SSEChannel, realtimeDelta);
-    }
-  } catch (err) {
-    console.error('[Sync Worker] Realtime delta error:', err);
+  // Compute and broadcast users delta
+  const usersState = {
+    dau: state.uniqueToday,
+    wau: 0, // historical — only available from D1
+    mau: 0, // historical — only available from D1
+    totalUsers: state.uniqueToday,
+    newToday: state.uniqueToday,
+    returningUsers: 0,
+    deviceBreakdown: [],
+  };
+  const usersDelta = delta.computeDelta('users', usersState);
+  if (usersDelta) {
+    sse.broadcastDelta('users' as SSEChannel, usersDelta);
   }
 }
 
@@ -346,24 +304,25 @@ export default {
 
     // Health check
     if (url.pathname === '/health') {
-      const sse = sseManager; // don't create if not initialized
+      const state = analyticsState;
+      const sse = sseManager;
       return Response.json({
         status: 'ok',
         service: 'flyx-sync',
         timestamp: Date.now(),
         hasD1: !!env.SYNC_DB,
         sseConnections: sse?.getConnectionCount() ?? 0,
-        bufferSize: heartbeatBuffer?.size ?? 0,
+        activeUsers: state?.activeCount ?? 0,
+        uniqueToday: state?.uniqueToday ?? 0,
       }, { headers: corsHeaders });
     }
 
-    // SSE endpoint — Requirements: 1.1, 1.2, 9.1, 9.2
+    // SSE endpoint
     if (url.pathname === '/admin/sse' && request.method === 'GET') {
       try {
         const sse = getSSEManager(env);
         ensureFlushTimer(env);
         const response = await sse.connect(request);
-        // Add CORS headers to SSE response
         const headers = new Headers(response.headers);
         for (const [key, value] of Object.entries(corsHeaders)) {
           headers.set(key, value);
@@ -418,7 +377,7 @@ export default {
       }
     }
 
-    // Heartbeat endpoint — now uses buffer (Requirements: 2.1, 2.2, 2.3)
+    // Heartbeat endpoint — pure in-memory, zero D1
     if (url.pathname === '/heartbeat' && request.method === 'POST') {
       try {
         return await handleHeartbeat(request, env, corsHeaders);
@@ -431,20 +390,12 @@ export default {
       }
     }
 
-    // Admin live endpoint
+    // Admin live endpoint — from memory
     if (url.pathname === '/admin/live' && request.method === 'GET') {
-      try {
-        return await handleAdminLive(env, corsHeaders);
-      } catch (error) {
-        console.error('[Sync Worker] Admin live error:', error);
-        return Response.json(
-          { success: false, error: 'Internal server error' },
-          { status: 500, headers: corsHeaders }
-        );
-      }
+      return handleAdminLive(corsHeaders);
     }
 
-    // Admin stats endpoint — now reads from aggregation_cache when available
+    // Admin stats endpoint — memory for today, D1 for historical
     if (url.pathname === '/admin/stats' && request.method === 'GET') {
       try {
         return await handleAdminStats(request, env, corsHeaders);
@@ -463,72 +414,65 @@ export default {
     );
   },
 
-  // Scheduled handler — flush buffer, run aggregations based on cron trigger
-  // Requirements: 2.6, 3.1, 3.2, 10.2
+  // Scheduled handler — midnight only: persist daily summary to D1
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.SYNC_DB) {
       console.error('[Sync Worker] Cron: D1 database not configured');
       return;
     }
 
-    // Flush any pending heartbeats before aggregation
-    const buffer = getHeartbeatBuffer();
-    if (buffer.size > 0) {
-      try {
-        await buffer.flush(env.SYNC_DB);
-      } catch (err) {
-        console.error('[Sync Worker] Cron: buffer flush failed:', err);
-      }
-    }
+    const state = getAnalyticsState();
 
-    const aggregator = new CronAggregator();
-
-    // Determine which cron triggered this: */15 (every 15 min) or 0 0 (midnight)
-    // Every 15-minute trigger: run hourly aggregation
+    // Persist today's summary to D1 (single write)
     try {
-      await aggregator.runHourlyAggregation(env.SYNC_DB);
+      const summary = state.getDailySummaryRow();
+      const now = Date.now();
+
+      await env.SYNC_DB.prepare(`
+        INSERT INTO admin_daily_stats (date, peak_active, total_unique_sessions, watching_sessions, browsing_sessions, livetv_sessions, top_categories, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+          peak_active = MAX(admin_daily_stats.peak_active, excluded.peak_active),
+          total_unique_sessions = excluded.total_unique_sessions,
+          watching_sessions = excluded.watching_sessions,
+          browsing_sessions = excluded.browsing_sessions,
+          livetv_sessions = excluded.livetv_sessions,
+          top_categories = excluded.top_categories,
+          updated_at = excluded.updated_at
+      `).bind(
+        summary.date,
+        summary.peakActive,
+        summary.totalUniqueSessions,
+        summary.watchingSessions,
+        summary.browsingSessions,
+        summary.livetvSessions,
+        summary.topCategories,
+        now,
+        now
+      ).run();
+
+      console.log(`[Sync Worker] Cron: persisted daily summary for ${summary.date} (${summary.totalUniqueSessions} unique users, peak ${summary.peakActive})`);
     } catch (err) {
-      // Log and skip on D1 failure — retry on next scheduled run (Requirement 10.2)
-      console.error('[Sync Worker] Cron: hourly aggregation failed:', err);
+      console.error('[Sync Worker] Cron: daily summary write failed:', err);
     }
 
-    // Check if this is the midnight trigger (hour=0, minute=0)
-    const triggerDate = new Date(event.scheduledTime);
-    const isMidnight = triggerDate.getUTCHours() === 0 && triggerDate.getUTCMinutes() === 0;
+    // Reset state for new day
+    state.resetDay();
 
-    if (isMidnight) {
-      // Daily aggregation
-      try {
-        await aggregator.runDailyAggregation(env.SYNC_DB);
-      } catch (err) {
-        console.error('[Sync Worker] Cron: daily aggregation failed:', err);
-      }
-
-      // Cleanup old aggregations and heartbeats
-      try {
-        await aggregator.cleanupOldAggregations(env.SYNC_DB);
-      } catch (err) {
-        console.error('[Sync Worker] Cron: aggregation cleanup failed:', err);
-      }
-
-      try {
-        await cleanupOldHeartbeats(env.SYNC_DB);
-      } catch (err) {
-        console.error('[Sync Worker] Cron: heartbeat cleanup failed:', err);
-      }
-
-      // Legacy daily stats (backward compatibility)
-      try {
-        await aggregateDailyStats(env.SYNC_DB);
-      } catch (err) {
-        console.error('[Sync Worker] Cron: legacy daily stats failed:', err);
-      }
+    // Cleanup old daily stats (keep 90 days)
+    try {
+      const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      await env.SYNC_DB.prepare(
+        'DELETE FROM admin_daily_stats WHERE date < ?'
+      ).bind(cutoffDate).run();
+    } catch (err) {
+      console.error('[Sync Worker] Cron: daily stats cleanup failed:', err);
     }
   },
 };
 
 // ============================================================================
-// Sync handlers (unchanged from original)
+// Sync handlers (unchanged)
 // ============================================================================
 
 async function handleGet(
@@ -701,8 +645,7 @@ async function handleDelete(
 }
 
 // ============================================================================
-// Heartbeat handler — now uses HeartbeatBuffer instead of direct D1 writes
-// Requirements: 2.1, 2.2, 2.3
+// Heartbeat handler — pure in-memory, zero D1
 // ============================================================================
 
 async function handleHeartbeat(
@@ -710,13 +653,6 @@ async function handleHeartbeat(
   env: Env,
   corsHeaders: HeadersInit
 ): Promise<Response> {
-  if (!env.SYNC_DB) {
-    return Response.json(
-      { success: false, error: 'D1 database not configured' },
-      { status: 503, headers: corsHeaders }
-    );
-  }
-
   let body: unknown;
   try {
     body = await request.json();
@@ -775,22 +711,16 @@ async function handleHeartbeat(
   const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '0.0.0.0';
   const ipHash = await hashIP(ip);
 
-  // Buffer the heartbeat instead of writing directly to D1
-  const buffer = getHeartbeatBuffer();
-  buffer.add({
+  // Record heartbeat in memory — zero D1 writes
+  const state = getAnalyticsState();
+  state.recordHeartbeat(
     ipHash,
-    activityType: activityType as HeartbeatEntry['activityType'],
-    contentCategory: (contentCategory as string) || null,
-    timestamp: timestamp as number,
-  });
+    activityType as 'browsing' | 'watching' | 'livetv',
+    (contentCategory as string) || null
+  );
 
-  // Start the flush timer if not already running
+  // Ensure SSE broadcast timer is running
   ensureFlushTimer(env);
-
-  // Immediate flush if buffer threshold reached (Requirements: 2.3)
-  if (buffer.shouldFlush()) {
-    await flushAndBroadcast(env);
-  }
 
   return Response.json({ success: true }, { headers: corsHeaders });
 }
@@ -799,127 +729,29 @@ async function handleHeartbeat(
 // Admin endpoints
 // ============================================================================
 
-async function handleAdminLive(
-  env: Env,
-  corsHeaders: HeadersInit
-): Promise<Response> {
-  if (!env.SYNC_DB) {
-    return Response.json(
-      { success: false, error: 'D1 database not configured' },
-      { status: 503, headers: corsHeaders }
-    );
-  }
-
-  const tenMinAgo = Date.now() - 10 * 60 * 1000;
-
-  const statsResult = await env.SYNC_DB.prepare(`
-    SELECT activity_type, COUNT(*) as count
-    FROM admin_heartbeats
-    WHERE timestamp >= ?
-    GROUP BY activity_type
-  `).bind(tenMinAgo).all();
-
-  const topContentResult = await env.SYNC_DB.prepare(`
-    SELECT content_category, COUNT(*) as viewers
-    FROM admin_heartbeats
-    WHERE timestamp >= ? AND content_category IS NOT NULL
-    GROUP BY content_category
-    ORDER BY viewers DESC
-    LIMIT 10
-  `).bind(tenMinAgo).all();
+/**
+ * Admin live endpoint — returns real-time snapshot from memory.
+ * Zero D1 reads.
+ */
+function handleAdminLive(corsHeaders: HeadersInit): Response {
+  const state = getAnalyticsState();
+  const snapshot = state.getRealtimeSnapshot();
 
   return Response.json({
     success: true,
-    stats: statsResult.results || [],
-    topContent: topContentResult.results || [],
+    ...snapshot,
   }, { headers: corsHeaders });
 }
 
 /**
- * Admin stats endpoint — consolidated slice-based queries with cache routing.
- * Reads from aggregation_cache for completed periods, combines with delta
- * query for current incomplete period.
- * Requirements: 3.3, 3.4, 5.2, 5.3, 5.4
+ * Admin stats endpoint — memory for today, D1 for historical.
  */
 async function handleAdminStats(
   request: Request,
   env: Env,
   corsHeaders: HeadersInit
 ): Promise<Response> {
-  if (!env.SYNC_DB) {
-    return Response.json(
-      { success: false, error: 'D1 database not configured' },
-      { status: 503, headers: corsHeaders }
-    );
-  }
-
-  const result = await handleConsolidatedStats(request, env.SYNC_DB);
+  const state = getAnalyticsState();
+  const result = await handleConsolidatedStats(request, env.SYNC_DB || null, state);
   return Response.json(result, { headers: corsHeaders });
-}
-
-// ============================================================================
-// Cron: aggregate daily stats & cleanup
-// ============================================================================
-
-export async function aggregateDailyStats(db: D1Database): Promise<void> {
-  const today = new Date().toISOString().split('T')[0];
-  const now = Date.now();
-
-  const activityCounts = await db.prepare(`
-    SELECT activity_type, COUNT(DISTINCT ip_hash) as count
-    FROM admin_heartbeats
-    GROUP BY activity_type
-  `).all();
-
-  let watching = 0, browsing = 0, livetv = 0;
-  for (const row of (activityCounts.results || [])) {
-    const count = row.count as number;
-    switch (row.activity_type) {
-      case 'watching': watching = count; break;
-      case 'browsing': browsing = count; break;
-      case 'livetv': livetv = count; break;
-    }
-  }
-
-  const uniqueResult = await db.prepare(`
-    SELECT COUNT(DISTINCT ip_hash) as total FROM admin_heartbeats
-  `).first();
-  const totalUnique = (uniqueResult?.total as number) || 0;
-
-  const peakResult = await db.prepare(`
-    SELECT COUNT(*) as peak FROM admin_heartbeats
-  `).first();
-  const peakActive = (peakResult?.peak as number) || 0;
-
-  const topCats = await db.prepare(`
-    SELECT content_category, COUNT(*) as count
-    FROM admin_heartbeats
-    WHERE content_category IS NOT NULL
-    GROUP BY content_category
-    ORDER BY count DESC
-    LIMIT 10
-  `).all();
-  const topCategories = JSON.stringify(
-    (topCats.results || []).map(r => ({ category: r.content_category, count: r.count }))
-  );
-
-  await db.prepare(`
-    INSERT INTO admin_daily_stats (date, peak_active, total_unique_sessions, watching_sessions, browsing_sessions, livetv_sessions, top_categories, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(date) DO UPDATE SET
-      peak_active = MAX(admin_daily_stats.peak_active, excluded.peak_active),
-      total_unique_sessions = excluded.total_unique_sessions,
-      watching_sessions = excluded.watching_sessions,
-      browsing_sessions = excluded.browsing_sessions,
-      livetv_sessions = excluded.livetv_sessions,
-      top_categories = excluded.top_categories,
-      updated_at = excluded.updated_at
-  `).bind(today, peakActive, totalUnique, watching, browsing, livetv, topCategories, now, now).run();
-}
-
-export async function cleanupOldHeartbeats(db: D1Database): Promise<void> {
-  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-  await db.prepare(`
-    DELETE FROM admin_heartbeats WHERE timestamp < ?
-  `).bind(twentyFourHoursAgo).run();
 }

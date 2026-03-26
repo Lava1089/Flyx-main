@@ -1,27 +1,23 @@
 /**
- * DLHD Key Fetcher with V5 EPlayerAuth
- * 
- * Fetches encryption keys DIRECTLY from DLHD key servers (no RPI proxy needed!)
- * 
- * Required headers:
- * - Authorization: Bearer <authToken>
- * - X-Key-Timestamp: <unix_timestamp>
- * - X-Key-Nonce: <pow_nonce> (MD5-based)
- * - X-Key-Path: <hmac_derived_path>
- * - X-Fingerprint: <browser_fingerprint>
- * 
+ * DLHD Key Fetcher — March 25, 2026
+ *
+ * Fetches encryption keys from DLHD key servers.
+ *
+ * UPDATED Mar 25 2026: EPlayerAuth v5 is GONE from DLHD.
+ * Keys now require ZERO auth headers — only reCAPTCHA IP whitelist.
+ * The old PoW, HMAC, fingerprint, Bearer headers are all obsolete.
+ *
+ * Key servers (CORS *):
+ *   - chevy.soyspace.cyou (primary)
+ *   - ai.the-sunmoon.site (fallback)
+ *   - key.keylocking.ru (DEAD — 403 Cloudflare)
+ *
  * SECURITY FEATURES:
  * - Rate limiting per channel (prevents abuse)
- * - Nonce tracking (prevents replay attacks)
- * - Fake key detection (identifies server-side blocks)
- * - Request fingerprinting (tracks suspicious patterns)
- * 
- * Updated February 2026: Direct fetch works! No residential IP needed.
+ * - Fake key detection (identifies non-whitelisted IPs)
  */
 
-import { 
-  fetchAuthData,
-  generateKeyHeaders,
+import {
   DLHDAuthDataV5,
 } from './dlhd-auth-v5';
 
@@ -32,9 +28,10 @@ const channelRequestCache = new Map<string, { count: number; resetAt: number }>(
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 key requests per channel per minute
 
-// Nonce tracking: Prevent replay attacks
-const usedNonces = new Set<string>();
-const NONCE_EXPIRY_MS = 300000; // 5 minutes
+// Key servers to try (ordered by reliability for server-side fetching)
+// UPDATED Mar 25 2026: key.keylocking.ru is dead (403 Cloudflare)
+// ai.the-sunmoon.site blocks server IPs with Cloudflare challenges — browser-only
+const KEY_SERVERS = ['chevy.soyspace.cyou', 'chevy.vovlacosa.sbs'] as const;
 
 export interface KeyFetchResult {
   success: boolean;
@@ -91,62 +88,34 @@ function checkRateLimit(channel: string): { limited: boolean; retryAfter?: numbe
 }
 
 /**
- * Check if nonce was already used (replay attack prevention)
- */
-function isNonceUsed(nonce: string): boolean {
-  // Check if any entry starts with this nonce
-  for (const entry of usedNonces) {
-    if (entry.startsWith(`${nonce}:`)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Mark nonce as used with timestamp for expiry tracking
- */
-function markNonceUsed(nonce: string): void {
-  const entry = `${nonce}:${Date.now()}`;
-  usedNonces.add(entry);
-  
-  // Clean up old nonces periodically (older than NONCE_EXPIRY_MS)
-  if (usedNonces.size > 10000) {
-    const now = Date.now();
-    const toDelete: string[] = [];
-    
-    for (const entry of usedNonces) {
-      const timestamp = parseInt(entry.split(':')[1], 10);
-      if (now - timestamp > NONCE_EXPIRY_MS) {
-        toDelete.push(entry);
-      }
-    }
-    
-    toDelete.forEach(e => usedNonces.delete(e));
-    console.log(`[Key-Fetch] Cleaned up ${toDelete.length} expired nonces`);
-  }
-}
-
-/**
  * Validate key data for known fake patterns
  */
 function isFakeKey(keyHex: string): boolean {
-  // Known fake key patterns from DLHD servers
-  const fakePatterns = [
-    '455806f8', // Common fake key prefix
-    '45c6497',  // Another fake key prefix
-    '00000000', // All zeros
-    'ffffffff', // All ones
-  ];
-  
+  // Known fake/poison keys returned to non-whitelisted IPs
+  // UPDATED Mar 25 2026: Added full keys discovered via E2E testing
+  const FAKE_KEYS = new Set([
+    '45db13cfa0ed393fdb7da4dfe9b5ac81',
+    '455806f8bc592fdacb6ed5e071a517b1',
+    '4542956ed8680eaccb615f7faad4da8f',
+    '45a542173e0b81d2a9c13cbc2bdcfd8c',
+  ]);
+
+  if (FAKE_KEYS.has(keyHex)) return true;
+
+  // Also check prefix patterns
+  const fakePatterns = ['00000000', 'ffffffff'];
   return fakePatterns.some(pattern => keyHex.startsWith(pattern));
 }
 
 /**
- * Fetch key DIRECTLY with V5 EPlayerAuth authentication
- * No RPI proxy needed - fetches directly from key server!
- * 
- * SECURITY: Includes rate limiting, nonce tracking, and fake key detection
+ * Fetch key from DLHD key servers.
+ *
+ * UPDATED Mar 25 2026: EPlayerAuth is completely removed from DLHD.
+ * Keys require NO auth headers — only reCAPTCHA IP whitelist.
+ * The authData parameter is kept for API compatibility but ignored.
+ *
+ * Tries multiple key servers (chevy.soyspace.cyou, ai.the-sunmoon.site).
+ * Returns fake key detection so callers can trigger reCAPTCHA whitelist.
  */
 export async function fetchKeyWithAuth(
   keyUrl: string,
@@ -158,111 +127,86 @@ export async function fetchKeyWithAuth(
   }
 
   const { resource, keyNumber } = parsed;
-  
+
   // Extract channel for rate limiting
   const channel = extractChannelFromKeyUrl(keyUrl);
   if (!channel) {
     return { success: false, error: 'Cannot extract channel from key URL' };
   }
-  
+
   // SECURITY: Check rate limit
   const rateLimitCheck = checkRateLimit(channel);
   if (rateLimitCheck.limited) {
-    return { 
-      success: false, 
-      error: 'Rate limit exceeded', 
-      retryAfter: rateLimitCheck.retryAfter 
+    return {
+      success: false,
+      error: 'Rate limit exceeded',
+      retryAfter: rateLimitCheck.retryAfter
     };
   }
-  
-  // If no auth data provided, fetch it from player page
-  let auth = authData;
-  if (!auth) {
-    console.log(`[Key-Fetch] Fetching auth for channel ${channel}...`);
-    const fetchedAuth = await fetchAuthData(channel);
-    
-    if (!fetchedAuth) {
-      return { success: false, error: 'Failed to get auth data' };
-    }
-    auth = fetchedAuth;
+
+  // Mar 25 2026: No auth headers needed — just Referer/Origin for CORS
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Referer': 'https://enviromentalspace.sbs/',
+    'Origin': 'https://enviromentalspace.sbs',
+  };
+
+  console.log(`[Key-Fetch] ${resource}/${keyNumber} (no auth headers — IP whitelist only)`);
+
+  // Try the provided URL first, then fallback servers
+  const keyPath = `/key/${resource}/${keyNumber}`;
+  const urlsToTry = [keyUrl];
+  for (const server of KEY_SERVERS) {
+    const alt = `https://${server}${keyPath}`;
+    if (!urlsToTry.includes(alt)) urlsToTry.push(alt);
   }
-  
-  // CRITICAL: Must have channelSalt
-  if (!auth.channelSalt) {
-    return { success: false, error: 'No channelSalt in auth data' };
-  }
 
-  console.log(`[Key-Fetch] ${resource}/${keyNumber} with salt ${auth.channelSalt.substring(0, 16)}...`);
+  for (const url of urlsToTry) {
+    try {
+      const response = await fetch(url, { headers });
 
-  // Generate auth headers with current time (no offset)
-  const headers = await generateKeyHeaders(resource, keyNumber, auth);
-  
-  // SECURITY: Check nonce reuse (replay attack prevention)
-  const nonce = headers['X-Key-Nonce'];
-  if (isNonceUsed(nonce)) {
-    console.log(`[Key-Fetch] ⚠️ Nonce reuse detected: ${nonce}`);
-    return { success: false, error: 'Nonce already used (replay attack?)' };
-  }
-  
-  console.log(`[Key-Fetch] Fetching with timestamp=${headers['X-Key-Timestamp']}, nonce=${nonce}`);
+      if (response.ok) {
+        const data = await response.arrayBuffer();
 
-  try {
-    const response = await fetch(keyUrl, { headers });
+        if (data.byteLength === 16) {
+          const bytes = new Uint8Array(data);
+          const keyHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 
-    if (response.ok) {
-      const data = await response.arrayBuffer();
-      
-      if (data.byteLength === 16) {
-        const bytes = new Uint8Array(data);
-        const keyHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-        
-        // SECURITY: Check for fake key patterns
-        if (isFakeKey(keyHex)) {
-          console.log(`[Key-Fetch] ⚠️ FAKE key detected: ${keyHex}`);
-          return { 
-            success: false, 
-            error: 'Received fake key from server',
-            isFakeKey: true 
-          };
+          // SECURITY: Check for fake key patterns (returned to non-whitelisted IPs)
+          if (isFakeKey(keyHex)) {
+            console.log(`[Key-Fetch] FAKE key from ${new URL(url).hostname}: ${keyHex} — IP not whitelisted`);
+            return {
+              success: false,
+              error: 'Received fake key — IP not whitelisted (reCAPTCHA verify needed)',
+              isFakeKey: true
+            };
+          }
+
+          console.log(`[Key-Fetch] REAL key: ${keyHex}`);
+          return { success: true, data };
+        } else {
+          console.log(`[Key-Fetch] Invalid key size: ${data.byteLength} bytes from ${new URL(url).hostname}`);
+          continue;
         }
-        
-        // SECURITY: Mark nonce as used
-        markNonceUsed(nonce);
-        
-        console.log(`[Key-Fetch] ✅ Got REAL key: ${keyHex}`);
-        return { success: true, data };
+      } else if (response.status === 403) {
+        console.log(`[Key-Fetch] 403 from ${new URL(url).hostname} — trying next server`);
+        continue;
       } else {
-        return { success: false, error: `Invalid key size: ${data.byteLength} bytes` };
+        console.log(`[Key-Fetch] HTTP ${response.status} from ${new URL(url).hostname}`);
+        continue;
       }
-    } else {
-      // Handle specific HTTP error codes
-      if (response.status === 429) {
-        return { 
-          success: false, 
-          error: 'Server rate limit exceeded', 
-          statusCode: 429,
-          retryAfter: 60000 // Wait 1 minute
-        };
-      }
-      
-      if (response.status === 401 || response.status === 403) {
-        return { 
-          success: false, 
-          error: 'Authentication failed - auth token may be expired', 
-          statusCode: response.status 
-        };
-      }
-      
-      return { success: false, error: `HTTP ${response.status}`, statusCode: response.status };
+    } catch (e) {
+      console.log(`[Key-Fetch] Error from ${url}: ${e}`);
+      continue;
     }
-  } catch (e) {
-    console.log(`[Key-Fetch] Error: ${e}`);
-    return { success: false, error: `Fetch failed: ${e}` };
   }
+
+  return { success: false, error: 'All key servers failed' };
 }
 
 /**
- * Fetch key with pre-fetched auth data (for when auth is already available)
+ * Fetch key with pre-fetched auth data (for when auth is already available).
+ * NOTE: authData is ignored as of Mar 25 2026 — kept for API compatibility.
  */
 export async function fetchKeyDirect(
   keyUrl: string,

@@ -26,6 +26,8 @@ export interface RPIErrorResponse {
     details?: string;
     hint?: string;
     channel?: string;
+    status?: number;
+    [key: string]: unknown;
 }
 /** Standardized JSON success response */
 export interface RPISuccessResponse<T = unknown> {

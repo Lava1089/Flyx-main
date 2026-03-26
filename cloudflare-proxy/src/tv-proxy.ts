@@ -10,7 +10,7 @@
  *   GET /?channel=<id>           - Get proxied M3U8 playlist (DLHD channels only)
  *   GET /cdnlive?url=<url>       - Proxy nested M3U8 manifests (through Next.js /tv route)
  *   GET /segment?url=<url>       - Proxy video segments (DIRECT to worker, bypasses Next.js)
- *   GET /key?url=<encoded_url>   - Proxy encryption key (with PoW auth)
+ *   GET /key?url=<encoded_url>   - Proxy encryption key (direct + RPI fallback)
  *   GET /health                  - Health check
  * 
  * ROUTING ARCHITECTURE (January 2026):
@@ -19,10 +19,11 @@
  * - This separation reduces latency and improves video playback
  * - See: cloudflare-proxy/SECURITY-ANALYSIS-TV-PROXY.md for details
  * 
- * KEY FETCHING (January 2026 Update):
- * - WASM-based PoW computation (bundled from DLHD's player v2.0.0-hardened)
- * - PoW runs entirely in CF worker - no external dependencies for nonce computation
- * - RPI proxy only needed for final key fetch (residential IP required)
+ * KEY FETCHING (March 25, 2026 Update):
+ * - EPlayerAuth v5 is GONE from DLHD — no PoW, no HMAC, no auth headers needed
+ * - Keys require only reCAPTCHA IP whitelist (20 min TTL)
+ * - Direct CF fetch tried first (fast path ~120ms), RPI proxy as fallback
+ * - WASM PoW kept but no longer used for key fetching
  */
 
 import { createLogger, type LogLevel } from './logger';
@@ -294,12 +295,13 @@ const channelKeyToTopembed = new Map<string, string>();
 const dlhdIdToChannelKey = new Map<string, string>();
 
 /**
- * Fetch JWT from player page - this is the REAL auth token needed for key requests
+ * Fetch JWT from player page.
  *
- * UPDATED March 24, 2026:
- * - enviromentalspace.sbs is the new primary player domain (was ksohls.ru)
- * - hitsplay.fun provides JWT directly but uses 'premium{id}' keys which may not work on all servers
- * - PRIORITY: enviromentalspace.sbs first (fast), then ksohls.ru (fallback), then hitsplay.fun
+ * UPDATED March 25, 2026:
+ * - EPlayerAuth is GONE from DLHD — pages no longer contain JWT/auth tokens
+ * - Player pages now use reCAPTCHA v3 → /verify → server_lookup → HLS.js
+ * - This function may return null for most channels now — that's OK
+ * - Key fetching no longer needs JWT/auth, only reCAPTCHA IP whitelist
  */
 async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<string | null> {
   const cacheKey = channel;
@@ -465,10 +467,11 @@ async function getServerKey(channelKey: string, logger: any, env?: Env): Promise
   const cached = serverKeyCache.get(channelKey);
   if (cached && Date.now() - cached.fetchedAt < SERVER_KEY_CACHE_TTL_MS) return cached.serverKey;
 
-  // March 24, 2026: Try ai.the-sunmoon.site first (new primary), then chevy.soyspace.cyou
+  // March 25, 2026: chevy.{domain} works from CF Workers.
+  // ai.the-sunmoon.site blocks server IPs with Cloudflare challenges — browser-only.
   const lookupUrls = [
-    `https://${M3U8_SERVER}/server_lookup?channel_id=${channelKey}`,
     `https://chevy.${CDN_DOMAIN}/server_lookup?channel_id=${channelKey}`,
+    `https://chevy.vovlacosa.sbs/server_lookup?channel_id=${channelKey}`,
   ];
 
   for (const lookupUrl of lookupUrls) {
@@ -1936,129 +1939,131 @@ function rewriteLovecdnM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: s
   return lines.join('\n');
 }
 
+// In-memory key cache — per CF Worker isolate, instant lookups
+const keyMemCache = new Map<string, { data: ArrayBuffer; expiresAt: number }>();
+const KEY_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes (keys rotate every ~3-5 min)
+
+const FAKE_KEYS = new Set([
+  '45db13cfa0ed393fdb7da4dfe9b5ac81',
+  '455806f8bc592fdacb6ed5e071a517b1',
+  '4542956ed8680eaccb615f7faad4da8f',
+  '45a542173e0b81d2a9c13cbc2bdcfd8c',
+]);
+
+function toHexStr(buf: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Key proxy handler — clean cache-first flow.
+ *
+ * March 25, 2026 — EPlayerAuth is GONE from DLHD. No auth headers needed.
+ *
+ * Flow:
+ *   1. Check in-memory cache for this key path → return if valid
+ *   2. Cache miss → call RPI /dlhd-key-v6 (ProxyJet sticky session)
+ *      RPI handles: create session → whitelist via reCAPTCHA → fetch key → return
+ *   3. Validate key (16 bytes, not fake) → cache + return to user
+ */
 async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?: Env): Promise<Response> {
-  // Global timeout for the entire key proxy operation
   const startTime = Date.now();
-  const MAX_KEY_PROXY_TIME = 25000; // 25 seconds max
-  
+
   const keyUrlParam = url.searchParams.get('url');
   if (!keyUrlParam) return jsonResponse({ error: 'Missing url parameter' }, 400, origin);
 
-  let keyUrl = decodeURIComponent(keyUrlParam);
-  logger.info('Key proxy request', { keyUrl: keyUrl.substring(0, 80) });
-
-  // UPDATED January 2026: Handle both premium{id} and topembed channel keys (like 'ustvabc')
-  // Extract channel key and key number from URL
+  const keyUrl = decodeURIComponent(keyUrlParam);
   const keyPathMatch = keyUrl.match(/\/key\/([^/]+)\/(\d+)/);
   if (!keyPathMatch) return jsonResponse({ error: 'Could not extract channel key from URL' }, 400, origin);
 
-  const channelKey = keyPathMatch[1]; // Could be 'premium51', 'ustvabc', 'eplayerespn_usa', etc.
+  const channelKey = keyPathMatch[1];
   const keyNumber = keyPathMatch[2];
-  
-  logger.info('Key request parsed', { channelKey, keyNumber });
+  const keyPath = `/key/${channelKey}/${keyNumber}`;
 
-  // UPDATED February 25, 2026: DLHD key endpoint requires full V5 auth:
-  // - EPlayerAuth token (XOR-encrypted, extracted from player page)
-  // - PoW nonce (MD5-based, computed with channelSalt from player page)
-  // - X-Key-Path, X-Fingerprint headers
-  // The /dlhd-key endpoint on RPI handles ALL of this automatically.
-
-  // March 25, 2026: chevy.soyspace.cyou is primary (key.keylocking.ru returns 403 from Cloudflare)
-  const newKeyUrl = `https://chevy.${CDN_DOMAIN}/key/${channelKey}/${keyNumber}`;
-
-  try {
-    let data: ArrayBuffer;
-    let fetchedVia = 'rpi-dlhd-key-v6';
-
-    // Use RPI proxy's /dlhd-key-v6 endpoint - uses rust-fetch binary mode with reCAPTCHA whitelist
-    if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
-      return jsonResponse({ 
-        error: 'RPI proxy not configured', 
-        hint: 'Configure RPI_PROXY_URL and RPI_PROXY_KEY for key decryption',
-      }, 502, origin);
-    }
-    
-    // /dlhd-key-v6 uses rust-fetch fetch-bin mode for binary key data, tries multiple CDN servers
-    const rpiKeyUrl = `${env.RPI_PROXY_URL}/dlhd-key-v6?url=${encodeURIComponent(newKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
-    
-    logger.info('Fetching key via RPI /dlhd-key-v6', { channelKey, keyNumber });
-    
-    // Add timeout to prevent hanging
-    const controller = new AbortController();
-    // 50s timeout — RPI may need to solve reCAPTCHA + whitelist ProxyJet IP + retry (can take 20-30s)
-    const timeoutId = setTimeout(() => controller.abort(), 50000);
-
-    let rpiRes: Response;
-    try {
-      rpiRes = await fetch(rpiKeyUrl, { signal: controller.signal });
-    } catch (e) {
-      clearTimeout(timeoutId);
-      if ((e as Error).name === 'AbortError') {
-        logger.warn('RPI key fetch timeout');
-        return jsonResponse({ error: 'Key fetch timeout - RPI proxy not responding' }, 504, origin);
-      }
-      throw e;
-    }
-    clearTimeout(timeoutId);
-    
-    if (!rpiRes.ok) {
-      const errText = await rpiRes.text();
-      logger.warn('RPI key fetch failed', { status: rpiRes.status, error: errText });
-      return jsonResponse({ 
-        error: 'Key fetch failed via RPI', 
-        rpiStatus: rpiRes.status,
-        rpiError: errText.substring(0, 200),
-        channelKey,
-        keyNumber,
-      }, 502, origin);
-    }
-    
-    data = await rpiRes.arrayBuffer();
-
-    if (data.byteLength === 16) {
-      // Check for known fake/poison keys that DLHD returns to non-whitelisted IPs
-      const hex = Array.from(new Uint8Array(data)).map(b => b.toString(16).padStart(2, '0')).join('');
-      const FAKE_KEYS = new Set([
-        '455806f8bc592fdacb6ed5e071a517b1',
-        '45db13cfa0ed393fdb7da4dfe9b5ac81',
-        '4542956ed8680eaccb615f7faad4da8f',
-        '45a542173e0b81d2a9c13cbc2bdcfd8c', // Discovered Mar 25 2026 — same for all key numbers
-      ]);
-      if (FAKE_KEYS.has(hex)) {
-        logger.warn(`Got fake/poison key (${hex.substring(0, 8)}...) - IP not whitelisted`);
-        return jsonResponse({ 
-          error: 'Key auth failed - got poison key (IP not whitelisted)',
-          hint: 'reCAPTCHA whitelist may have expired — client should re-whitelist',
-          channelKey,
-          keyNumber,
-        }, 502, origin);
-      }
-      
-      logger.info('Key fetched successfully', { size: 16, fetchedVia, hex: hex.substring(0, 16) });
-      return new Response(data, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': '16',
-          ...corsHeaders(origin),
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'X-Fetched-Via': fetchedVia,
-        },
-      });
-    }
-
-    const text = new TextDecoder().decode(data);
-    logger.warn('Invalid key response', { size: data.byteLength, preview: text.substring(0, 100) });
-    return jsonResponse({ 
-      error: 'Invalid key response', 
-      size: data.byteLength,
-      preview: text.substring(0, 100),
-      channelKey,
-      keyNumber,
-    }, 502, origin);
-  } catch (error) {
-    return jsonResponse({ error: 'Key fetch failed', details: (error as Error).message }, 502, origin);
+  // ─── Step 1: Check cache ──────────────────────────────────────────
+  const cached = keyMemCache.get(keyPath);
+  if (cached && Date.now() < cached.expiresAt) {
+    logger.info('Key cache hit', { keyPath, ms: Date.now() - startTime });
+    return new Response(cached.data, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': '16',
+        ...corsHeaders(origin),
+        'Cache-Control': 'no-store',
+        'X-Fetched-Via': 'cache',
+        'X-Cache-Remaining': String(Math.round((cached.expiresAt - Date.now()) / 1000)) + 's',
+      },
+    });
   }
+
+  // ─── Step 2: Fetch from RPI (ProxyJet sticky session) ─────────────
+  if (!env?.RPI_PROXY_URL || !env?.RPI_PROXY_KEY) {
+    return jsonResponse({ error: 'RPI proxy not configured' }, 502, origin);
+  }
+
+  // Send the primary key URL — RPI will try multiple servers internally
+  const primaryKeyUrl = `https://chevy.${CDN_DOMAIN}${keyPath}`;
+  const rpiUrl = `${env.RPI_PROXY_URL}/dlhd-key-v6?url=${encodeURIComponent(primaryKeyUrl)}&key=${env.RPI_PROXY_KEY}`;
+
+  logger.info('Fetching key via RPI', { channelKey, keyNumber });
+
+  let rpiRes: Response;
+  try {
+    rpiRes = await fetch(rpiUrl, { signal: AbortSignal.timeout(30000) });
+  } catch (e) {
+    const ms = Date.now() - startTime;
+    if ((e as Error).name === 'AbortError') {
+      logger.warn('RPI timeout', { ms });
+      return jsonResponse({ error: 'Key fetch timeout', ms }, 504, origin);
+    }
+    throw e;
+  }
+
+  if (!rpiRes.ok) {
+    const errText = await rpiRes.text();
+    logger.warn('RPI error', { status: rpiRes.status, error: errText.substring(0, 200) });
+    return jsonResponse({ error: 'RPI key fetch failed', rpiStatus: rpiRes.status, details: errText.substring(0, 200) }, 502, origin);
+  }
+
+  const data = await rpiRes.arrayBuffer();
+
+  // ─── Step 3: Validate + cache + return ────────────────────────────
+  if (data.byteLength === 16) {
+    const hex = toHexStr(data);
+    if (FAKE_KEYS.has(hex)) {
+      logger.warn('RPI returned fake key', { hex: hex.substring(0, 16) });
+      return jsonResponse({ error: 'Fake key — ProxyJet IP not whitelisted', channelKey, keyNumber }, 502, origin);
+    }
+
+    // Cache the valid key
+    keyMemCache.set(keyPath, { data, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
+
+    // Evict expired entries if cache grows large
+    if (keyMemCache.size > 500) {
+      const now = Date.now();
+      for (const [k, v] of keyMemCache) { if (now >= v.expiresAt) keyMemCache.delete(k); }
+    }
+
+    const ms = Date.now() - startTime;
+    const fetchedVia = rpiRes.headers.get('X-Fetched-By') || 'rpi-v6';
+    logger.info('Key fetched + cached', { channelKey, keyNumber, hex: hex.substring(0, 16), ms, fetchedVia });
+    return new Response(data, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': '16',
+        ...corsHeaders(origin),
+        'Cache-Control': 'no-store',
+        'X-Fetched-Via': fetchedVia,
+        'X-Total-Ms': String(ms),
+      },
+    });
+  }
+
+  // Non-16-byte response from RPI
+  const text = new TextDecoder().decode(data);
+  logger.warn('Invalid key response from RPI', { size: data.byteLength, preview: text.substring(0, 100) });
+  return jsonResponse({ error: 'Invalid key response', size: data.byteLength }, 502, origin);
 }
 
 // Known DLHD CDN domains that block Cloudflare IPs
@@ -2271,10 +2276,9 @@ function rewriteM3U8(content: string, proxyOrigin: string, m3u8BaseUrl: string):
   let modified = content;
 
   // March 25, 2026: Route keys through /tv/key proxy.
-  // E2E testing proves chevy.soyspace.cyou returns a NEW fake key
-  // (45a542173e0b81d2a9c13cbc2bdcfd8c — same for all key numbers) to
-  // non-whitelisted IPs. Keys MUST go through RPI residential proxy which
-  // handles reCAPTCHA whitelist via ProxyJet SOCKS5.
+  // Keys require reCAPTCHA IP whitelist — CF edge IPs get fake/poison keys.
+  // Worker tries direct fetch first (fast path), falls back to RPI residential proxy.
+  // EPlayerAuth is gone — no auth headers needed, only IP whitelist.
   modified = modified.replace(/URI="([^"]+)"/g, (_, originalKeyUrl) => {
     let absoluteKeyUrl = originalKeyUrl;
     if (!absoluteKeyUrl.startsWith('http')) {

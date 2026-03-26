@@ -355,15 +355,21 @@ export async function handleDLHDWhitelist(req: RPIRequest, res: ServerResponse):
 }
 
 /**
- * /dlhd-key-v6 — Server-side key fetching via rust-fetch (residential IP + Chrome TLS).
- * 
- * March 2026: DLHD uses reCAPTCHA v3 IP whitelist. Without whitelist, key servers
- * return fake 16-byte keys. This endpoint:
- * 1. Triggers reCAPTCHA whitelist refresh via rust-fetch (if needed)
- * 2. Fetches the key from multiple servers
- * 3. Returns the first valid (non-fake) 16-byte key
+ * /dlhd-key-v6 — ProxyJet sticky session key fetching via rust-fetch.
+ *
+ * March 25, 2026: EPlayerAuth is GONE from DLHD. Keys require ZERO auth headers —
+ * only reCAPTCHA IP whitelist. This endpoint:
+ *
+ *   1. Creates a fresh ProxyJet sticky session (unique residential IP)
+ *   2. Whitelists that IP via reCAPTCHA v3 HTTP bypass + POST /verify
+ *   3. Fetches the key through the SAME sticky IP (now whitelisted)
+ *   4. Returns the valid 16-byte key
+ *
+ * The sticky session is ephemeral — one session per key request, no reuse.
+ * This avoids the 4-channel concurrent limit and ensures a clean IP every time.
  */
 export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Promise<void> {
+  const startTime = Date.now();
   const targetUrl = req.url.searchParams.get('url');
 
   if (!targetUrl) {
@@ -381,28 +387,28 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
     return;
   }
 
-  console.log(`[DLHD-Key-V6] Fetching key: ${decoded.substring(0, 80)}...`);
-
   // Extract key path for trying multiple servers
   const keyPathMatch = decoded.match(/(\/key\/[^?]+)/);
   const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
+  const channelMatch = keyPath.match(/\/(premium\d+)\//);
+  const channel = channelMatch ? channelMatch[1] : 'premium44';
 
-  // UPDATED Mar 25 2026: chevy.soyspace.cyou is primary (key.keylocking.ru 403s behind Cloudflare)
+  // Key servers — chevy.{domain} works through SOCKS5 proxies
+  // ai.the-sunmoon.site blocks ALL non-browser requests (CF WAF) — don't bother
   const keyServers = [
-    decoded,
-    `https://chevy.soyspace.cyou${keyPath}`,
-    `https://chevy.vmvmv.shop${keyPath}`,
-    `https://chevy.vovlacosa.sbs${keyPath}`,
-    `https://key.keylocking.ru${keyPath}`,
+    ...new Set([
+      decoded,
+      `https://chevy.soyspace.cyou${keyPath}`,
+      `https://chevy.vovlacosa.sbs${keyPath}`,
+    ])
   ];
-  const uniqueServers = [...new Set(keyServers)];
 
-  // Known fake keys that key servers return to non-whitelisted IPs
+  // Known fake/poison keys returned to non-whitelisted IPs
   const FAKE_KEYS = new Set([
     '45db13cfa0ed393fdb7da4dfe9b5ac81',
     '455806f8bc592fdacb6ed5e071a517b1',
     '4542956ed8680eaccb615f7faad4da8f',
-    '45a542173e0b81d2a9c13cbc2bdcfd8c', // Discovered Mar 25 2026 — same for all key numbers
+    '45a542173e0b81d2a9c13cbc2bdcfd8c',
   ]);
 
   const { spawn } = await import('child_process');
@@ -410,70 +416,125 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
   const { promisify } = await import('util');
   const execFileAsync = promisify(execFile);
 
-  // Fresh ProxyJet IP every time — avoids 4-channel concurrent limit
+  // ─── Step 1: Create ephemeral ProxyJet sticky session ───────────
   const baseProxyUrl = process.env.PROXY_SOCKS5_URL || '';
+  if (!baseProxyUrl) {
+    sendJsonError(res, 502, { error: 'PROXY_SOCKS5_URL not configured', timestamp: Date.now() });
+    return;
+  }
+
   const sessionId = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const proxyUrl = baseProxyUrl ? injectStickySession(baseProxyUrl, sessionId) : '';
-  const primaryUrl = uniqueServers[0];
-  const channelMatch = keyPath.match(/\/(premium\d+)\//);
-  const channel = channelMatch ? channelMatch[1] : 'premium44';
+  const proxyUrl = injectStickySession(baseProxyUrl, sessionId);
 
-  console.log(`[DLHD-Key-V6] session=${sessionId} channel=${channel}`);
+  console.log(`[DLHD-Key-V6] ── START ── channel=${channel} session=${sessionId}`);
 
-  // Helper: fetch key via rust-fetch (3s timeout)
-  function fetchKey(url: string): Promise<Buffer> {
+  // Helper: fetch binary data via rust-fetch through sticky proxy
+  function fetchBin(url: string, timeoutSec = 5): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const args = ['--url', url, '--timeout', '3', '--mode', 'fetch-bin',
-        '--headers', JSON.stringify({ Referer: 'https://enviromentalspace.sbs/', Origin: 'https://enviromentalspace.sbs' })];
-      if (proxyUrl) args.push('--proxy', proxyUrl);
+      const args = [
+        '--url', url, '--timeout', String(timeoutSec), '--mode', 'fetch-bin',
+        '--headers', JSON.stringify({
+          'Referer': 'https://enviromentalspace.sbs/',
+          'Origin': 'https://enviromentalspace.sbs',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        }),
+        '--proxy', proxyUrl,
+      ];
       const proc = spawn('rust-fetch', args);
       const chunks: Buffer[] = [];
       proc.stdout.on('data', (c: Buffer) => chunks.push(c));
       proc.on('error', reject);
-      proc.on('close', (code: number) => code !== 0 ? reject(new Error(`exit ${code}`)) : resolve(Buffer.concat(chunks)));
+      proc.on('close', (code: number) =>
+        code !== 0 ? reject(new Error(`rust-fetch exit ${code}`)) : resolve(Buffer.concat(chunks)));
     });
   }
 
   let validKey: Buffer | null = null;
 
-  // Whitelist + fetch key — do whitelist FIRST since fresh IP is never whitelisted.
-  // reCAPTCHA solves direct (no proxy, ~1-2s), only verify goes through proxy (~1s).
-  console.log(`[DLHD-Key-V6] Whitelisting via ${sessionId}...`);
   try {
-    const wlArgs = ['--mode', 'dlhd-whitelist', '--url', channel, '--timeout', '10'];
-    if (proxyUrl) wlArgs.push('--proxy', proxyUrl);
-    const { stdout } = await execFileAsync('rust-fetch', wlArgs, { timeout: 15000, windowsHide: true });
-    const wlResult = stdout.trim();
-    console.log(`[DLHD-Key-V6] Whitelist: ${wlResult.substring(0, 200)}`);
+    // ─── Step 2: Whitelist the sticky IP via reCAPTCHA ──────────────
+    // Two-step: solve reCAPTCHA v3 token (no proxy needed), then POST /verify through sticky proxy
+    console.log(`[DLHD-Key-V6] [Step 2] Whitelisting sticky IP...`);
+    const wlStart = Date.now();
 
-    // Now fetch key with whitelisted IP
-    const keyBuf = await fetchKey(primaryUrl);
-    if (keyBuf.length === 16) {
-      const hex = keyBuf.toString('hex');
-      if (!FAKE_KEYS.has(hex)) {
-        validKey = keyBuf;
-        console.log(`[DLHD-Key-V6] ✅ Key: ${hex}`);
-      } else {
-        console.log(`[DLHD-Key-V6] ❌ Still fake after whitelist: ${hex}`);
+    // Step 2a: Solve reCAPTCHA v3 (direct, no proxy — Google doesn't block server IPs)
+    const siteKey = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
+    const pageUrl = `https://enviromentalspace.sbs/premiumtv/daddyhd.php?id=${channel.replace('premium', '')}`;
+    const action = `verify_${channel}`;
+
+    const recapArgs = ['--mode', 'recaptcha-v3', '--site-key', siteKey, '--action', action, '--url', pageUrl, '--timeout', '10'];
+    const { stdout: recapOut } = await execFileAsync('rust-fetch', recapArgs, { timeout: 12000, windowsHide: true });
+    const recapToken = recapOut.trim();
+
+    if (!recapToken || recapToken.length < 20) {
+      throw new Error(`reCAPTCHA solve failed: ${recapToken.substring(0, 100)}`);
+    }
+    console.log(`[DLHD-Key-V6] [Step 2a] reCAPTCHA token: ${recapToken.length} chars [${Date.now() - wlStart}ms]`);
+
+    // Step 2b: POST /verify through sticky SOCKS5 proxy (whitelists the ProxyJet IP)
+    // Use curl with --socks5 since rust-fetch doesn't support POST
+    const verifyBody = JSON.stringify({ 'recaptcha-token': recapToken, 'channel_id': channel });
+    // ai.the-sunmoon.site blocks non-browser IPs with CF WAF 403 — don't waste time on it
+    const verifyUrls = ['https://chevy.soyspace.cyou/verify'];
+
+    let whitelisted = false;
+    for (const verifyUrl of verifyUrls) {
+      try {
+        const curlArgs = [
+          '-s', '--max-time', '8',
+          '--socks5-hostname', proxyUrl.replace('socks5://', ''),
+          '-X', 'POST',
+          '-H', 'Content-Type: application/json',
+          '-H', 'Origin: https://enviromentalspace.sbs',
+          '-H', 'Referer: https://enviromentalspace.sbs/',
+          '-d', verifyBody,
+          verifyUrl,
+        ];
+        const { stdout: verifyOut } = await execFileAsync('curl', curlArgs, { timeout: 12000, windowsHide: true });
+        const verifyResult = verifyOut.trim();
+        console.log(`[DLHD-Key-V6] [Step 2b] Verify (${new URL(verifyUrl).hostname}): ${verifyResult.substring(0, 150)} [${Date.now() - wlStart}ms]`);
+
+        try {
+          if (JSON.parse(verifyResult).success) { whitelisted = true; break; }
+        } catch { /* try next */ }
+      } catch (e: unknown) {
+        console.log(`[DLHD-Key-V6] [Step 2b] Verify failed (${verifyUrl}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    if (!whitelisted) {
+      console.log(`[DLHD-Key-V6] [Step 2b] WARNING: verify may have failed — trying key fetch anyway`);
+    }
+
+    // ─── Step 3: Fetch key through the SAME sticky IP ───────────────
+    console.log(`[DLHD-Key-V6] [Step 3] Fetching key through whitelisted proxy...`);
+    const keyStart = Date.now();
+
+    for (const url of keyServers) {
+      try {
+        const buf = await fetchBin(url, 5);
+        if (buf.length === 16) {
+          const hex = buf.toString('hex');
+          if (!FAKE_KEYS.has(hex)) {
+            validKey = buf;
+            console.log(`[DLHD-Key-V6] [Step 3] ✅ REAL key: ${hex} from ${new URL(url).hostname} [${Date.now() - keyStart}ms]`);
+            break;
+          }
+          console.log(`[DLHD-Key-V6] [Step 3] Fake key from ${new URL(url).hostname}: ${hex}`);
+        } else {
+          console.log(`[DLHD-Key-V6] [Step 3] Bad size from ${new URL(url).hostname}: ${buf.length}b`);
+        }
+      } catch (e: unknown) {
+        console.log(`[DLHD-Key-V6] [Step 3] ${new URL(url).hostname} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   } catch (e: unknown) {
-    console.log(`[DLHD-Key-V6] Whitelist+key failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.log(`[DLHD-Key-V6] Pipeline error: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Fallback: try other servers with same session
-  if (!validKey) {
-    for (const url of uniqueServers.slice(1, 3)) {
-      try {
-        const buf = await fetchKey(url);
-        if (buf.length === 16 && !FAKE_KEYS.has(buf.toString('hex'))) {
-          validKey = buf;
-          console.log(`[DLHD-Key-V6] ✅ Fallback key: ${buf.toString('hex')}`);
-          break;
-        }
-      } catch { continue; }
-    }
-  }
+  // ─── Step 4: Return key (session is ephemeral, no cleanup needed) ──
+  const totalMs = Date.now() - startTime;
+  console.log(`[DLHD-Key-V6] ── END ── ${validKey ? '✅' : '❌'} [${totalMs}ms] session=${sessionId}`);
 
   if (validKey) {
     res.writeHead(200, {
@@ -482,13 +543,18 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': '*',
-      'X-Fetched-By': 'rpi-v6-rustfetch',
+      'Cache-Control': 'no-store',
+      'X-Fetched-By': 'rpi-v6-sticky',
+      'X-Session-Id': sessionId,
+      'X-Total-Ms': String(totalMs),
     });
     res.end(validKey);
   } else {
     sendJsonError(res, 502, {
-      error: 'All key servers returned fake keys — RPI IP may not be whitelisted',
-      hint: 'reCAPTCHA v3 whitelist required',
+      error: 'Key fetch failed — all servers returned fake keys after whitelist',
+      hint: 'ProxyJet session may have failed to whitelist',
+      session: sessionId,
+      totalMs,
       timestamp: Date.now(),
     });
   }

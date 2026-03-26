@@ -1,23 +1,24 @@
 /**
  * DLHD Authentication v5 - February 2026
- * 
- * NO HARDCODED SALTS - Always extracts from player page!
- * 
- * Auth system (EPlayerAuth):
+ *
+ * ╔═══════════════════════════════════════════════════════════════════╗
+ * ║  DEPRECATED — March 25, 2026                                     ║
+ * ║                                                                   ║
+ * ║  EPlayerAuth has been REMOVED from DLHD's player pages.          ║
+ * ║  Keys now require ZERO auth headers — only reCAPTCHA IP whitelist.║
+ * ║                                                                   ║
+ * ║  This file is kept for type exports (DLHDAuthDataV5) and as      ║
+ * ║  reference. The fetchAuthData() function will return null for     ║
+ * ║  all channels since the player page no longer contains EPlayerAuth║
+ * ║  init blocks.                                                     ║
+ * ╚═══════════════════════════════════════════════════════════════════╝
+ *
+ * Previous auth system (no longer active):
  * - Pipe-delimited authToken: channelKey|country|timestamp|expiry|signature
  * - MD5-based PoW
- * - channelSalt MUST be extracted from player page (changes frequently!)
- * 
- * Required headers for key requests:
- * - Authorization: Bearer <authToken>
- * - X-Key-Timestamp: <unix_timestamp>
- * - X-Key-Nonce: <pow_nonce>
- * - X-Key-Path: <hmac_derived_path>
- * - X-Fingerprint: <browser_fingerprint>
+ * - channelSalt extracted from player page
+ * - Required headers: Authorization, X-Key-Timestamp, X-Key-Nonce, X-Key-Path, X-Fingerprint
  */
-
-// NO HARDCODED SALT - must always be extracted from player page
-// SECURITY: Salt changes frequently, hardcoding will cause auth failures
 
 /**
  * Auth data from hitsplay.fun player page

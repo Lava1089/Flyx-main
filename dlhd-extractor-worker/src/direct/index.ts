@@ -29,7 +29,6 @@ export {
   fetchKeyWithAuth,
   parseKeyUrl,
   extractChannelFromKeyUrl,
-  extractServerFromKeyUrl,
   type KeyFetchResult,
 } from './key-fetcher';
 

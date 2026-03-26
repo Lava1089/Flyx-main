@@ -25,20 +25,34 @@ export declare function handleHeartbeat(req: RPIRequest, res: ServerResponse): P
  * /dlhd-whitelist — Trigger reCAPTCHA v3 whitelist refresh via rust-fetch.
  *
  * March 2026: DLHD key servers require IP whitelisting via reCAPTCHA v3.
- * This endpoint runs rust-fetch --mode dlhd-whitelist from the RPI's residential IP
- * to solve reCAPTCHA and POST to chevy.soyspace.cyou/verify.
+ * This endpoint runs rust-fetch --mode dlhd-whitelist via ProxyJet residential SOCKS5
+ * to solve reCAPTCHA and POST to ai.the-sunmoon.site/verify.
  *
- * The whitelist lasts ~30 minutes. The CF worker should call this before key fetches.
+ * The whitelist lasts ~20 minutes. The CF worker should call this before key fetches.
  */
 export declare function handleDLHDWhitelist(req: RPIRequest, res: ServerResponse): Promise<void>;
 /**
- * /dlhd-key-v6 — Server-side key fetching via rust-fetch (residential IP + Chrome TLS).
+ * /dlhd-key-v6 — ProxyJet sticky session key fetching via rust-fetch.
  *
- * March 2026: DLHD uses reCAPTCHA v3 IP whitelist. Without whitelist, key servers
- * return fake 16-byte keys. This endpoint:
- * 1. Triggers reCAPTCHA whitelist refresh via rust-fetch (if needed)
- * 2. Fetches the key from multiple servers
- * 3. Returns the first valid (non-fake) 16-byte key
+ * March 25, 2026: EPlayerAuth is GONE from DLHD. Keys require ZERO auth headers —
+ * only reCAPTCHA IP whitelist. This endpoint:
+ *
+ *   1. Creates a fresh ProxyJet sticky session (unique residential IP)
+ *   2. Whitelists that IP via reCAPTCHA v3 HTTP bypass + POST /verify
+ *   3. Fetches the key through the SAME sticky IP (now whitelisted)
+ *   4. Returns the valid 16-byte key
+ *
+ * The sticky session is ephemeral — one session per key request, no reuse.
+ * This avoids the 4-channel concurrent limit and ensures a clean IP every time.
  */
 export declare function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Promise<void>;
+/**
+ * /dlhd/restream — Returns a rewritten M3U8 for VRChat / external players.
+ *
+ * All key and segment URLs point back to this RPI proxy so the residential IP
+ * handles DLHD's whitelist requirements. VRChat clients just consume the stream.
+ *
+ * Usage: GET /dlhd/restream?channel=303&key=<api_key>
+ */
+export declare function handleDLHDRestream(req: RPIRequest, res: ServerResponse): Promise<void>;
 //# sourceMappingURL=dlhd.d.ts.map

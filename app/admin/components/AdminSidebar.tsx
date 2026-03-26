@@ -12,6 +12,7 @@ import {
     LogOut,
     Globe,
     Activity,
+    Radio,
 } from 'lucide-react';
 
 export default function AdminSidebar() {
@@ -46,6 +47,7 @@ export default function AdminSidebar() {
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', href: '/admin/dashboard' },
+        { icon: Radio, label: 'Live Stats', href: '/admin/live-stats' },
         { icon: Film, label: 'Content', href: '/admin/content' },
         { icon: Users, label: 'Users', href: '/admin/users' },
         { icon: Globe, label: 'Geographic', href: '/admin/geographic' },

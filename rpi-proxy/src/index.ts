@@ -22,6 +22,7 @@ import { handleVIPRowStream, handleVIPRowManifest, handleVIPRowKey, handleVIPRow
 import { handlePPV } from './routes/ppv';
 import { handleIPTVApi, handleIPTVStream } from './routes/iptv';
 import { handleFetchSocks5, handleFetch } from './routes/socks5';
+import { createStreamProxyHandler, STREAM_PROXY_PATHS } from './routes/stream-proxy';
 
 // ============================================================================
 // Bootstrap
@@ -63,6 +64,11 @@ router.route('/ppv', handlePPV);
 // IPTV
 router.route('/iptv/api', handleIPTVApi);
 router.route('/iptv/stream', handleIPTVStream);
+
+// Stream proxies (flixer, hianime, dlhd, vidlink, vidsrc, 1movies)
+for (const path of STREAM_PROXY_PATHS) {
+  router.route(path, createStreamProxyHandler(path));
+}
 
 // SOCKS5 / Fetch
 router.route('/fetch-socks5', handleFetchSocks5);

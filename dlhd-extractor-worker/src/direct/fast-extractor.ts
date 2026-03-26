@@ -36,16 +36,21 @@ const ALL_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'] as const;
 const ALL_DOMAINS = ['soyspace.cyou'] as const;
 
 // Domains for server_lookup API (ordered by reliability)
+// UPDATED Mar 25 2026: chevy.{domain} works from server IPs.
+// ai.the-sunmoon.site returns Cloudflare challenges to server IPs — browser-only.
 const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'] as const;
 
 // Default domain (for M3U8 proxy)
 const DEFAULT_DOMAIN = 'soyspace.cyou';
 
-// New primary M3U8 server (March 24, 2026)
-const NEW_M3U8_SERVER = 'ai.the-sunmoon.site';
+// Primary M3U8 server for server-side fetching (March 25, 2026)
+// ai.the-sunmoon.site is used by DLHD's browser player but returns Cloudflare
+// challenges to server IPs — chevy.soyspace.cyou works from CF Workers/servers.
+const M3U8_SERVER = 'chevy.soyspace.cyou';
 
-// Key domain - browser fetches keys directly from here after reCAPTCHA whitelist
-// UPDATED Mar 25 2026: key.keylocking.ru returns 403 (Cloudflare). chevy.soyspace.cyou works with CORS *.
+// Key domain — CORS * on both, no auth headers needed (only IP whitelist via reCAPTCHA)
+// UPDATED Mar 25 2026: key.keylocking.ru returns 403 (Cloudflare). EPlayerAuth is GONE.
+// Keys now require zero auth headers — just reCAPTCHA IP whitelist.
 export const KEY_DOMAIN = 'soyspace.cyou';
 
 // Fallback request timeout (ms)
@@ -81,15 +86,16 @@ export async function lookupServer(channelId: number): Promise<string | null> {
   const channelKey = `premium${channelId}`;
   
   // Race all lookup domains in parallel — first valid response wins
+  // UPDATED Mar 25 2026: chevy.{domain} works from server IPs
+  // ai.the-sunmoon.site blocks server IPs with Cloudflare challenges
   try {
+    const lookupUrls = LOOKUP_DOMAINS.map(d => `https://chevy.${d}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`);
     const result = await Promise.any(
-      LOOKUP_DOMAINS.map(async (domain) => {
+      lookupUrls.map(async (lookupUrl) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2500);
         try {
-          const resp = await fetch(
-            `https://chevy.${domain}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`,
-            {
+          const resp = await fetch(lookupUrl, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://enviromentalspace.sbs/',
@@ -102,7 +108,7 @@ export async function lookupServer(channelId: number): Promise<string | null> {
           if (!resp.ok) throw new Error(`${resp.status}`);
           const data = await resp.json() as { server_key?: string };
           if (!data.server_key) throw new Error('no server_key');
-          return { server: data.server_key, domain };
+          return { server: data.server_key, domain: lookupUrl };
         } catch (e) {
           clearTimeout(timeoutId);
           throw e;
@@ -187,8 +193,9 @@ export function getServerForChannel(channelId: number): string | null {
 
 /**
  * Build M3U8 URL for a channel on a specific server/domain
- * UPDATED Mar 2026: M3U8 now served via chevy.soyspace.cyou proxy
- * NEW: https://chevy.soyspace.cyou/proxy/{server}/premium{ch}/mono.css
+ * UPDATED Mar 25 2026: M3U8 served via ai.the-sunmoon.site (primary) or chevy.soyspace.cyou (fallback)
+ * Pattern: https://{m3u8Server}/proxy/{server}/premium{ch}/mono.css
+ * DLHD's own player uses M3U8_SERVER directly — confirmed via page source extraction.
  */
 function buildM3U8Url(channelId: string, server: string, domain: string = DEFAULT_DOMAIN): string {
   const channelKey = `premium${channelId}`;

@@ -26,6 +26,7 @@ const viprow_1 = require("./routes/viprow");
 const ppv_1 = require("./routes/ppv");
 const iptv_1 = require("./routes/iptv");
 const socks5_1 = require("./routes/socks5");
+const stream_proxy_1 = require("./routes/stream-proxy");
 // ============================================================================
 // Bootstrap
 // ============================================================================
@@ -45,6 +46,7 @@ router.route('/dlhd-key-v4', dlhd_1.handleDLHDKeyV4);
 router.route('/dlhd-key-v6', dlhd_1.handleDLHDKeyV6);
 router.route('/dlhd-key', dlhd_1.handleDLHDKey);
 router.route('/dlhd-whitelist', dlhd_1.handleDLHDWhitelist);
+router.route('/dlhd/restream', dlhd_1.handleDLHDRestream);
 router.route('/heartbeat', dlhd_1.handleHeartbeat);
 // AnimeKai
 router.route('/animekai', animekai_1.handleAnimeKai);
@@ -58,6 +60,10 @@ router.route('/ppv', ppv_1.handlePPV);
 // IPTV
 router.route('/iptv/api', iptv_1.handleIPTVApi);
 router.route('/iptv/stream', iptv_1.handleIPTVStream);
+// Stream proxies (flixer, hianime, dlhd, vidlink, vidsrc, 1movies)
+for (const path of stream_proxy_1.STREAM_PROXY_PATHS) {
+    router.route(path, (0, stream_proxy_1.createStreamProxyHandler)(path));
+}
 // SOCKS5 / Fetch
 router.route('/fetch-socks5', socks5_1.handleFetchSocks5);
 router.route('/fetch', socks5_1.handleFetch);

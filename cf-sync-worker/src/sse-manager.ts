@@ -21,7 +21,7 @@ const KEEPALIVE_INTERVAL_MS = 30_000;
 const JWT_REVALIDATION_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Valid SSE channel names */
-export const VALID_CHANNELS = ['realtime', 'content', 'geographic', 'users'] as const;
+export const VALID_CHANNELS = ['realtime', 'users'] as const;
 export type SSEChannel = (typeof VALID_CHANNELS)[number];
 
 // ---------------------------------------------------------------------------

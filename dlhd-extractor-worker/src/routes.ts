@@ -38,8 +38,8 @@ import {
 // Keys expire after 5 minutes
 const keyCache = new Map<string, { data: Uint8Array; expires: number }>();
 
-// In-memory cache for auth data (avoids re-fetching from enviromentalspace.sbs on every key request)
-// Auth tokens are valid for ~24 hours, we cache for 5 minutes
+// NOTE (Mar 25 2026): EPlayerAuth is GONE from DLHD. Auth cache below is legacy
+// and no longer populated — keys require only reCAPTCHA IP whitelist, no auth headers.
 const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const authCache = new Map<string, { authToken: string; channelSalt: string; expires: number }>();
 
@@ -264,13 +264,13 @@ export function createRoutes(router: Router): void {
     const keyPath = extractKeyPath(keyUrl);
 
     // Build list of key URLs to try (different servers, same key path)
+    // UPDATED Mar 25 2026: key.keylocking.ru dead, ai.the-sunmoon.site blocks server IPs
+    // chevy.soyspace.cyou is primary for server-side key fetching
     const keyServers = [keyUrl];
     if (keyPath) {
       const servers = [
         `https://chevy.soyspace.cyou${keyPath}`,
-        `https://chevy.vmvmv.shop${keyPath}`,
         `https://chevy.vovlacosa.sbs${keyPath}`,
-        `https://key.keylocking.ru${keyPath}`,
       ];
       for (const s of servers) {
         if (!keyServers.includes(s)) keyServers.push(s);

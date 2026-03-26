@@ -8,11 +8,7 @@
  *
  * Slices:
  *   - RealtimeSlice: live user counts, activity breakdown, active content
- *   - ContentSlice: watch sessions, top content, completion rates
- *   - GeoSlice: country/city distribution, real-time geographic
  *   - UserSlice: DAU/WAU/MAU, new users, returning users, devices
- *
- * Requirements: 4.1, 4.2, 4.4, 7.2
  */
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
@@ -25,8 +21,6 @@ import { useSSE, DeltaUpdate } from '../hooks/useSSE';
 /**
  * Merge a delta into a base state. Keys in delta.changes overwrite base;
  * keys in base but not in delta are preserved.
- * Equivalent to { ...base, ...delta.changes }
- * Requirement 7.2
  */
 export function mergeDelta<T extends Record<string, unknown>>(
   base: T,
@@ -37,13 +31,12 @@ export function mergeDelta<T extends Record<string, unknown>>(
 
 /**
  * Map a tab name to its SSE channel subscriptions.
- * Requirement 4.1
  */
 export const TAB_CHANNEL_MAP: Record<string, string[]> = {
   dashboard: ['realtime', 'users'],
-  content: ['content'],
+  content: ['realtime'],
   users: ['users'],
-  geographic: ['geographic'],
+  geographic: [],
   health: [],
   settings: [],
 };
@@ -55,7 +48,7 @@ export function getChannelsForTab(tab: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Slice data types (from design.md)
+// Slice data types
 // ---------------------------------------------------------------------------
 
 export interface RealtimeData {
@@ -68,22 +61,6 @@ export interface RealtimeData {
   topActiveContent: Array<{ title: string; viewers: number }>;
 }
 
-export interface ContentData {
-  totalSessions: number;
-  totalWatchTime: number;
-  avgSessionDuration: number;
-  completionRate: number;
-  topContent: Array<{ id: string; title: string; type: string; views: number; watchTime: number }>;
-  movieSessions: number;
-  tvSessions: number;
-}
-
-export interface GeoData {
-  topCountries: Array<{ country: string; name: string; count: number }>;
-  topCities: Array<{ city: string; country: string; name: string; count: number }>;
-  realtimeGeo: Array<{ country: string; name: string; count: number }>;
-}
-
 export interface UserData {
   totalUsers: number;
   dau: number;
@@ -93,7 +70,6 @@ export interface UserData {
   returningUsers: number;
   deviceBreakdown: Array<{ device: string; count: number }>;
 }
-
 
 // ---------------------------------------------------------------------------
 // Slice context shape
@@ -116,15 +92,6 @@ const defaultRealtime: RealtimeData = {
   peakToday: 0, peakTime: 0, topActiveContent: [],
 };
 
-const defaultContent: ContentData = {
-  totalSessions: 0, totalWatchTime: 0, avgSessionDuration: 0,
-  completionRate: 0, topContent: [], movieSessions: 0, tvSessions: 0,
-};
-
-const defaultGeo: GeoData = {
-  topCountries: [], topCities: [], realtimeGeo: [],
-};
-
 const defaultUser: UserData = {
   totalUsers: 0, dau: 0, wau: 0, mau: 0,
   newToday: 0, returningUsers: 0, deviceBreakdown: [],
@@ -138,14 +105,6 @@ const RealtimeContext = createContext<SliceState<RealtimeData>>({
   data: defaultRealtime, loading: true, connected: false, lastUpdate: 0, error: null,
 });
 
-const ContentContext = createContext<SliceState<ContentData>>({
-  data: defaultContent, loading: true, connected: false, lastUpdate: 0, error: null,
-});
-
-const GeoContext = createContext<SliceState<GeoData>>({
-  data: defaultGeo, loading: true, connected: false, lastUpdate: 0, error: null,
-});
-
 const UserContext = createContext<SliceState<UserData>>({
   data: defaultUser, loading: true, connected: false, lastUpdate: 0, error: null,
 });
@@ -156,14 +115,6 @@ const UserContext = createContext<SliceState<UserData>>({
 
 export function useRealtimeSlice(): SliceState<RealtimeData> {
   return useContext(RealtimeContext);
-}
-
-export function useContentSlice(): SliceState<ContentData> {
-  return useContext(ContentContext);
-}
-
-export function useGeoSlice(): SliceState<GeoData> {
-  return useContext(GeoContext);
 }
 
 export function useUserSlice(): SliceState<UserData> {
@@ -238,20 +189,13 @@ function useSliceSSE<T extends object>(
 
 // ---------------------------------------------------------------------------
 // SSE Connection Status Context (layout-level)
-// Provides consolidated connection status to all child components.
-// Requirements: 4.1, 4.4
 // ---------------------------------------------------------------------------
 
 export interface SSEConnectionStatus {
-  /** True if any slice has an active SSE or fallback connection */
   connected: boolean;
-  /** True if SSE is connected (not fallback polling) */
   sseConnected: boolean;
-  /** True if using fallback polling */
   usingFallback: boolean;
-  /** Aggregated error from any slice, or null */
   error: string | null;
-  /** Timestamp of the most recent update across all slices */
   lastUpdate: number;
 }
 
@@ -268,24 +212,21 @@ export function useSSEConnection(): SSEConnectionStatus {
 }
 
 /**
- * SSEConnectionProvider — wraps all slice providers and exposes a
- * consolidated connection status derived from the individual slices.
- * Must be rendered *inside* the slice providers.
+ * SSEConnectionProvider — wraps slice providers and exposes consolidated
+ * connection status. Must be rendered *inside* the slice providers.
  */
 export function SSEConnectionProvider({ children }: { children: ReactNode }) {
   const realtime = useRealtimeSlice();
-  const content = useContentSlice();
-  const geo = useGeoSlice();
   const users = useUserSlice();
 
-  const connected = realtime.connected || content.connected || geo.connected || users.connected;
-  const error = realtime.error || content.error || geo.error || users.error;
-  const lastUpdate = Math.max(realtime.lastUpdate, content.lastUpdate, geo.lastUpdate, users.lastUpdate);
+  const connected = realtime.connected || users.connected;
+  const error = realtime.error || users.error;
+  const lastUpdate = Math.max(realtime.lastUpdate, users.lastUpdate);
 
   const status: SSEConnectionStatus = {
     connected,
-    sseConnected: connected, // slices report connected for both SSE and fallback
-    usingFallback: connected && !realtime.connected, // heuristic
+    sseConnected: connected,
+    usingFallback: connected && !realtime.connected,
     error,
     lastUpdate,
   };
@@ -303,24 +244,6 @@ export function RealtimeSliceProvider({ children }: { children: ReactNode }) {
     <RealtimeContext.Provider value={state}>
       {children}
     </RealtimeContext.Provider>
-  );
-}
-
-export function ContentSliceProvider({ children }: { children: ReactNode }) {
-  const state = useSliceSSE<ContentData>('content', defaultContent);
-  return (
-    <ContentContext.Provider value={state}>
-      {children}
-    </ContentContext.Provider>
-  );
-}
-
-export function GeoSliceProvider({ children }: { children: ReactNode }) {
-  const state = useSliceSSE<GeoData>('geographic', defaultGeo);
-  return (
-    <GeoContext.Provider value={state}>
-      {children}
-    </GeoContext.Provider>
   );
 }
 

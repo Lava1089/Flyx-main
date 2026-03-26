@@ -8,10 +8,12 @@ exports.CDN_LIVE_DOMAINS = void 0;
 exports.isAllowedProxyDomain = isAllowedProxyDomain;
 exports.isCdnLiveDomain = isCdnLiveDomain;
 const PROXY_ALLOWED_DOMAINS = [
-    // DLHD key servers
-    'soyspace.cyou', 'adsfadfds.cfd', 'dvalna.ru', 'topembed.pw', 'dlhd.link',
-    'daddylive.mp', 'dlstreams.top', 'adffdafdsafds.sbs', 'go.ai-chatx.site', 'vovlacosa.sbs',
+    // DLHD key/M3U8 servers (updated March 24, 2026)
+    'soyspace.cyou', 'adsfadfds.cfd', 'dvalna.ru', 'topembed.pw', 'dlhd.link', 'dlhd.dad',
+    'daddylive.mp', 'dlstreams.top', 'adffdafdsafds.sbs', 'vovlacosa.sbs', 'vmvmv.shop',
     'www.ksohls.ru', 'ksohls.ru', 'lefttoplay.xyz', 'hitsplay.fun', 'codepcplay.fun',
+    'enviromentalspace.sbs', 'keylocking.ru', 'the-sunmoon.site',
+    'goalwagon.net', 'extinctdeprive.net', 'daddylivestream.com',
     // AnimeKai/MegaUp
     'megaup.net', 'megaup.live', 'megaup.cc', '4spromax.site', 'hub26link.site',
     'dev23app.site', 'net22lab.site', 'pro25zone.site', 'tech20hub.site',
@@ -25,8 +27,8 @@ const PROXY_ALLOWED_DOMAINS = [
     'poocloud.in', 'modistreams.org',
     // Flixer
     'flixer.su', 'flixer.sh', 'workers.dev',
-    // VidLink CDN
-    'vodvidl.site', 'videostr.net', 'vidlink.pro',
+    // Uflix embed providers
+    'uflix.to', '2embed.cc', 'smashystream.com', 'databasegdriveplayer.xyz', 'vidplus.to',
     // VidSrc / 2embed
     '2embed.stream', 'v1.2embed.stream', '2embed.cc', 'vidsrc-embed.ru', 'vsembed.ru',
     'vidsrc.cc', 'vidsrc.me', 'vidsrc.xyz', 'vidsrc.stream',

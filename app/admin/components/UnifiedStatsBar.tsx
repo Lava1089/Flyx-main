@@ -6,13 +6,12 @@
  * Uses slice contexts (RealtimeSlice + UserSlice + ContentSlice) for SSE-based data
  */
 
-import { useRealtimeSlice, useUserSlice, useContentSlice } from '../context/slices';
+import { useRealtimeSlice, useUserSlice } from '../context/slices';
 import { useState, useEffect } from 'react';
 
 export default function UnifiedStatsBar() {
   const realtime = useRealtimeSlice();
   const users = useUserSlice();
-  const content = useContentSlice();
   const [isMobile, setIsMobile] = useState(false);
 
   const loading = realtime.loading && users.loading;
@@ -95,29 +94,16 @@ export default function UnifiedStatsBar() {
           />
         )}
         
-        {/* Sessions Today */}
+        {/* Peak Today */}
         <StatItem
-          icon="▶️"
-          label={isMobile ? "Sessions" : "Sessions (24h)"}
-          value={content.data.totalSessions}
+          icon="🔥"
+          label="Peak Today"
+          value={realtime.data.peakToday}
           loading={loading}
           color="#3b82f6"
           priority={4}
           isMobile={isMobile}
         />
-        
-        {/* Watch Time - hide on mobile */}
-        {!isMobile && (
-          <StatItem
-            icon="⏱️"
-            label="Watch Time (24h)"
-            value={`${(content.data.totalWatchTime / 60).toFixed(1)}h`}
-            loading={loading}
-            color="#ec4899"
-            priority={5}
-            isMobile={isMobile}
-          />
-        )}
       </div>
 
       {/* Right side - Last updated */}
