@@ -14,31 +14,19 @@
  */
 
 import { createLogger, type LogLevel } from './logger';
+import {
+  isMegaUpCdn,
+  corsHeaders,
+  jsonResponse,
+  rewritePlaylistUrls as sharedRewritePlaylistUrls,
+  buildStreamResponse,
+  buildStreamResponseFromFetch,
+} from './shared';
 
 export interface Env {
   LOG_LEVEL?: string;
   RPI_PROXY_URL?: string;
   RPI_PROXY_KEY?: string;
-}
-
-// CORS headers
-function corsHeaders(): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Range, Content-Type',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
-  };
-}
-
-function jsonResponse(data: object, status: number): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders(),
-    },
-  });
 }
 
 // Allowed origins for anti-leech protection
@@ -85,56 +73,7 @@ function isAllowedOrigin(origin: string | null, referer: string | null): boolean
  * Rewrite playlist URLs to route through this proxy
  */
 function rewritePlaylistUrls(playlist: string, baseUrl: string, proxyOrigin: string): string {
-  const lines = playlist.split('\n');
-  const rewritten: string[] = [];
-  
-  const base = new URL(baseUrl);
-  const basePath = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
-  
-  const proxyUrl = (url: string): string => {
-    let absoluteUrl: string;
-    
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      absoluteUrl = url;
-    } else if (url.startsWith('/')) {
-      absoluteUrl = `${base.origin}${url}`;
-    } else {
-      absoluteUrl = `${base.origin}${basePath}${url}`;
-    }
-    
-    return `${proxyOrigin}/animekai?url=${encodeURIComponent(absoluteUrl)}`;
-  };
-  
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    
-    // Handle HLS tags with URIs
-    if (line.startsWith('#EXT-X-MEDIA:') || line.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) {
-      const uriMatch = line.match(/URI="([^"]+)"/);
-      if (uriMatch) {
-        const originalUri = uriMatch[1];
-        const proxiedUri = proxyUrl(originalUri);
-        rewritten.push(line.replace(`URI="${originalUri}"`, `URI="${proxiedUri}"`));
-      } else {
-        rewritten.push(line);
-      }
-      continue;
-    }
-    
-    // Keep comments and empty lines
-    if (line.startsWith('#') || trimmedLine === '') {
-      rewritten.push(line);
-      continue;
-    }
-    
-    try {
-      rewritten.push(proxyUrl(trimmedLine));
-    } catch {
-      rewritten.push(line);
-    }
-  }
-
-  return rewritten.join('\n');
+  return sharedRewritePlaylistUrls(playlist, baseUrl, proxyOrigin, '/animekai');
 }
 
 export async function handleAnimeKaiRequest(request: Request, env: Env): Promise<Response> {
@@ -331,15 +270,7 @@ export async function handleAnimeKaiRequest(request: Request, env: Env): Promise
         'Accept-Encoding': 'identity',
       };
       // MegaUp CDN blocks Referer — don't include it
-      const isMegaUpDomain = decodedUrl.includes('megaup') || 
-                             decodedUrl.includes('hub26link') || 
-                             decodedUrl.includes('app28base') ||
-                             decodedUrl.includes('dev23app') ||
-                             decodedUrl.includes('net22lab') ||
-                             decodedUrl.includes('pro25zone') ||
-                             decodedUrl.includes('tech20hub') ||
-                             decodedUrl.includes('code29wave') ||
-                             decodedUrl.includes('4spromax');
+      const isMegaUpDomain = isMegaUpCdn(decodedUrl);
       if (!isMegaUpDomain && customReferer) {
         rustHeaders['Referer'] = customReferer;
       }
@@ -361,7 +292,7 @@ export async function handleAnimeKaiRequest(request: Request, env: Env): Promise
         logger.info('RPI rust-fetch succeeded!');
         const body = await rustRes.arrayBuffer();
         const contentType = rustRes.headers.get('content-type') || '';
-        return handleSuccessResponse({ success: true, body, contentType }, decodedUrl, url.origin, 'rpi-rust');
+        return handleSuccessResponse({ body, contentType }, decodedUrl, url.origin, 'rpi-rust');
       }
       logger.debug('RPI rust-fetch failed', { status: rustRes.status });
     } catch (e) {
@@ -402,16 +333,7 @@ async function fetchDirectFromCF(
     
     // Add referer if provided or auto-detect
     // IMPORTANT: MegaUp CDN blocks requests with Referer header, so don't add it for megaup domains
-    // AnimeKai CDN domains rotate frequently, so check for common patterns
-    const isMegaUpDomain = url.includes('megaup') || 
-                           url.includes('hub26link') || 
-                           url.includes('app28base') ||
-                           url.includes('dev23app') ||
-                           url.includes('net22lab') ||
-                           url.includes('pro25zone') ||
-                           url.includes('tech20hub') ||
-                           url.includes('code29wave') ||
-                           url.includes('4spromax');
+    const isMegaUpDomain = isMegaUpCdn(url);
     
     // VidLink CDN domains (storm.vodvidl.site, videostr.net) — need Referer/Origin headers
     const isVidLinkDomain = url.includes('vodvidl.site') || url.includes('videostr.net');
@@ -466,50 +388,12 @@ async function fetchDirectFromCF(
  * Handle successful response - rewrite playlists and return
  */
 function handleSuccessResponse(
-  result: { body?: ArrayBuffer; contentType?: string },
+  result: { body?: ArrayBuffer; contentType?: string; [key: string]: unknown },
   originalUrl: string,
   proxyOrigin: string,
   via: string
 ): Response {
-  const body = result.body!;
-  const contentType = result.contentType || '';
-  
-  // Check if it's a playlist that needs URL rewriting
-  if (contentType.includes('mpegurl') || originalUrl.includes('.m3u8')) {
-    const text = new TextDecoder().decode(body);
-    const rewritten = rewritePlaylistUrls(text, originalUrl, proxyOrigin);
-    
-    return new Response(rewritten, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=5',
-        'X-Proxied-Via': via,
-        ...corsHeaders(),
-      },
-    });
-  }
-  
-  // For segments, detect content type
-  const firstBytes = new Uint8Array(body.slice(0, 4));
-  const isMpegTs = firstBytes[0] === 0x47;
-  const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-  
-  let actualContentType = contentType;
-  if (isMpegTs) actualContentType = 'video/mp2t';
-  else if (isFmp4) actualContentType = 'video/mp4';
-  else if (!actualContentType) actualContentType = 'application/octet-stream';
-  
-  return new Response(body, {
-    status: 200,
-    headers: {
-      'Content-Type': actualContentType,
-      'Content-Length': body.byteLength.toString(),
-      'Cache-Control': 'public, max-age=3600',
-      'X-Proxied-Via': via,
-      ...corsHeaders(),
-    },
-  });
+  return buildStreamResponse(result.body!, (result.contentType as string) || '', originalUrl, proxyOrigin, '/animekai', via);
 }
 
 /**
@@ -618,46 +502,7 @@ async function fetchViaRpiProxy(
       }, rpiResponse.status);
     }
 
-    const contentType = rpiResponse.headers.get('content-type') || '';
-    
-    // If it's a playlist, rewrite URLs
-    if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
-      const playlistText = await rpiResponse.text();
-      const rewrittenPlaylist = rewritePlaylistUrls(playlistText, decodedUrl, proxyOrigin);
-      
-      return new Response(rewrittenPlaylist, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/vnd.apple.mpegurl',
-          'Cache-Control': 'public, max-age=5',
-          'X-Proxied-Via': 'rpi',
-          ...corsHeaders(),
-        },
-      });
-    }
-
-    // For segments
-    const body = await rpiResponse.arrayBuffer();
-    
-    const firstBytes = new Uint8Array(body.slice(0, 4));
-    const isMpegTs = firstBytes[0] === 0x47;
-    const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-    
-    let actualContentType = contentType;
-    if (isMpegTs) actualContentType = 'video/mp2t';
-    else if (isFmp4) actualContentType = 'video/mp4';
-    else if (!actualContentType) actualContentType = 'application/octet-stream';
-
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': actualContentType,
-        'Content-Length': body.byteLength.toString(),
-        'Cache-Control': 'public, max-age=3600',
-        'X-Proxied-Via': 'rpi',
-        ...corsHeaders(),
-      },
-    });
+    return await buildStreamResponseFromFetch(rpiResponse, decodedUrl, proxyOrigin, '/animekai', 'rpi');
 
   } catch (error) {
     logger.error('RPI proxy error', error as Error);

@@ -6,23 +6,13 @@
  * and returns the results in the same format as animekai-extractor.
  */
 
-interface StreamSource {
-  quality: string;
-  title: string;
-  url: string;
-  type: 'hls';
-  referer: string;
-  requiresSegmentProxy: boolean;
-  skipOrigin?: boolean;
-  language?: string;
-  skipIntro?: [number, number];
-  skipOutro?: [number, number];
-}
+// Re-use the canonical types from the provider layer
+import type { StreamSource, SubtitleTrack } from '../providers/types';
 
 interface ExtractionResult {
   success: boolean;
   sources: StreamSource[];
-  subtitles?: Array<{ label: string; url: string; language: string }>;
+  subtitles?: SubtitleTrack[];
   error?: string;
 }
 

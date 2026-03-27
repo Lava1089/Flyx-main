@@ -8,6 +8,7 @@
  */
 
 import { Logger, createLogger, type LogLevel } from './logger';
+import { isMegaUpCdn } from './shared';
 
 export interface Env {
   API_KEY?: string;
@@ -97,14 +98,7 @@ export default {
       // Detect MegaUp/AnimeKai CDN requests - these CDNs block requests with Origin header
       // They DON'T block Cloudflare IPs - they block the Origin header specifically
       // AnimeKai CDN domains rotate frequently, so check for common patterns
-      const isMegaUp = decodedUrl.includes('megaup') || 
-                       decodedUrl.includes('hub26link') || 
-                       decodedUrl.includes('app28base') ||
-                       decodedUrl.includes('dev23app') ||
-                       decodedUrl.includes('net22lab') ||
-                       decodedUrl.includes('pro25zone') ||
-                       decodedUrl.includes('tech20hub') ||
-                       decodedUrl.includes('code29wave');
+      const isMegaUp = isMegaUpCdn(decodedUrl);
       
       // For MegaUp, ALWAYS skip Origin/Referer headers (they cause 403)
       const effectiveSkipReferer = isMegaUp ? true : skipReferer;

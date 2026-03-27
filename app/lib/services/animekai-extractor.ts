@@ -27,25 +27,13 @@
  * HTML parsing is done with regex - no external API calls needed.
  */
 
-interface StreamSource {
-  quality: string;
-  title: string;
-  url: string;
-  type: 'hls';
-  referer: string;
-  requiresSegmentProxy: boolean;
-  skipOrigin?: boolean; // For MegaUp CDN - proxy should NOT send Origin/Referer headers
-  status?: 'working' | 'down' | 'unknown';
-  language?: string;
-  // Skip intro/outro timestamps (from AnimeKai)
-  skipIntro?: [number, number]; // [startSeconds, endSeconds]
-  skipOutro?: [number, number]; // [startSeconds, endSeconds]
-}
+// Re-use the canonical types from the provider layer
+import type { StreamSource, SubtitleTrack } from '../providers/types';
 
 interface ExtractionResult {
   success: boolean;
   sources: StreamSource[];
-  subtitles?: Array<{ label: string; url: string; language: string }>;
+  subtitles?: SubtitleTrack[];
   error?: string;
 }
 
@@ -78,6 +66,7 @@ const ARM_API = 'https://arm.haglund.dev/api/v2/ids';
 
 // Import cfFetch for routing through RPI proxy on Cloudflare Workers
 import { cfFetch } from '../utils/cf-fetch';
+import { isMegaUpCdnUrl } from '../proxy-config';
 
 // ============================================================================
 // IN-MEMORY CACHES — avoid redundant network calls across requests
@@ -1252,18 +1241,6 @@ async function getStreamFromServer(lid: string, serverName: string): Promise<Str
         referer = streamOrigin + '/';
       } catch {}
       
-      // MegaUp CDN URLs MUST be proxied
-      // AnimeKai CDN domains rotate frequently, check for common patterns
-      const isMegaUpCdn = streamUrl.includes('megaup') || 
-                          streamUrl.includes('hub26link') || 
-                          streamUrl.includes('app28base') ||
-                          streamUrl.includes('dev23app') ||
-                          streamUrl.includes('net22lab') ||
-                          streamUrl.includes('pro25zone') ||
-                          streamUrl.includes('tech20hub') ||
-                          streamUrl.includes('code29wave') ||
-                          streamUrl.includes('4spromax');
-      
       return {
         quality: 'auto',
         title: `AnimeKai - ${serverName}`,
@@ -1271,7 +1248,7 @@ async function getStreamFromServer(lid: string, serverName: string): Promise<Str
         type: 'hls',
         referer,
         requiresSegmentProxy: true,
-        skipOrigin: isMegaUpCdn,
+        skipOrigin: isMegaUpCdnUrl(streamUrl),
         status: 'working',
         language: 'ja',
         skipIntro,
@@ -1379,17 +1356,6 @@ async function getStreamFromServerLocal(_lid: string, serverName: string, encryp
       referer = streamOrigin + '/';
     } catch {}
 
-    // AnimeKai CDN domains rotate frequently, check for common patterns
-    const isMegaUpCdn = streamUrl.includes('megaup') || 
-                        streamUrl.includes('hub26link') || 
-                        streamUrl.includes('app28base') ||
-                        streamUrl.includes('dev23app') ||
-                        streamUrl.includes('net22lab') ||
-                        streamUrl.includes('pro25zone') ||
-                        streamUrl.includes('tech20hub') ||
-                        streamUrl.includes('code29wave') ||
-                        streamUrl.includes('4spromax');
-
     return {
       quality: 'auto',
       title: `AnimeKai - ${serverName}`,
@@ -1397,7 +1363,7 @@ async function getStreamFromServerLocal(_lid: string, serverName: string, encryp
       type: 'hls',
       referer,
       requiresSegmentProxy: true,
-      skipOrigin: isMegaUpCdn,
+      skipOrigin: isMegaUpCdnUrl(streamUrl),
       status: 'working',
       language: 'ja',
     };
@@ -1408,9 +1374,126 @@ async function getStreamFromServerLocal(_lid: string, serverName: string, encryp
 }
 
 
+// ============================================================================
+// Shared Resolution: Anime → Episode → Servers
+// Used by both extractAnimeKaiStreams() and fetchAnimeKaiSourceByName()
+// ============================================================================
+
+interface ResolvedServers {
+  servers: ParsedServers;
+  episodeNumber: number;
+}
+
 /**
- * Main extraction function for AnimeKai
- * 
+ * Resolve anime identity, episode token, and server list.
+ * Shared between main extraction and fetchSourceByName to avoid duplication.
+ *
+ * Returns null with an error string if resolution fails at any step.
+ */
+async function resolveAnimeServers(
+  tmdbId: string,
+  type: 'movie' | 'tv',
+  episode?: number,
+  malId?: number,
+  malTitle?: string,
+): Promise<{ result: ResolvedServers; error: null } | { result: null; error: string }> {
+  const effectiveMalId = malId || null;
+  const searchTitle = malTitle || '';
+
+  // Step 1: Determine MAL ID
+  let finalMalId: number | null = effectiveMalId;
+  if (!finalMalId && tmdbId && tmdbId !== '0') {
+    console.log(`[AnimeKai] No MAL ID provided, looking up from TMDB ID ${tmdbId}...`);
+    const animeIds = await getAnimeIds(tmdbId, type);
+    finalMalId = animeIds.mal_id;
+    console.log(`[AnimeKai] TMDB → MAL lookup result: ${finalMalId || 'not found'}`);
+  }
+
+  // Step 2: Get search title
+  let finalSearchTitle = searchTitle;
+  if (!finalSearchTitle && tmdbId && tmdbId !== '0') {
+    const tmdbInfo = await getTmdbAnimeInfo(tmdbId, type);
+    finalSearchTitle = tmdbInfo?.title || '';
+  }
+  if (!finalMalId && !finalSearchTitle) {
+    return { result: null, error: 'Could not identify anime - no MAL ID or title found' };
+  }
+
+  console.log(`[AnimeKai] Resolving: MAL=${finalMalId || 'none'}, title="${finalSearchTitle}", ep=${episode || 1}`);
+
+  // Step 3: Search AnimeKai
+  let animeResult: { content_id: string; title: string; episodes?: ParsedEpisodes } | null = null;
+  if (finalMalId) {
+    animeResult = await searchAnimeKai(finalSearchTitle, finalMalId);
+  }
+  if (!animeResult && finalSearchTitle) {
+    animeResult = await searchAnimeKai(finalSearchTitle, null);
+  }
+  if (!animeResult) {
+    return { result: null, error: 'Anime not found in AnimeKai database' };
+  }
+  console.log(`[AnimeKai] ✓ FOUND: "${animeResult.title}" (content_id: ${animeResult.content_id})`);
+
+  // Step 4: Get episodes
+  let episodes: ParsedEpisodes | null = animeResult.episodes || null;
+  if (!episodes) {
+    episodes = await getEpisodes(animeResult.content_id);
+  }
+  if (!episodes) {
+    return { result: null, error: 'Failed to get episodes list' };
+  }
+
+  // Step 5: Find episode token
+  const episodeNumber = type === 'movie' ? 1 : (episode || 1);
+  const episodeKey = String(episodeNumber);
+  let episodeToken: string | null = null;
+
+  // Strategy 1: season "1" with episode number (most common)
+  const season1 = episodes['1'];
+  if (season1?.[episodeKey]) {
+    const epData = season1[episodeKey];
+    if (epData && typeof epData === 'object' && 'token' in epData) {
+      episodeToken = epData.token;
+    }
+  }
+  // Strategy 2: direct access
+  if (!episodeToken && episodes[episodeKey]) {
+    const episodeData = episodes[episodeKey];
+    if (typeof episodeData === 'object' && 'token' in episodeData) {
+      episodeToken = (episodeData as any).token;
+    } else {
+      const subKeys = Object.keys(episodeData);
+      if (subKeys.length > 0) {
+        const firstEntry = episodeData[subKeys[0]];
+        if (firstEntry && typeof firstEntry === 'object' && 'token' in firstEntry) {
+          episodeToken = firstEntry.token;
+        }
+      }
+    }
+  }
+  if (!episodeToken) {
+    return { result: null, error: `Episode ${episodeNumber} not found in AnimeKai` };
+  }
+
+  // Step 6: Get servers
+  const servers = await getServers(episodeToken);
+  if (!servers) {
+    return { result: null, error: 'Failed to get servers list' };
+  }
+
+  return { result: { servers, episodeNumber }, error: null };
+}
+
+/**
+ * Main extraction function for AnimeKai — MAL ID focused approach
+ *
+ * Flow:
+ * 1. Determine MAL ID (from parameter or TMDB lookup)
+ * 2. Search AnimeKai with title, match by syncData.mal_id
+ * 3. Get episodes for the matched anime
+ * 4. Find episode token (episode number is relative to MAL entry)
+ * 5. Get servers and extract streams (sub + dub in parallel)
+ *
  * @param tmdbId - TMDB ID of the content
  * @param type - 'movie' or 'tv'
  * @param _season - Season number (TMDB) - unused in MAL ID focused approach, kept for API compatibility
@@ -1430,203 +1513,13 @@ export async function extractAnimeKaiStreams(
   if (malId) {
     console.log(`[AnimeKai] MAL ID: ${malId}, Title: "${malTitle}"`);
   }
-  
-  // Local extraction with MegaUp /media/ calls routed through CF → RPI residential proxy
-  // The extractMegaUpSourcesManually function handles the proxy routing
-  return extractAnimeKaiStreamsLocal(tmdbId, type, episode, malId, malTitle);
-}
-
-/**
- * Local extraction - MAL ID focused approach
- * 
- * Flow:
- * 1. Determine MAL ID (from parameter or TMDB lookup)
- * 2. Search AnimeKai with title, match by syncData.mal_id
- * 3. Get episodes for the matched anime
- * 4. Find episode token (episode number is relative to MAL entry)
- * 5. Get servers and extract streams
- */
-async function extractAnimeKaiStreamsLocal(
-  tmdbId: string,
-  type: 'movie' | 'tv',
-  episode?: number,
-  malId?: number,
-  malTitle?: string
-): Promise<ExtractionResult> {
-  // Debug: Log proxy configuration
-  const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL || process.env.CF_STREAM_PROXY_URL;
-  console.log(`[AnimeKai] Local extraction - Proxy config: CF_STREAM_PROXY_URL=${cfProxyUrl ? cfProxyUrl.substring(0, 50) + '...' : 'NOT SET'}`);
-
   try {
-    // =============================================================================
-    // MAL ID FOCUSED EXTRACTION
-    // =============================================================================
-    // Priority:
-    // 1. If MAL ID provided → search AnimeKai by MAL ID (most reliable)
-    // 2. If no MAL ID → look up from TMDB, then search by MAL ID
-    // 3. Fallback → title-based search
-    // =============================================================================
-    
-    const effectiveMalId = malId || null;
-    const searchTitle = malTitle || '';
-    
-    // Step 1: Determine MAL ID
-    // If MAL ID is provided directly, use it. Otherwise, look it up from TMDB.
-    let finalMalId: number | null = effectiveMalId;
-    
-    if (!finalMalId && tmdbId && tmdbId !== '0') {
-      console.log(`[AnimeKai] No MAL ID provided, looking up from TMDB ID ${tmdbId}...`);
-      const animeIds = await getAnimeIds(tmdbId, type);
-      finalMalId = animeIds.mal_id;
-      console.log(`[AnimeKai] TMDB → MAL lookup result: ${finalMalId || 'not found'}`);
+    // Resolve anime → episode → servers (shared with fetchSourceByName)
+    const resolved = await resolveAnimeServers(tmdbId, type, episode, malId, malTitle);
+    if (!resolved.result) {
+      return { success: false, sources: [], error: resolved.error };
     }
-    
-    // Step 2: Get search title
-    // Priority: malTitle > TMDB title
-    let finalSearchTitle = searchTitle;
-    
-    if (!finalSearchTitle && tmdbId && tmdbId !== '0') {
-      const tmdbInfo = await getTmdbAnimeInfo(tmdbId, type);
-      finalSearchTitle = tmdbInfo?.title || '';
-    }
-    
-    if (!finalMalId && !finalSearchTitle) {
-      console.log('[AnimeKai] Could not identify anime - no MAL ID or title');
-      return {
-        success: false,
-        sources: [],
-        error: 'Could not identify anime - no MAL ID or title found',
-      };
-    }
-    
-    console.log(`[AnimeKai] ========================================`);
-    console.log(`[AnimeKai] MAL ID FOCUSED SEARCH`);
-    console.log(`[AnimeKai] MAL ID: ${finalMalId || 'none'}`);
-    console.log(`[AnimeKai] Search Title: "${finalSearchTitle}"`);
-    console.log(`[AnimeKai] Episode: ${episode || 1}`);
-    console.log(`[AnimeKai] ========================================`);
-    
-    // Step 3: Search AnimeKai
-    // The searchAnimeKai function handles MAL ID search + alternative queries + title fallback internally
-    let animeResult: { content_id: string; title: string; episodes?: ParsedEpisodes } | null = null;
-    
-    if (finalMalId) {
-      console.log(`[AnimeKai] Searching by MAL ID ${finalMalId}...`);
-      animeResult = await searchAnimeKai(finalSearchTitle, finalMalId);
-    }
-    
-    // Fallback: Title-only search (no MAL ID)
-    if (!animeResult && finalSearchTitle) {
-      console.log(`[AnimeKai] Falling back to title-only search...`);
-      animeResult = await searchAnimeKai(finalSearchTitle, null);
-    }
-
-    if (!animeResult) {
-      console.log('[AnimeKai] Anime not found in database');
-      return {
-        success: false,
-        sources: [],
-        error: 'Anime not found in AnimeKai database',
-      };
-    }
-
-    console.log(`[AnimeKai] ========================================`);
-    console.log(`[AnimeKai] ✓ FOUND: "${animeResult.title}"`);
-    console.log(`[AnimeKai] content_id: ${animeResult.content_id}`);
-    console.log(`[AnimeKai] ========================================`);
-
-    // Step 4: Get episodes
-    let episodes: ParsedEpisodes | null = animeResult.episodes || null;
-    if (!episodes) {
-      console.log(`[AnimeKai] Fetching episodes...`);
-      episodes = await getEpisodes(animeResult.content_id);
-    }
-    
-    if (!episodes) {
-      return {
-        success: false,
-        sources: [],
-        error: 'Failed to get episodes list',
-      };
-    }
-
-    // Step 5: Find the episode token
-    // MAL ID focused: Episode number is ALWAYS relative to the MAL entry
-    // AnimeKai stores each MAL entry as a separate anime with episodes starting from 1
-    const episodeNumber = type === 'movie' ? 1 : (episode || 1);
-    const episodeKey = String(episodeNumber);
-    
-    console.log(`[AnimeKai] Looking for episode ${episodeNumber}...`);
-    console.log(`[AnimeKai] Available seasons:`, Object.keys(episodes));
-    
-    // Log episode count in season 1
-    const season1EpCount = episodes["1"] ? Object.keys(episodes["1"]).length : 0;
-    console.log(`[AnimeKai] Season 1 has ${season1EpCount} episodes in AnimeKai`);
-    
-    // MAL ID FOCUSED: Episode number is relative to the MAL entry
-    // AnimeKai stores each MAL entry as season "1" with episodes starting from 1
-    let episodeToken: string | null = null;
-    
-    // Strategy 1: Try season "1" with the episode number (most common)
-    const season1 = episodes["1"];
-    if (season1 && season1[episodeKey]) {
-      const epData = season1[episodeKey];
-      if (epData && typeof epData === 'object' && 'token' in epData) {
-        episodeToken = epData.token;
-        console.log(`[AnimeKai] ✓ Found episode ${episodeNumber} in season 1`);
-      }
-    }
-    
-    // Strategy 2: Try direct access (in case structure is different)
-    if (!episodeToken && episodes[episodeKey]) {
-      const episodeData = episodes[episodeKey];
-      if (typeof episodeData === 'object' && 'token' in episodeData) {
-        episodeToken = (episodeData as any).token;
-        console.log(`[AnimeKai] ✓ Found episode ${episodeNumber} via direct access`);
-      } else {
-        // Get the first sub-entry
-        const subKeys = Object.keys(episodeData);
-        if (subKeys.length > 0) {
-          const firstEntry = episodeData[subKeys[0]];
-          if (firstEntry && typeof firstEntry === 'object' && 'token' in firstEntry) {
-            episodeToken = firstEntry.token;
-            console.log(`[AnimeKai] ✓ Found episode ${episodeNumber} via sub-entry`);
-          }
-        }
-      }
-    }
-
-    if (!episodeToken) {
-      // Log available episodes for debugging
-      const allSeasons = Object.keys(episodes);
-      const episodeInfo: Record<string, string[]> = {};
-      for (const s of allSeasons) {
-        const seasonData = episodes[s];
-        if (seasonData && typeof seasonData === 'object') {
-          const epKeys = Object.keys(seasonData);
-          episodeInfo[`Season ${s}`] = epKeys;
-        }
-      }
-      console.log(`[AnimeKai] Episode ${episodeNumber} not found. Available:`, episodeInfo);
-      
-      return {
-        success: false,
-        sources: [],
-        error: `Episode ${episodeNumber} not found in AnimeKai`,
-      };
-    }
-
-    console.log(`[AnimeKai] Found episode token: ${episodeToken.substring(0, 20)}...`);
-
-    // Step 6: Get servers list
-    const servers = await getServers(episodeToken);
-    if (!servers) {
-      return {
-        success: false,
-        sources: [],
-        error: 'Failed to get servers list',
-      };
-    }
+    const { servers } = resolved.result;
 
     // Step 7: Try servers - get sources from both sub AND dub
     // Process servers in PARALLEL to avoid sequential rate limiting
@@ -1692,7 +1585,7 @@ async function extractAnimeKaiStreamsLocal(
         if (type === 'sub' && subSources.length < 2) {
           subSources.push(source);
           console.log(`[AnimeKai] ✓ Got SUB source from ${source.title}`);
-        } else if (type === 'dub' && dubSources.length < 1) {
+        } else if (type === 'dub' && dubSources.length < 2) {
           dubSources.push(source);
           console.log(`[AnimeKai] ✓ Got DUB source from ${source.title}`);
         }
@@ -1739,7 +1632,7 @@ async function extractAnimeKaiStreamsLocal(
 
 /**
  * Fetch a specific AnimeKai server by name
- * MAL ID focused approach - episode is relative to MAL entry
+ * Uses the shared resolveAnimeServers to avoid duplicating steps 1-6
  */
 export async function fetchAnimeKaiSourceByName(
   serverName: string,
@@ -1751,96 +1644,18 @@ export async function fetchAnimeKaiSourceByName(
   malTitle?: string
 ): Promise<StreamSource | null> {
   console.log(`[AnimeKai] Fetching specific server: ${serverName}`);
-  if (malId) {
-    console.log(`[AnimeKai] MAL ID: ${malId}, Title: "${malTitle}"`);
-  }
 
   try {
-    // MAL ID FOCUSED: Same approach as main extraction
-    const effectiveMalId = malId || null;
-    const searchTitle = malTitle || '';
-    
-    // Step 1: Determine MAL ID
-    let finalMalId: number | null = effectiveMalId;
-    
-    if (!finalMalId && tmdbId && tmdbId !== '0') {
-      const animeIds = await getAnimeIds(tmdbId, type);
-      finalMalId = animeIds.mal_id;
-    }
-    
-    // Step 2: Get search title
-    let finalSearchTitle = searchTitle;
-    
-    if (!finalSearchTitle && tmdbId && tmdbId !== '0') {
-      const tmdbInfo = await getTmdbAnimeInfo(tmdbId, type);
-      finalSearchTitle = tmdbInfo?.title || '';
-    }
-    
-    if (!finalMalId && !finalSearchTitle) {
+    const resolved = await resolveAnimeServers(tmdbId, type, episode, malId, malTitle);
+    if (!resolved.result) {
+      console.log(`[AnimeKai] Resolution failed: ${resolved.error}`);
       return null;
     }
-    
-    // Step 3: Search AnimeKai by MAL ID
-    let animeResult: { content_id: string; title: string; episodes?: ParsedEpisodes } | null = null;
-    
-    if (finalMalId) {
-      animeResult = await searchAnimeKai(finalSearchTitle, finalMalId);
-    }
-    
-    if (!animeResult && finalSearchTitle) {
-      animeResult = await searchAnimeKai(finalSearchTitle, null);
-    }
-    
-    if (!animeResult) {
-      return null;
-    }
+    const { servers } = resolved.result;
 
-    // Step 4: Get episodes
-    let episodes: ParsedEpisodes | null = animeResult.episodes || null;
-    if (!episodes) {
-      episodes = await getEpisodes(animeResult.content_id);
-    }
-    if (!episodes) {
-      return null;
-    }
-
-    // Step 5: Find episode token (MAL ID focused - episode is relative to MAL entry)
-    const episodeNumber = type === 'movie' ? 1 : (episode || 1);
-    const episodeKey = String(episodeNumber);
-    
-    let episodeToken: string | null = null;
-    
-    // Try season "1" with episode number (most common for MAL entries)
-    const season1 = episodes["1"];
-    if (season1 && season1[episodeKey]) {
-      const epData = season1[episodeKey];
-      if (epData && typeof epData === 'object' && 'token' in epData) {
-        episodeToken = epData.token;
-      }
-    }
-    
-    // Fallback: direct access
-    if (!episodeToken && episodes[episodeKey]) {
-      const episodeData = episodes[episodeKey];
-      if (typeof episodeData === 'object' && 'token' in episodeData) {
-        episodeToken = (episodeData as any).token;
-      }
-    }
-
-    if (!episodeToken) {
-      console.log(`[AnimeKai] Episode ${episodeNumber} not found for server ${serverName}`);
-      return null;
-    }
-
-    // Step 6: Get servers
-    const servers = await getServers(episodeToken);
-    if (!servers) {
-      return null;
-    }
-
-    // Step 7: Find the specific server by name
+    // Find the specific server by name across sub and dub
     const serverTypes: Array<'sub' | 'dub'> = ['sub', 'dub'];
-    
+
     for (const serverType of serverTypes) {
       const serverList = servers[serverType];
       if (!serverList) continue;
@@ -1848,7 +1663,7 @@ export async function fetchAnimeKaiSourceByName(
       for (const [, serverData] of Object.entries(serverList)) {
         const server = serverData as any;
         const displayName = `${server.name || 'Server'} (${serverType})`;
-        
+
         if (serverName.includes(server.name) || serverName === displayName) {
           const source = await getStreamFromServer(server.lid, displayName);
           if (source) {

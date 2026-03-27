@@ -23,6 +23,13 @@
  */
 
 import { createLogger, type LogLevel } from './logger';
+import {
+  corsHeaders,
+  jsonResponse,
+  rewritePlaylistUrls as sharedRewritePlaylistUrls,
+  buildStreamResponse,
+  buildStreamResponseFromFetch,
+} from './shared';
 
 export interface Env {
   LOG_LEVEL?: string;
@@ -537,56 +544,9 @@ async function findHiAnimeByMalId(
 // Helpers
 // ============================================================================
 
-function corsHeaders(): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Range, Content-Type',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
-  };
-}
-
-function jsonResponse(data: object, status: number): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders() },
-  });
-}
-
+/** Local wrapper that injects /hianime/stream as proxy path */
 function rewritePlaylistUrls(playlist: string, baseUrl: string, proxyOrigin: string): string {
-  const lines = playlist.split('\n');
-  const rewritten: string[] = [];
-  const base = new URL(baseUrl);
-  const basePath = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
-
-  const proxyUrl = (url: string): string => {
-    let absoluteUrl: string;
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      absoluteUrl = url;
-    } else if (url.startsWith('/')) {
-      absoluteUrl = `${base.origin}${url}`;
-    } else {
-      absoluteUrl = `${base.origin}${basePath}${url}`;
-    }
-    return `${proxyOrigin}/hianime/stream?url=${encodeURIComponent(absoluteUrl)}`;
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (line.startsWith('#EXT-X-MEDIA:') || line.startsWith('#EXT-X-I-FRAME-STREAM-INF:')) {
-      const uriMatch = line.match(/URI="([^"]+)"/);
-      if (uriMatch) {
-        rewritten.push(line.replace(`URI="${uriMatch[1]}"`, `URI="${proxyUrl(uriMatch[1])}"`));
-      } else {
-        rewritten.push(line);
-      }
-    } else if (line.startsWith('#') || trimmed === '') {
-      rewritten.push(line);
-    } else {
-      try { rewritten.push(proxyUrl(trimmed)); } catch { rewritten.push(line); }
-    }
-  }
-  return rewritten.join('\n');
+  return sharedRewritePlaylistUrls(playlist, baseUrl, proxyOrigin, '/hianime/stream');
 }
 
 // ============================================================================
@@ -765,7 +725,7 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
             title: `HiAnime (${result.label === 'sub' ? 'Sub' : 'Dub'})`,
             url: proxiedUrl,
             type: 'hls',
-            language: result.label,
+            language: result.label === 'sub' ? 'ja' : 'en',
             skipIntro: result.intro.end > 0 ? [result.intro.start, result.intro.end] : undefined,
             skipOutro: result.outro.end > 0 ? [result.outro.start, result.outro.end] : undefined,
           });
@@ -813,6 +773,7 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
 
     // searchParams.get() already decodes the URL — do NOT double-decode
     const decodedUrl = targetUrl;
+    const proxyOrigin = url.origin;
     logger.debug('HiAnime stream proxy', { url: decodedUrl.substring(0, 100) });
 
     const hasRpi = !!(env.RPI_PROXY_URL && env.RPI_PROXY_KEY);
@@ -852,44 +813,9 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
       strategy1Status = response.status;
 
       if (response.ok) {
-        const contentType = response.headers.get('content-type') || '';
-
-        if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
-          const text = await response.text();
-          const rewritten = rewritePlaylistUrls(text, decodedUrl, url.origin);
-          return new Response(rewritten, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/vnd.apple.mpegurl',
-              'Cache-Control': 'public, max-age=5',
-              'X-Proxied-Via': 'cf-direct',
-              ...corsHeaders(),
-            },
-          });
-        }
-
-        const body = await response.arrayBuffer();
-        const firstBytes = new Uint8Array(body.slice(0, 4));
-        const isMpegTs = firstBytes[0] === 0x47;
-        const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-        let actualContentType = contentType;
-        if (isMpegTs) actualContentType = 'video/mp2t';
-        else if (isFmp4) actualContentType = 'video/mp4';
-        else if (!actualContentType) actualContentType = 'application/octet-stream';
-
-        return new Response(body, {
-          status: 200,
-          headers: {
-            'Content-Type': actualContentType,
-            'Content-Length': body.byteLength.toString(),
-            'Cache-Control': 'public, max-age=3600',
-            'X-Proxied-Via': 'cf-direct',
-            ...corsHeaders(),
-          },
-        });
+        return await buildStreamResponseFromFetch(response, decodedUrl, proxyOrigin, '/hianime/stream', 'cf-direct');
       }
       logger.warn('Direct fetch failed', { status: response.status });
-      strategy1Status = response.status;
       // Fall through to RPI
     } catch (error) {
       logger.warn('Direct fetch error, trying RPI', { error: (error as Error).message });
@@ -899,25 +825,12 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
     // Strategy 2: RPI residential proxy fallback
     if (hasRpi) {
       try {
-        
-        let rpiUrl: string;
-        if (isMegaCloudCdn) {
-          // For MegaCloud CDN, use /hianime/stream — dedicated endpoint with correct headers
-          const rpiParams = new URLSearchParams({
-            url: decodedUrl,
-            key: env.RPI_PROXY_KEY!,
-          });
-          rpiUrl = `${rpiBaseUrl}/hianime/stream?${rpiParams.toString()}`;
-          logger.debug('Using /hianime/stream for MegaCloud CDN (primary)', { rpiUrl: rpiUrl.substring(0, 80) });
-        } else {
-          // Use dedicated HiAnime endpoint for other URLs
-          const rpiParams = new URLSearchParams({
-            url: decodedUrl,
-            key: env.RPI_PROXY_KEY!,
-          });
-          rpiUrl = `${rpiBaseUrl}/hianime/stream?${rpiParams.toString()}`;
-          logger.debug('Forwarding to RPI /hianime/stream', { rpiUrl: rpiUrl.substring(0, 80) });
-        }
+        const rpiParams = new URLSearchParams({
+          url: decodedUrl,
+          key: env.RPI_PROXY_KEY!,
+        });
+        const rpiUrl = `${rpiBaseUrl}/hianime/stream?${rpiParams.toString()}`;
+        logger.debug('Forwarding to RPI /hianime/stream', { rpiUrl: rpiUrl.substring(0, 80) });
 
         const rpiResponse = await fetchWithRetry(rpiUrl, {
           signal: AbortSignal.timeout(isMegaCloudCdn ? 20000 : 45000),
@@ -925,44 +838,9 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
         strategy2Status = rpiResponse.status;
 
         if (rpiResponse.ok) {
-          const contentType = rpiResponse.headers.get('content-type') || '';
-
-          if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
-            const text = await rpiResponse.text();
-            const rewritten = rewritePlaylistUrls(text, decodedUrl, url.origin);
-            return new Response(rewritten, {
-              status: 200,
-              headers: {
-                'Content-Type': 'application/vnd.apple.mpegurl',
-                'Cache-Control': 'public, max-age=5',
-                'X-Proxied-Via': 'rpi',
-                ...corsHeaders(),
-              },
-            });
-          }
-
-          const body = await rpiResponse.arrayBuffer();
-          const firstBytes = new Uint8Array(body.slice(0, 4));
-          const isMpegTs = firstBytes[0] === 0x47;
-          const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-          let actualContentType = contentType;
-          if (isMpegTs) actualContentType = 'video/mp2t';
-          else if (isFmp4) actualContentType = 'video/mp4';
-          else if (!actualContentType) actualContentType = 'application/octet-stream';
-
-          return new Response(body, {
-            status: 200,
-            headers: {
-              'Content-Type': actualContentType,
-              'Content-Length': body.byteLength.toString(),
-              'Cache-Control': 'public, max-age=3600',
-              'X-Proxied-Via': 'rpi',
-              ...corsHeaders(),
-            },
-          });
+          return await buildStreamResponseFromFetch(rpiResponse, decodedUrl, proxyOrigin, '/hianime/stream', 'rpi');
         }
         logger.warn('RPI proxy returned error', { status: rpiResponse.status });
-        strategy2Status = rpiResponse.status;
       } catch (error) {
         logger.warn('RPI proxy error', { error: (error as Error).message });
         strategy2Status = -1;
@@ -985,41 +863,7 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
           }, 2, 1000);
 
           if (fallbackResponse.ok) {
-            const contentType = fallbackResponse.headers.get('content-type') || '';
-
-            if (contentType.includes('mpegurl') || decodedUrl.includes('.m3u8')) {
-              const text = await fallbackResponse.text();
-              const rewritten = rewritePlaylistUrls(text, decodedUrl, url.origin);
-              return new Response(rewritten, {
-                status: 200,
-                headers: {
-                  'Content-Type': 'application/vnd.apple.mpegurl',
-                  'Cache-Control': 'public, max-age=5',
-                  'X-Proxied-Via': 'rpi-fetch-rust-fallback',
-                  ...corsHeaders(),
-                },
-              });
-            }
-
-            const body = await fallbackResponse.arrayBuffer();
-            const firstBytes = new Uint8Array(body.slice(0, 4));
-            const isMpegTs = firstBytes[0] === 0x47;
-            const isFmp4 = firstBytes[0] === 0x00 && firstBytes[1] === 0x00 && firstBytes[2] === 0x00;
-            let actualContentType = contentType;
-            if (isMpegTs) actualContentType = 'video/mp2t';
-            else if (isFmp4) actualContentType = 'video/mp4';
-            else if (!actualContentType) actualContentType = 'application/octet-stream';
-
-            return new Response(body, {
-              status: 200,
-              headers: {
-                'Content-Type': actualContentType,
-                'Content-Length': body.byteLength.toString(),
-                'Cache-Control': 'public, max-age=3600',
-                'X-Proxied-Via': 'rpi-fetch-rust-fallback',
-                ...corsHeaders(),
-              },
-            });
+            return await buildStreamResponseFromFetch(fallbackResponse, decodedUrl, proxyOrigin, '/hianime/stream', 'rpi-fetch-rust-fallback');
           }
           logger.warn('RPI /fetch-rust fallback also failed', { status: fallbackResponse.status });
           strategy3Status = fallbackResponse.status;

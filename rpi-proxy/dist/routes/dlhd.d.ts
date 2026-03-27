@@ -34,8 +34,8 @@ export declare function handleDLHDWhitelist(req: RPIRequest, res: ServerResponse
 /**
  * /dlhd-key-v6 — ProxyJet sticky session key fetching via rust-fetch.
  *
- * March 25, 2026: EPlayerAuth is GONE from DLHD. Keys require ZERO auth headers —
- * only reCAPTCHA IP whitelist. This endpoint:
+ * REFACTORED Mar 27 2026: Caches whitelisted sessions for fast reuse (~1s).
+ * Only re-whitelists when the cached session returns fake keys.
  *
  *   1. Creates a fresh ProxyJet sticky session (unique residential IP)
  *   2. Whitelists that IP via reCAPTCHA v3 HTTP bypass + POST /verify
