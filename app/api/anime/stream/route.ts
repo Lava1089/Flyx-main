@@ -66,9 +66,9 @@ export async function GET(request: NextRequest) {
       
       const sources = result.sources.map(source => {
         if (requestedProvider === 'animekai') {
-          return { ...source, url: getAnimeKaiProxyUrl(source.url), title: `${source.title} [AnimeKai]` };
+          return { ...source, url: getAnimeKaiProxyUrl(source.url), title: `${source.title || 'AnimeKai'} [AnimeKai]` };
         }
-        return { ...source, title: `${source.title} [HiAnime]` };
+        return { ...source, title: `${source.title || 'HiAnime'} [HiAnime]` };
       });
 
       const executionTime = Date.now() - startTime;
@@ -111,10 +111,10 @@ interface ExtractResult {
   success: boolean;
   sources: Array<{
     quality: string;
-    title: string;
+    title?: string;
     url: string;
     type: string;
-    referer: string;
+    referer?: string;
     requiresSegmentProxy: boolean;
     skipOrigin?: boolean;
     language?: string;
