@@ -122,9 +122,10 @@ async function rewriteM3u8ForPlayEndpoint(
           }
         }
 
-        // Point directly at upstream — browser IP whitelisted by DLHD embed iframe
-        // sec.ai-hls.site has CORS: * so HLS.js fetches work cross-origin
-        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${absoluteKeyUrl}"`);
+        // Route through /key proxy — it self-whitelists the CF edge IP via reCAPTCHA
+        // then fetches the real key. Browser direct fetch gets fake keys (not whitelisted).
+        const proxiedKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(absoluteKeyUrl)}`;
+        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${proxiedKeyUrl}"`);
         rewrittenLines.push(newLine);
         continue;
       }
