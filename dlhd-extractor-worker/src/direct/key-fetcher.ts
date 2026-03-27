@@ -1,16 +1,13 @@
 /**
- * DLHD Key Fetcher — March 25, 2026
+ * DLHD Key Fetcher — March 27, 2026
  *
  * Fetches encryption keys from DLHD key servers.
  *
- * UPDATED Mar 25 2026: EPlayerAuth v5 is GONE from DLHD.
- * Keys now require ZERO auth headers — only reCAPTCHA IP whitelist.
- * The old PoW, HMAC, fingerprint, Bearer headers are all obsolete.
+ * Keys require ZERO auth headers — only reCAPTCHA IP whitelist.
  *
  * Key servers (CORS *):
- *   - chevy.soyspace.cyou (primary)
- *   - ai.the-sunmoon.site (fallback)
- *   - key.keylocking.ru (DEAD — 403 Cloudflare)
+ *   - sec.ai-hls.site (primary — Mar 27 2026)
+ *   - chevy.soyspace.cyou (fallback)
  *
  * SECURITY FEATURES:
  * - Rate limiting per channel (prevents abuse)
@@ -29,9 +26,8 @@ const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 key requests per channel per minute
 
 // Key servers to try (ordered by reliability for server-side fetching)
-// UPDATED Mar 25 2026: key.keylocking.ru is dead (403 Cloudflare)
-// ai.the-sunmoon.site blocks server IPs with Cloudflare challenges — browser-only
-const KEY_SERVERS = ['chevy.soyspace.cyou', 'chevy.vovlacosa.sbs'] as const;
+// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix)
+const KEY_SERVERS = ['sec.ai-hls.site', 'chevy.soyspace.cyou', 'chevy.vovlacosa.sbs'] as const;
 
 export interface KeyFetchResult {
   success: boolean;
@@ -114,7 +110,7 @@ function isFakeKey(keyHex: string): boolean {
  * Keys require NO auth headers — only reCAPTCHA IP whitelist.
  * The authData parameter is kept for API compatibility but ignored.
  *
- * Tries multiple key servers (chevy.soyspace.cyou, ai.the-sunmoon.site).
+ * Tries multiple key servers (sec.ai-hls.site, chevy.soyspace.cyou).
  * Returns fake key detection so callers can trigger reCAPTCHA whitelist.
  */
 export async function fetchKeyWithAuth(
@@ -144,11 +140,11 @@ export async function fetchKeyWithAuth(
     };
   }
 
-  // Mar 25 2026: No auth headers needed — just Referer/Origin for CORS
+  // Mar 27 2026: No auth headers needed — just Referer/Origin for CORS
   const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Referer': 'https://enviromentalspace.sbs/',
-    'Origin': 'https://enviromentalspace.sbs',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+    'Referer': 'https://www.ksohls.ru/',
+    'Origin': 'https://www.ksohls.ru',
   };
 
   console.log(`[Key-Fetch] ${resource}/${keyNumber} (no auth headers — IP whitelist only)`);

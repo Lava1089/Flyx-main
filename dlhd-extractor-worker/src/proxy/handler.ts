@@ -65,6 +65,8 @@ const RPI_PROXY_DOMAINS = [
   'the-sunmoon.site',
   'vmvmv.shop',
   'daddylivestream.com',
+  'ai-hls.site',
+  'ksohls.ru',
 ];
 
 /**

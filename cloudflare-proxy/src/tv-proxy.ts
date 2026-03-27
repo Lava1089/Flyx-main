@@ -62,17 +62,18 @@ const ALLOWED_ORIGINS = [
   '.workers.dev',
 ];
 
-// UPDATED March 24, 2026: enviromentalspace.sbs is the new player domain (was ksohls.ru → lefttoplay.xyz → epaly.fun)
-const PLAYER_DOMAIN = 'enviromentalspace.sbs';
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+// UPDATED March 27, 2026: www.ksohls.ru is the current player domain (browser recon confirmed)
+const PLAYER_DOMAIN = 'www.ksohls.ru';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 
 
-// UPDATED March 24, 2026: ai.the-sunmoon.site is new primary M3U8/verify server
+// UPDATED March 27, 2026: sec.ai-hls.site is new primary M3U8/verify/key server
 const ALL_SERVER_KEYS = [
-  'ddy6',     // ONLY server we use - most reliable
+  'zeko',     // Primary server (confirmed via browser recon Mar 27)
+  'ddy6',     // Fallback
 ];
 const CDN_DOMAIN = 'soyspace.cyou';
-const M3U8_SERVER = 'ai.the-sunmoon.site'; // Primary M3U8 + verify server
+const M3U8_SERVER = 'sec.ai-hls.site'; // Primary M3U8 + verify + key server (no chevy. prefix)
 
 // CORRECT SECRET - extracted from WASM module (January 2026)
 // The old 64-char hex secret is WRONG! This is the real one from the WASM.
@@ -319,9 +320,9 @@ async function fetchPlayerJWT(channel: string, logger: any, env?: Env): Promise<
   logger.info('Fetching fresh JWT', { channel });
 
   // ============================================================================
-  // METHOD 1: Try player domains (enviromentalspace.sbs primary, ksohls.ru fallback)
+  // METHOD 1: Try player domains (www.ksohls.ru primary, enviromentalspace.sbs fallback)
   // ============================================================================
-  const playerDomains = [PLAYER_DOMAIN, 'www.ksohls.ru'];
+  const playerDomains = [PLAYER_DOMAIN, 'enviromentalspace.sbs'];
   for (const domain of playerDomains) {
     try {
       const playerUrl = `https://${domain}/premiumtv/daddyhd.php?id=${channel}`;
@@ -467,9 +468,9 @@ async function getServerKey(channelKey: string, logger: any, env?: Env): Promise
   const cached = serverKeyCache.get(channelKey);
   if (cached && Date.now() - cached.fetchedAt < SERVER_KEY_CACHE_TTL_MS) return cached.serverKey;
 
-  // March 25, 2026: chevy.{domain} works from CF Workers.
-  // ai.the-sunmoon.site blocks server IPs with Cloudflare challenges — browser-only.
+  // UPDATED Mar 27, 2026: sec.ai-hls.site is new primary, chevy.{domain} as fallback
   const lookupUrls = [
+    `https://${M3U8_SERVER}/server_lookup?channel_id=${channelKey}`,
     `https://chevy.${CDN_DOMAIN}/server_lookup?channel_id=${channelKey}`,
     `https://chevy.vovlacosa.sbs/server_lookup?channel_id=${channelKey}`,
   ];
@@ -526,9 +527,8 @@ async function getServerKey(channelKey: string, logger: any, env?: Env): Promise
 }
 
 function constructM3U8Url(serverKey: string, channelKey: string): string {
-  // UPDATED March 2026: M3U8 served via chevy.soyspace.cyou proxy
-  // NEW: https://chevy.soyspace.cyou/proxy/{server}/premium{ch}/mono.css
-  return `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
+  // UPDATED March 27, 2026: sec.ai-hls.site is primary (no chevy. prefix)
+  return `https://${M3U8_SERVER}/proxy/${serverKey}/${channelKey}/mono.css`;
 }
 
 /**
@@ -1148,7 +1148,7 @@ async function handleWhitelistToken(
  * Routes through the RPI proxy's /dlhd-whitelist endpoint which uses
  * rust-fetch via ProxyJet residential SOCKS5 to:
  *   1. Solve reCAPTCHA v3
- *   2. POST token to ai.the-sunmoon.site/verify
+ *   2. POST token to sec.ai-hls.site/verify
  *   3. Whitelist the residential proxy IP (same IP used for key fetches)
  *
  * March 24, 2026: The verify MUST come from the same IP that fetches keys.
@@ -1455,8 +1455,8 @@ async function tryCdnLiveBackend(
  * Returns the content if successful, null otherwise
  * 
  * CRITICAL: DLHD CDN requires:
- * - Origin: https://enviromentalspace.sbs
- * - Referer: https://enviromentalspace.sbs/
+ * - Origin: https://www.ksohls.ru
+ * - Referer: https://www.ksohls.ru/
  * - Authorization: Bearer <JWT> (optional - not always needed)
  */
 async function tryDvalnaServer(
@@ -2160,8 +2160,8 @@ async function handleSegmentProxy(url: URL, logger: any, origin: string | null, 
     } else if (urlHost.includes('moveonjoy.com')) {
       referer = 'https://tv-bu1.blogspot.com/';
       requestOrigin = 'https://tv-bu1.blogspot.com';
-    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('keylocking.ru') || urlHost.includes('the-sunmoon.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
-      // DLHD CDN requires enviromentalspace.sbs referer (updated Mar 24, 2026)
+    } else if (urlHost.includes('soyspace.cyou') || urlHost.includes('keylocking.ru') || urlHost.includes('the-sunmoon.site') || urlHost.includes('ai-hls.site') || urlHost.includes('r2.cloudflarestorage.com') || urlHost.includes('arbitrageai.cc')) {
+      // DLHD CDN requires www.ksohls.ru referer (updated Mar 27, 2026)
       referer = `https://${PLAYER_DOMAIN}/`;
       requestOrigin = `https://${PLAYER_DOMAIN}`;
     }

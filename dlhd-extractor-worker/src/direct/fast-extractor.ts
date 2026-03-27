@@ -30,27 +30,25 @@ import { fetchAuthData, DLHDAuthDataV5 } from './dlhd-auth-v5';
 const ALL_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'] as const;
 
 // All known DLHD domains for M3U8 proxy
-// SECURITY: Keep these private - don't expose via public APIs  
-// UPDATED Mar 24 2026: ai.the-sunmoon.site is new primary M3U8 server
-// go.ai-chatx.site is DEAD (ECONNREFUSED). Keys now via key.keylocking.ru
+// SECURITY: Keep these private - don't expose via public APIs
+// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix)
+// chevy.soyspace.cyou still works as fallback
 const ALL_DOMAINS = ['soyspace.cyou'] as const;
 
 // Domains for server_lookup API (ordered by reliability)
-// UPDATED Mar 25 2026: chevy.{domain} works from server IPs.
-// ai.the-sunmoon.site returns Cloudflare challenges to server IPs — browser-only.
+// UPDATED Mar 27 2026: chevy.{domain} works from server IPs.
 const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'] as const;
 
 // Default domain (for M3U8 proxy)
 const DEFAULT_DOMAIN = 'soyspace.cyou';
 
-// Primary M3U8 server for server-side fetching (March 25, 2026)
-// ai.the-sunmoon.site is used by DLHD's browser player but returns Cloudflare
-// challenges to server IPs — chevy.soyspace.cyou works from CF Workers/servers.
-const M3U8_SERVER = 'chevy.soyspace.cyou';
+// Primary M3U8 server for server-side fetching
+// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix!)
+// chevy.soyspace.cyou still works as fallback
+const M3U8_SERVER = 'sec.ai-hls.site';
 
-// Key domain — CORS * on both, no auth headers needed (only IP whitelist via reCAPTCHA)
-// UPDATED Mar 25 2026: key.keylocking.ru returns 403 (Cloudflare). EPlayerAuth is GONE.
-// Keys now require zero auth headers — just reCAPTCHA IP whitelist.
+// Key domain — no auth headers needed (only IP whitelist via reCAPTCHA)
+// UPDATED Mar 27 2026: sec.ai-hls.site is new primary, soyspace.cyou fallback
 export const KEY_DOMAIN = 'soyspace.cyou';
 
 // Fallback request timeout (ms)
@@ -86,10 +84,12 @@ export async function lookupServer(channelId: number): Promise<string | null> {
   const channelKey = `premium${channelId}`;
   
   // Race all lookup domains in parallel — first valid response wins
-  // UPDATED Mar 25 2026: chevy.{domain} works from server IPs
-  // ai.the-sunmoon.site blocks server IPs with Cloudflare challenges
+  // UPDATED Mar 27 2026: sec.ai-hls.site added as primary lookup
   try {
-    const lookupUrls = LOOKUP_DOMAINS.map(d => `https://chevy.${d}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`);
+    const lookupUrls = [
+      `https://sec.ai-hls.site/server_lookup?channel_id=${encodeURIComponent(channelKey)}`,
+      ...LOOKUP_DOMAINS.map(d => `https://chevy.${d}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`),
+    ];
     const result = await Promise.any(
       lookupUrls.map(async (lookupUrl) => {
         const controller = new AbortController();
@@ -98,8 +98,8 @@ export async function lookupServer(channelId: number): Promise<string | null> {
           const resp = await fetch(lookupUrl, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://enviromentalspace.sbs/',
-                'Origin': 'https://enviromentalspace.sbs',
+                'Referer': 'https://www.ksohls.ru/',
+                'Origin': 'https://www.ksohls.ru',
               },
               signal: controller.signal,
             }
@@ -193,7 +193,7 @@ export function getServerForChannel(channelId: number): string | null {
 
 /**
  * Build M3U8 URL for a channel on a specific server/domain
- * UPDATED Mar 25 2026: M3U8 served via ai.the-sunmoon.site (primary) or chevy.soyspace.cyou (fallback)
+ * UPDATED Mar 27 2026: M3U8 served via sec.ai-hls.site (primary) or chevy.soyspace.cyou (fallback)
  * Pattern: https://{m3u8Server}/proxy/{server}/premium{ch}/mono.css
  * DLHD's own player uses M3U8_SERVER directly — confirmed via page source extraction.
  */
@@ -233,12 +233,12 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   const m3u8Url = buildM3U8Url(channelId, server);
 
   // Step 3: Build headers - NO AUTH NEEDED for M3U8!
-  // Updated Mar 24, 2026: Referer changed to enviromentalspace.sbs (current player domain)
+  // Updated Mar 27, 2026: Referer changed to www.ksohls.ru (current player domain per browser recon)
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Referer': 'https://enviromentalspace.sbs/',
-    'Origin': 'https://enviromentalspace.sbs',
+    'Referer': 'https://www.ksohls.ru/',
+    'Origin': 'https://www.ksohls.ru',
   };
 
   const elapsed = Date.now() - startTime;
@@ -247,8 +247,8 @@ export async function extractFast(channelId: string): Promise<ExtractedStream | 
   return {
     m3u8Url,
     headers,
-    referer: 'https://enviromentalspace.sbs/',
-    origin: 'https://enviromentalspace.sbs',
+    referer: 'https://www.ksohls.ru/',
+    origin: 'https://www.ksohls.ru',
     quality: undefined,
     isEncrypted: true,
   };
@@ -335,21 +335,21 @@ export async function extractWithFallback(
         rpiUrl.searchParams.set('headers', JSON.stringify({
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept': '*/*',
-          'Referer': 'https://enviromentalspace.sbs/',
-          'Origin': 'https://enviromentalspace.sbs',
+          'Referer': 'https://www.ksohls.ru/',
+          'Origin': 'https://www.ksohls.ru',
           'Authorization': `Bearer ${token}`,
         }));
 
         // SECURITY: Add timeout to prevent hanging requests
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FALLBACK_REQUEST_TIMEOUT);
-        
+
         try {
           const response = await fetch(rpiUrl.toString(), {
             headers: { 'X-API-Key': rpiApiKey },
             signal: controller.signal,
           });
-          
+
           clearTimeout(timeoutId);
 
           if (response.ok) {
@@ -359,19 +359,19 @@ export async function extractWithFallback(
               const elapsed = Date.now() - startTime;
               // SECURITY: Don't log server/domain in success message
               console.log(`[FastExtract] SUCCESS in ${elapsed}ms for channel ${channelId}`);
-              
+
               return {
                 stream: {
                   m3u8Url,
                   headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': '*/*',
-                    'Referer': 'https://enviromentalspace.sbs/',
-                    'Origin': 'https://enviromentalspace.sbs',
+                    'Referer': 'https://www.ksohls.ru/',
+                    'Origin': 'https://www.ksohls.ru',
                     'Authorization': `Bearer ${token}`,
                   },
-                  referer: 'https://enviromentalspace.sbs/',
-                  origin: 'https://enviromentalspace.sbs',
+                  referer: 'https://www.ksohls.ru/',
+                  origin: 'https://www.ksohls.ru',
                   quality: undefined,
                   isEncrypted: true,
                 },
@@ -474,7 +474,7 @@ export async function generateJWT(channelId: string): Promise<{ token: string; c
   const chNum = parseInt(channelId, 10);
   const channelKey = `premium${chNum}`;
   
-  // Fetch auth data from player page (enviromentalspace.sbs primary, ksohls.ru fallback)
+  // Fetch auth data from player page (ksohls.ru primary, enviromentalspace.sbs fallback)
   const authData = await fetchAuthData(channelId);
   
   if (authData && authData.authToken) {

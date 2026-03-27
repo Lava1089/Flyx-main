@@ -10,7 +10,8 @@
  */
 
 const RECAPTCHA_SITE_KEY = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
-const PAGE_URL_TEMPLATE = 'https://enviromentalspace.sbs/premiumtv/daddyhd.php?id=';
+// UPDATED Mar 27 2026: www.ksohls.ru is the current player domain (browser recon confirmed)
+const PAGE_URL_TEMPLATE = 'https://www.ksohls.ru/premiumtv/daddyhd.php?id=';
 
 /**
  * Extract the reCAPTCHA JS version string from Google's API loader.
@@ -27,7 +28,7 @@ async function getRecaptchaVersion(): Promise<string> {
       const resp = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-          'Referer': 'https://enviromentalspace.sbs/',
+          'Referer': 'https://www.ksohls.ru/',
         },
       });
       const body = await resp.text();

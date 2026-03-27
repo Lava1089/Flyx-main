@@ -96,8 +96,8 @@ async function handleDLHDKeyV4(req, res) {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             Accept: '*/*',
-            Origin: 'https://enviromentalspace.sbs',
-            Referer: 'https://enviromentalspace.sbs/',
+            Origin: 'https://www.ksohls.ru',
+            Referer: 'https://www.ksohls.ru/',
             Authorization: `Bearer ${jwt}`,
             'X-Key-Timestamp': timestamp,
             'X-Key-Nonce': nonce,
@@ -220,8 +220,8 @@ async function handleHeartbeat(req, res) {
     }
 }
 function fetchAuthToken(channel) {
-    // March 24, 2026: Try enviromentalspace.sbs first, fall back to ksohls.ru
-    return fetchAuthTokenFromDomain(channel, 'enviromentalspace.sbs')
+    // UPDATED Mar 27 2026: www.ksohls.ru is primary (browser recon confirmed)
+    return fetchAuthTokenFromDomain(channel, 'www.ksohls.ru')
         .then(result => result || fetchAuthTokenFromDomain(channel, 'www.ksohls.ru'));
 }
 function fetchAuthTokenFromDomain(channel, domain) {
@@ -264,8 +264,8 @@ function establishHeartbeatSession(channel, server, domain, authToken, country, 
             headers: {
                 'User-Agent': userAgent,
                 Accept: '*/*',
-                Origin: 'https://enviromentalspace.sbs',
-                Referer: 'https://enviromentalspace.sbs/',
+                Origin: 'https://www.ksohls.ru',
+                Referer: 'https://www.ksohls.ru/',
                 Authorization: `Bearer ${authToken}`,
                 'X-Channel-Key': channelKey,
                 'X-Client-Token': clientToken,
@@ -388,11 +388,11 @@ async function handleDLHDKeyV6(req, res) {
     const keyPath = keyPathMatch ? keyPathMatch[1] : new URL(decoded).pathname;
     const channelMatch = keyPath.match(/\/(premium\d+)\//);
     const channel = channelMatch ? channelMatch[1] : 'premium44';
-    // Key servers — chevy.{domain} works through SOCKS5 proxies
-    // ai.the-sunmoon.site blocks ALL non-browser requests (CF WAF) — don't bother
+    // Key servers — UPDATED Mar 27 2026: sec.ai-hls.site is primary (no chevy. prefix)
     const keyServers = [
         ...new Set([
             decoded,
+            `https://sec.ai-hls.site${keyPath}`,
             `https://chevy.soyspace.cyou${keyPath}`,
             `https://chevy.vovlacosa.sbs${keyPath}`,
         ])
@@ -423,9 +423,9 @@ async function handleDLHDKeyV6(req, res) {
             const args = [
                 '--url', url, '--timeout', String(timeoutSec), '--mode', 'fetch-bin',
                 '--headers', JSON.stringify({
-                    'Referer': 'https://enviromentalspace.sbs/',
-                    'Origin': 'https://enviromentalspace.sbs',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Referer': 'https://www.ksohls.ru/',
+                    'Origin': 'https://www.ksohls.ru',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
                 }),
                 '--proxy', proxyUrl,
             ];
@@ -444,7 +444,7 @@ async function handleDLHDKeyV6(req, res) {
         const wlStart = Date.now();
         // Step 2a: Solve reCAPTCHA v3 (direct, no proxy — Google doesn't block server IPs)
         const siteKey = '6LfJv4AsAAAAALTLEHKaQ7LN_VYfFqhLPrB2Tvgj';
-        const pageUrl = `https://enviromentalspace.sbs/premiumtv/daddyhd.php?id=${channel.replace('premium', '')}`;
+        const pageUrl = `https://www.ksohls.ru/premiumtv/daddyhd.php?id=${channel.replace('premium', '')}`;
         const action = `verify_${channel}`;
         const recapArgs = ['--mode', 'recaptcha-v3', '--site-key', siteKey, '--action', action, '--url', pageUrl, '--timeout', '10'];
         const { stdout: recapOut } = await execFileAsync('rust-fetch', recapArgs, { timeout: 12000, windowsHide: true });
@@ -456,8 +456,8 @@ async function handleDLHDKeyV6(req, res) {
         // Step 2b: POST /verify through sticky SOCKS5 proxy (whitelists the ProxyJet IP)
         // Use curl with --socks5 since rust-fetch doesn't support POST
         const verifyBody = JSON.stringify({ 'recaptcha-token': recapToken, 'channel_id': channel });
-        // ai.the-sunmoon.site blocks non-browser IPs with CF WAF 403 — don't waste time on it
-        const verifyUrls = ['https://chevy.soyspace.cyou/verify'];
+        // UPDATED Mar 27 2026: sec.ai-hls.site is primary verify server
+        const verifyUrls = ['https://sec.ai-hls.site/verify', 'https://chevy.soyspace.cyou/verify'];
         let whitelisted = false;
         for (const verifyUrl of verifyUrls) {
             try {
@@ -466,8 +466,8 @@ async function handleDLHDKeyV6(req, res) {
                     '--socks5-hostname', proxyUrl.replace('socks5://', ''),
                     '-X', 'POST',
                     '-H', 'Content-Type: application/json',
-                    '-H', 'Origin: https://enviromentalspace.sbs',
-                    '-H', 'Referer: https://enviromentalspace.sbs/',
+                    '-H', 'Origin: https://www.ksohls.ru',
+                    '-H', 'Referer: https://www.ksohls.ru/',
                     '-d', verifyBody,
                     verifyUrl,
                 ];
@@ -549,7 +549,7 @@ async function handleDLHDKeyV6(req, res) {
 const RESTREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'];
 const CDN_DOMAIN = 'soyspace.cyou';
-const NEW_M3U8_SERVER = 'ai.the-sunmoon.site';
+const NEW_M3U8_SERVER = 'sec.ai-hls.site';
 /** Fetch a URL via https and return the body as a string */
 function httpGet(url, headers = {}) {
     return new Promise((resolve, reject) => {
@@ -570,7 +570,7 @@ function httpGet(url, headers = {}) {
 async function fetchServerKey(channelKey) {
     // Try new primary M3U8 server first (March 24, 2026)
     try {
-        const { status, body } = await httpGet(`https://${NEW_M3U8_SERVER}/server_lookup?channel_id=${channelKey}`, { Origin: 'https://enviromentalspace.sbs', Referer: 'https://enviromentalspace.sbs/' });
+        const { status, body } = await httpGet(`https://${NEW_M3U8_SERVER}/server_lookup?channel_id=${channelKey}`, { Origin: 'https://www.ksohls.ru', Referer: 'https://www.ksohls.ru/' });
         if (status === 200 && body.startsWith('{')) {
             const data = JSON.parse(body);
             if (data.server_key)
@@ -580,7 +580,7 @@ async function fetchServerKey(channelKey) {
     catch { /* try fallbacks */ }
     for (const domain of LOOKUP_DOMAINS) {
         try {
-            const { status, body } = await httpGet(`https://chevy.${domain}/server_lookup?channel_id=${channelKey}`, { Origin: 'https://enviromentalspace.sbs', Referer: 'https://enviromentalspace.sbs/' });
+            const { status, body } = await httpGet(`https://chevy.${domain}/server_lookup?channel_id=${channelKey}`, { Origin: 'https://www.ksohls.ru', Referer: 'https://www.ksohls.ru/' });
             if (status === 200 && body.startsWith('{')) {
                 const data = JSON.parse(body);
                 if (data.server_key)
@@ -635,15 +635,15 @@ async function handleDLHDRestream(req, res) {
     let m3u8Content;
     try {
         let { status, body } = await httpGet(m3u8Url, {
-            Origin: 'https://enviromentalspace.sbs',
-            Referer: 'https://enviromentalspace.sbs/',
+            Origin: 'https://www.ksohls.ru',
+            Referer: 'https://www.ksohls.ru/',
         });
         // Fallback to chevy.soyspace.cyou if primary fails
         if (status !== 200 || !body.includes('#EXTM3U')) {
             const fallbackUrl = `https://chevy.${CDN_DOMAIN}/proxy/${serverKey}/${channelKey}/mono.css`;
             const fallback = await httpGet(fallbackUrl, {
-                Origin: 'https://enviromentalspace.sbs',
-                Referer: 'https://enviromentalspace.sbs/',
+                Origin: 'https://www.ksohls.ru',
+                Referer: 'https://www.ksohls.ru/',
             });
             status = fallback.status;
             body = fallback.body;

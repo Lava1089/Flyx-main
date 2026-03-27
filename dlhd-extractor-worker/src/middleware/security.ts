@@ -28,9 +28,10 @@ const ALLOWED_PROXY_DOMAINS = [
   'dlstreams.top',       // Current main domain (Mar 2026)
   'daddyhd.com',
   'adffdafdsafds.sbs',
-  'enviromentalspace.sbs', // Current player domain (Mar 24, 2026)
-  'www.ksohls.ru',       // Previous player domain (fallback)
+  'enviromentalspace.sbs', // Fallback player domain
+  'www.ksohls.ru',       // Current player domain (Mar 27, 2026 — browser recon confirmed)
   'ksohls.ru',
+  'ai-hls.site',         // New primary M3U8/key/verify server (Mar 27, 2026)
   'topembed.pw',
   'allaivideo.fun',
   'r2.cloudflarestorage.com',
