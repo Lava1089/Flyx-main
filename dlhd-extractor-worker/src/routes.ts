@@ -90,26 +90,29 @@ async function rewriteM3u8ForPlayEndpoint(
   _jwtToken: string,
   _channelSalt?: string,
   _rpiProxyUrl?: string,
-  _rpiApiKey?: string
+  _rpiApiKey?: string,
+  inlineKeyBase64?: string,
 ): Promise<string> {
   const lines = m3u8Content.split('\n');
   const rewrittenLines: string[] = [];
-  
-  // Extract base path from M3U8 URL (e.g., https://chevy.soyspace.cyou/proxy/zeko/premium51/)
+
   const basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
-    
-    // UPDATED Mar 27 2026: Point keys DIRECTLY at sec.ai-hls.site.
-    // The user's browser IP is whitelisted via /whitelist endpoint (real reCAPTCHA in browser).
-    // sec.ai-hls.site has CORS: * so browser can fetch keys cross-origin.
-    // Fallback: /key proxy with self-whitelist (works for VLC/server-side players).
+
     if (trimmed.startsWith('#EXT-X-KEY') && trimmed.includes('URI="')) {
+      if (inlineKeyBase64) {
+        // INLINE the key as data URI — no separate key fetch needed by HLS.js.
+        // This bypasses all whitelist/CORS issues.
+        const newLine = trimmed.replace(/URI="[^"]+"/, `URI="data:application/octet-stream;base64,${inlineKeyBase64}"`);
+        rewrittenLines.push(newLine);
+        continue;
+      }
+      // Fallback: proxy through /key endpoint
       const uriMatch = trimmed.match(/URI="([^"]+)"/);
       if (uriMatch) {
         const uri = uriMatch[1];
-
         let absoluteKeyUrl: string;
         if (uri.startsWith('http')) {
           absoluteKeyUrl = uri;
@@ -121,9 +124,6 @@ async function rewriteM3u8ForPlayEndpoint(
             absoluteKeyUrl = `https://sec.ai-hls.site${uri.startsWith('/') ? '' : '/'}${uri}`;
           }
         }
-
-        // Route through /key proxy — it self-whitelists the CF edge IP via reCAPTCHA
-        // then fetches the real key. Browser direct fetch gets fake keys (not whitelisted).
         const proxiedKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(absoluteKeyUrl)}`;
         const newLine = trimmed.replace(/URI="[^"]+"/, `URI="${proxiedKeyUrl}"`);
         rewrittenLines.push(newLine);
@@ -516,57 +516,44 @@ grecaptcha.ready(function(){
         }
       }
 
-      // ─── Step 2: Self-whitelist + direct fetch (Mar 27 2026) ─────────
-      // Strategy: solve reCAPTCHA, POST verify to whitelist THIS CF edge IP,
-      // then immediately fetch the key from the same IP. No RPI needed!
-      // sec.ai-hls.site/verify accepts Origin: www.ksohls.ru from any IP.
+      // ─── Step 2: Self-whitelist + fetch (Mar 27 2026) ──────────────────
+      // CRITICAL: verify and key fetch MUST hit the SAME server hostname.
+      // The whitelist is PER-SERVER — whitelisting on sec.ai-hls.site doesn't
+      // help if the key is fetched from chevy.soyspace.cyou.
       const channelMatch = keyUrl.match(/\/(premium\d+)\//);
       const channel = channelMatch ? channelMatch[1] : 'premium51';
 
-      console.log(`[/key] Step 2: Self-whitelist for ${channel}...`);
+      // Extract the hostname from the key URL — verify on THAT same host
+      const keyHost = (() => { try { return new URL(keyUrl).origin; } catch { return 'https://sec.ai-hls.site'; } })();
+      const verifyUrl = `${keyHost}/verify`;
+
+      console.log(`[/key] Self-whitelist: verify=${verifyUrl} key=${keyUrl.substring(0, 60)}`);
       try {
         const rcToken = await solveDLHDRecaptcha(channel);
         if (rcToken && rcToken.length > 20) {
-          console.log(`[/key] reCAPTCHA solved (${rcToken.length}b), POSTing verify...`);
-          const verifyResp = await fetch('https://sec.ai-hls.site/verify', {
+          const verifyResp = await fetch(verifyUrl, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Origin': 'https://www.ksohls.ru',
-              'Referer': 'https://www.ksohls.ru/',
-            },
+            headers: { 'Content-Type': 'application/json', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' },
             body: JSON.stringify({ 'recaptcha-token': rcToken, 'channel_id': channel }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(8000),
           });
           const verifyText = await verifyResp.text();
           let verifyOk = false;
           try { verifyOk = JSON.parse(verifyText).success === true; } catch {}
-          console.log(`[/key] Verify: ${verifyResp.status} ${verifyText.substring(0, 100)} ok=${verifyOk}`);
+          console.log(`[/key] Verify on ${new URL(verifyUrl).hostname}: ${verifyText.substring(0, 60)} ok=${verifyOk}`);
 
           if (verifyOk) {
-            // Immediately fetch key with this now-whitelisted CF edge IP
-            for (const serverUrl of keyServers.slice(0, 3)) {
-              try {
-                const res = await fetch(serverUrl, {
-                  headers: dlhdHeaders,
-                  signal: AbortSignal.timeout(8000),
-                });
-                if (!res.ok) continue;
-                const buf = await res.arrayBuffer();
-                if (buf.byteLength !== 16) continue;
+            // Fetch key from the SAME host we just verified on
+            const res = await fetch(keyUrl, { headers: dlhdHeaders, signal: AbortSignal.timeout(6000) });
+            if (res.ok) {
+              const buf = await res.arrayBuffer();
+              if (buf.byteLength === 16) {
                 const data = new Uint8Array(buf);
-                const hex = toHex(data);
-                // Cache it — this key came from a whitelisted IP
-                console.log(`[/key] ✅ key after self-whitelist: ${hex.substring(0, 8)}...`);
-                // cacheKey disabled — risk of caching fake keys
-                // await cacheKey(env.KEY_CACHE_KV, keyPath, data);
-                return makeKeyResponse(data, 'cf-self-whitelisted');
-              } catch { /* try next server */ }
+                console.log(`[/key] ✅ Key after verify: ${toHex(data).substring(0, 8)}... from ${new URL(keyUrl).hostname}`);
+                return makeKeyResponse(data, 'cf-same-host-verified');
+              }
             }
-            console.log(`[/key] ⚠️ Verify succeeded but key fetch still failed`);
           }
-        } else {
-          console.log(`[/key] reCAPTCHA solve failed`);
         }
       } catch (e) {
         console.log(`[/key] Self-whitelist error: ${e}`);
@@ -1306,28 +1293,6 @@ grecaptcha.ready(function(){
       // Compute workerBaseUrl once for proxy URL rewriting
       const workerBaseUrl = `${url.protocol}//${url.host}`;
 
-      // ─── SELF-WHITELIST: solve reCAPTCHA + verify to whitelist THIS CF edge IP ───
-      // This ensures /key requests from the SAME edge return real keys.
-      // Do this BEFORE fetching M3U8 so everything runs on the same whitelisted IP.
-      try {
-        const wlChannel = `premium${channelId}`;
-        const rcToken = await solveDLHDRecaptcha(wlChannel);
-        if (rcToken && rcToken.length > 20) {
-          const vResp = await fetch('https://sec.ai-hls.site/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' },
-            body: JSON.stringify({ 'recaptcha-token': rcToken, 'channel_id': wlChannel }),
-            signal: AbortSignal.timeout(8000),
-          });
-          const vText = await vResp.text();
-          let vOk = false;
-          try { vOk = JSON.parse(vText).success === true; } catch {}
-          console.log(`[/play] Self-whitelist: ${vOk ? '✅' : '❌'} ${vText.substring(0, 60)}`);
-        }
-      } catch (e) {
-        console.log(`[/play] Self-whitelist failed: ${e}`);
-      }
-
       // Build headers for M3U8 request
       const m3u8Headers: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
@@ -1532,23 +1497,78 @@ grecaptcha.ready(function(){
         });
       }
       
-      // Step 4: Rewrite M3U8 URLs — proxy keys via /key, segments via /segment
+      // Step 4: Fetch the REAL key and inline it in the M3U8
       const rewriteStart = Date.now();
-      // Build the actual M3U8 URL that was fetched — needed for resolving relative URIs
-      // UPDATED Mar 27 2026: sec.ai-hls.site uses direct URL (no chevy. prefix)
       const m3u8Url = workingDomain === 'ai-hls.site'
         ? `https://sec.ai-hls.site/proxy/${workingServer}/${channelKey}/mono.css`
         : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
 
-      // Rewrite the M3U8 content — keys through /key proxy, segments through /segment proxy
+      // Extract key URL from M3U8 and fetch it server-side
+      let inlineKeyBase64: string | undefined;
+      const keyLineMatch = m3u8Content.match(/URI="([^"]+)"/);
+      if (keyLineMatch) {
+        const keyUri = keyLineMatch[1];
+        const keyFullUrl = keyUri.startsWith('http') ? keyUri
+          : `${new URL(m3u8Url).origin}${keyUri.startsWith('/') ? '' : '/'}${keyUri}`;
+
+        console.log(`[/play] Fetching key to inline: ${keyFullUrl.substring(0, 80)}`);
+
+        function toB64(bytes: Uint8Array): string {
+          let b = '';
+          for (let i = 0; i < bytes.length; i++) b += String.fromCharCode(bytes[i]);
+          return btoa(b);
+        }
+
+        // PRIMARY: RPI proxy with ProxyJet sticky sessions (residential IP, whitelisted)
+        // The RPI solves reCAPTCHA, POSTs verify through SOCKS5, fetches key through same session.
+        // This is the ONLY reliable path — CF worker IPs can't be whitelisted.
+        if (env.RPI_PROXY_URL && env.RPI_PROXY_API_KEY) {
+          try {
+            console.log(`[/play] Fetching key via RPI...`);
+            const rpiUrl = `${env.RPI_PROXY_URL}/dlhd-key-v6?url=${encodeURIComponent(keyFullUrl)}&key=${env.RPI_PROXY_API_KEY}`;
+            const rResp = await fetch(rpiUrl, {
+              headers: { 'X-API-Key': env.RPI_PROXY_API_KEY },
+              signal: AbortSignal.timeout(20000),
+            });
+            if (rResp.ok) {
+              const rBuf = await rResp.arrayBuffer();
+              if (rBuf.byteLength === 16) {
+                inlineKeyBase64 = toB64(new Uint8Array(rBuf));
+                console.log(`[/play] ✅ Key inlined from RPI`);
+              }
+            } else {
+              console.log(`[/play] RPI key failed: ${rResp.status}`);
+            }
+          } catch (e) {
+            console.log(`[/play] RPI key error: ${e}`);
+          }
+        }
+
+        // FALLBACK: direct fetch (CF worker IP — almost always returns fake key)
+        if (!inlineKeyBase64) {
+          const dlhdH = { 'User-Agent': 'Mozilla/5.0', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' };
+          try {
+            const kResp = await fetch(keyFullUrl, { headers: dlhdH, signal: AbortSignal.timeout(5000) });
+            if (kResp.ok) {
+              const kBuf = await kResp.arrayBuffer();
+              if (kBuf.byteLength === 16) {
+                inlineKeyBase64 = toB64(new Uint8Array(kBuf));
+                console.log(`[/play] Key inlined from direct (likely fake)`);
+              }
+            }
+          } catch {}
+        }
+      }
+
       const rewrittenM3u8 = await rewriteM3u8ForPlayEndpoint(
-        m3u8Content, 
-        m3u8Url, 
-        workerBaseUrl, 
+        m3u8Content,
+        m3u8Url,
+        workerBaseUrl,
         token,
         undefined,
         env.RPI_PROXY_URL,
-        env.RPI_PROXY_API_KEY
+        env.RPI_PROXY_API_KEY,
+        inlineKeyBase64,
       );
       const rewriteTime = Date.now() - rewriteStart;
       const totalTime = Date.now() - startTime;

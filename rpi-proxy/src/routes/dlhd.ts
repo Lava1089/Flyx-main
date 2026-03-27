@@ -474,8 +474,10 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
     // Step 2b: POST /verify through sticky SOCKS5 proxy (whitelists the ProxyJet IP)
     // Use curl with --socks5 since rust-fetch doesn't support POST
     const verifyBody = JSON.stringify({ 'recaptcha-token': recapToken, 'channel_id': channel });
-    // UPDATED Mar 27 2026: sec.ai-hls.site is primary verify server
-    const verifyUrls = ['https://sec.ai-hls.site/verify', 'https://chevy.soyspace.cyou/verify'];
+    // CRITICAL: verify MUST hit the SAME server as the key fetch.
+    // Extract the host from the key URL and verify on that host.
+    const keyHostname = (() => { try { return new URL(decoded).origin; } catch { return 'https://sec.ai-hls.site'; } })();
+    const verifyUrls = [`${keyHostname}/verify`];
 
     let whitelisted = false;
     for (const verifyUrl of verifyUrls) {

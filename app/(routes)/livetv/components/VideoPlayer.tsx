@@ -419,31 +419,7 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
       return;
     }
 
-    // Direct HLS URL (Cloudflare Worker proxy)
-    // For DLHD: whitelist user's browser IP by loading the ACTUAL DLHD player page
-    // in a hidden iframe. The page runs reCAPTCHA on ksohls.ru (the registered domain)
-    // and POSTs verify, whitelisting the user's browser IP for key fetches.
-    const isDlhd = channel?.source === 'dlhd' || event?.source === 'dlhd';
-    if (isDlhd) {
-      const chId = channel?.channelId || event?.channels?.[selectedChannelIndex]?.channelId;
-      if (chId) {
-        console.log('[VideoPlayer] Whitelisting via DLHD embed iframe for channel:', chId);
-        try {
-          await new Promise<void>((resolve) => {
-            const iframe = document.createElement('iframe');
-            iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
-            iframe.sandbox = 'allow-scripts allow-same-origin allow-forms';
-            iframe.src = `https://dlstreams.top/embed/stream-${chId}.php`;
-            document.body.appendChild(iframe);
-            // Wait for reCAPTCHA + verify to complete (typically ~3-5s)
-            setTimeout(() => { iframe.remove(); resolve(); }, 5000);
-          });
-          console.log('[VideoPlayer] DLHD whitelist iframe completed');
-        } catch (e) {
-          console.warn('[VideoPlayer] Whitelist iframe error:', e);
-        }
-      }
-    }
+    // Keys are inlined in the M3U8 by the /play endpoint — no browser whitelist needed.
 
     loadHlsStream(video, streamUrl);
     
