@@ -7,7 +7,6 @@
 import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
-export const revalidate = 30; // Cache for 30s
 
 const PPV_API = 'https://api.ppv.to/api/streams';
 
@@ -64,8 +63,8 @@ export async function GET() {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
-      next: { revalidate: 30 },
-    });
+      cf: { cacheTtl: 30, cacheEverything: true },
+    } as RequestInit);
 
     if (!res.ok) {
       return NextResponse.json({ success: false, error: `PPV API returned ${res.status}` }, { status: 502 });
@@ -140,6 +139,8 @@ export async function GET() {
       events,
       count: events.length,
       timestamp: Date.now(),
+    }, {
+      headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
     });
   } catch (error: any) {
     console.error('[PPV] API fetch error:', error);
