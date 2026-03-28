@@ -286,11 +286,11 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   const [showCastTips, setShowCastTips] = useState(false); // Cast Tips modal
   const castErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [providerAvailability, setProviderAvailability] = useState<Record<string, boolean>>({
-    flixer: true, // Hexa (hexa.su) is the primary provider (WASM-based, fastest)
-    uflix: true, // Uflix as secondary provider with 5 embed servers
-    hexa: false, // Hexa disabled — most servers require JS execution, rarely works
-    vidsrc: true, // VidSrc as tertiary fallback
-    '1movies': true, // 1movies - fully reverse-engineered, no Puppeteer needed
+    flixer: true, // Flixer — primary provider for movies/TV
+    uflix: false,
+    hexa: false,
+    vidsrc: false,
+    '1movies': false,
     animekai: true, // Anime-specific provider - auto-selected for anime content
     hianime: true, // HiAnime - primary anime provider (MegaCloud extraction)
   });
@@ -943,10 +943,10 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           const data = await res.json();
           setProviderAvailability({
             flixer: data.providers?.flixer?.enabled ?? true,
-            uflix: data.providers?.uflix?.enabled ?? true,
+            uflix: false,
             hexa: false,
-            vidsrc: data.providers?.vidsrc?.enabled ?? true,
-            '1movies': data.providers?.['1movies']?.enabled ?? true,
+            vidsrc: false,
+            '1movies': false,
             animekai: data.providers?.animekai?.enabled ?? true,
             hianime: data.providers?.hianime?.enabled ?? true,
           });
@@ -968,8 +968,8 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
       const defaultOrder: string[] = isAnime
         ? (isMalDirect
           ? ['hianime', 'animekai']
-          : ['hianime', 'animekai', 'primesrc', 'flixer', 'uflix', 'vidsrc'])
-        : ['primesrc', 'flixer', 'uflix', 'vidsrc'];
+          : ['hianime', 'animekai', 'flixer'])
+        : ['flixer'];
 
       const priorityOrder: string[] = [];
       for (const p of userOrder) {
@@ -1497,10 +1497,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     if (provider !== 'hianime' && providerAvailability.hianime) fallbackProviders.push('hianime');
                     if (provider !== 'animekai' && providerAvailability.animekai) fallbackProviders.push('animekai');
                   }
-                  if (provider !== 'vidsrc' && providerAvailability.vidsrc) fallbackProviders.push('vidsrc');
                   if (provider !== 'flixer' && providerAvailability.flixer) fallbackProviders.push('flixer');
-                  if (provider !== '1movies' && providerAvailability['1movies']) fallbackProviders.push('1movies');
-                  if (provider !== 'uflix' && providerAvailability.uflix) fallbackProviders.push('uflix');
                   
                   for (const fallbackProvider of fallbackProviders) {
                     if (triedProvidersRef.current.has(fallbackProvider)) continue;
@@ -4690,7 +4687,7 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     .filter(p => tmdbId !== '0' || ['hianime', 'animekai'].includes(p))
                     .map(p => {
                       const displayNames: Record<string, string> = {
-                        flixer: 'Hexa',
+                        flixer: 'Flixer',
                         uflix: 'Uflix',
                         hexa: 'Hexa',
                         vidsrc: 'VidSrc',

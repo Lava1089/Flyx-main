@@ -755,16 +755,11 @@ async function directExtractWithFallback(
   _mediaType: 'movie' | 'tv',
   isAnime: boolean,
 ): Promise<{ sources: any[]; provider: string }> {
-  // VidLink requires Node.js APIs (fs, path, libsodium) — skip on CF Workers
-  const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
-  
   // Priority order for anime vs movie/tv
-  // Uflix works everywhere (no Node.js-specific APIs needed)
+  // Only Flixer is active for movies/TV until new sources are added
   const providerOrder = isAnime
-    ? ['animekai', 'hianime', 'primesrc', 'flixer', 'vidsrc', 'multi-embed']
-    : isProduction
-      ? ['primesrc', 'flixer', 'uflix', 'vidsrc', 'multi-embed']
-      : ['primesrc', 'flixer', 'uflix', 'vidsrc', 'multi-embed'];
+    ? ['animekai', 'hianime', 'flixer']
+    : ['flixer'];
 
   console.log(`[EXTRACT] Direct fallback order: ${providerOrder.join(', ')}`);
 

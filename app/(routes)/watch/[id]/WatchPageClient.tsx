@@ -376,18 +376,18 @@ function WatchContent() {
       }
       
       // Check provider availability first
-      let providerAvailability = { vidsrc: true, flixer: true, '1movies': true, uflix: true, animekai: true, hianime: true, primesrc: true };
+      let providerAvailability = { vidsrc: false, flixer: true, '1movies': false, uflix: false, animekai: true, hianime: true, primesrc: false };
       try {
         const providerRes = await fetch('/api/providers');
         const providerData = await providerRes.json();
         providerAvailability = {
-          vidsrc: providerData.providers?.vidsrc?.enabled ?? true,
+          vidsrc: false,
           flixer: providerData.providers?.flixer?.enabled ?? true,
-          '1movies': providerData.providers?.['1movies']?.enabled ?? true,
-          uflix: providerData.providers?.uflix?.enabled ?? true,
+          '1movies': false,
+          uflix: false,
           animekai: providerData.providers?.animekai?.enabled ?? true,
           hianime: providerData.providers?.hianime?.enabled ?? true,
-          primesrc: providerData.providers?.primesrc?.enabled ?? true,
+          primesrc: false,
         };
       } catch (e) {
         console.warn('[WatchPage] Failed to fetch provider availability, using defaults');
@@ -404,8 +404,8 @@ function WatchContent() {
       
       const animeOnlyProviders = ['animekai', 'hianime'];
       const allKnownProviders: Array<'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa' | 'primesrc'> = isAnime
-        ? ['hianime', 'animekai', 'primesrc', 'flixer', 'uflix', 'vidsrc', '1movies', 'hexa']
-        : ['primesrc', 'flixer', 'uflix', 'vidsrc', '1movies', 'hexa'];
+        ? ['hianime', 'animekai', 'flixer']
+        : ['flixer'];
 
       // For ANIME content: always put HiAnime + AnimeKai first (sub/dub toggle needs them)
       if (isAnime) {

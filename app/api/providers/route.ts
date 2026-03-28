@@ -1,63 +1,56 @@
 /**
  * Provider Availability API
  * Returns which stream providers are enabled/available
- * 
+ *
  * Provider Priority:
- * - Flixer: PRIMARY provider (WASM-based extraction, 2-3s)
- * - Uflix: 2nd fallback (5 embed servers via gStream API)
- * - VidSrc: 3rd fallback (Turnstile issues)
- * - 1movies: DISABLED
- * - AnimeKai: PRIMARY for anime content only (auto-detected via MAL ID)
+ * - Flixer: ONLY provider for movies/TV (WASM-based extraction)
+ * - AnimeKai/HiAnime: Anime-only providers (auto-detected via MAL ID)
+ *
+ * All other movie/TV providers are disabled until new sources are added.
  */
 
 import { NextResponse } from 'next/server';
-import { VIDSRC_ENABLED } from '@/app/lib/services/vidsrc-extractor';
 import { ANIMEKAI_ENABLED } from '@/app/lib/services/animekai-extractor';
-import { ONEMOVIES_ENABLED } from '@/app/lib/services/onemovies-extractor';
 import { FLIXER_ENABLED } from '@/app/lib/services/flixer-extractor';
-import { MULTI_EMBED_ENABLED } from '@/app/lib/services/multi-embed-extractor';
-import { UFLIX_ENABLED } from '@/app/lib/services/uflix-extractor';
-
-import { PRIMESRC_ENABLED } from '@/app/lib/services/primesrc-extractor';
 
 export async function GET() {
   return NextResponse.json({
     providers: {
       primesrc: {
-        enabled: PRIMESRC_ENABLED,
+        enabled: false,
         name: 'PrimeSrc',
-        primary: true,
-        description: 'Primary streaming source (CF Worker extraction, no RPI needed)',
+        primary: false,
+        description: 'Disabled — pending new sources',
       },
       flixer: {
         enabled: FLIXER_ENABLED,
         name: 'Flixer',
-        primary: false,
-        description: 'Flixer streaming source (WASM-based extraction)',
+        primary: true,
+        description: 'Primary streaming source (WASM-based extraction)',
       },
       uflix: {
-        enabled: UFLIX_ENABLED,
+        enabled: false,
         name: 'Uflix',
         primary: false,
-        description: 'Uflix.to aggregator — 5 embed servers (2embed, smashy, gdrive, vidsrc, vidplus)',
+        description: 'Disabled — pending new sources',
       },
       hexa: {
-        enabled: MULTI_EMBED_ENABLED,
+        enabled: false,
         name: 'Hexa',
         primary: false,
-        description: 'Hexawatch multi-embed aggregator (8 servers)',
+        description: 'Disabled — pending new sources',
       },
       vidsrc: {
-        enabled: VIDSRC_ENABLED,
+        enabled: false,
         name: 'VidSrc',
         primary: false,
-        description: 'VidSrc streaming source',
+        description: 'Disabled — pending new sources',
       },
       '1movies': {
-        enabled: ONEMOVIES_ENABLED,
+        enabled: false,
         name: '1movies',
         primary: false,
-        description: '111movies.com - Multiple servers with HLS streams',
+        description: 'Disabled — pending new sources',
       },
       animekai: {
         enabled: ANIMEKAI_ENABLED,
