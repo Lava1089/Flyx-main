@@ -292,6 +292,11 @@ function setRpiConfig(env: Env): void {
 /**
  * Fetch a URL, routing through RPI proxy if available.
  * Falls back to direct fetch if RPI is not configured or fails.
+ *
+ * Passes custom headers (UA, Referer, Origin) as query params to the RPI
+ * proxy's /hianime/stream endpoint, overriding its default megacloud.blog
+ * headers. Without these overrides, HiAnime serves a "goodbye" page instead
+ * of actual content.
  */
 async function rpiFetch(url: string, headers: Record<string, string> = {}): Promise<Response> {
   if (_rpiConfig) {
@@ -300,8 +305,17 @@ async function rpiFetch(url: string, headers: Record<string, string> = {}): Prom
         url,
         key: _rpiConfig.key,
       });
+      // Override the hardcoded megacloud.blog Referer/Origin with HiAnime headers.
+      // The /hianime/stream handler reads these from query params: ua, referer, origin
+      if (headers['User-Agent']) rpiParams.set('ua', headers['User-Agent']);
+      if (headers['Referer']) rpiParams.set('referer', headers['Referer']);
+      // For AJAX requests, set origin to HiAnime domain
+      if (headers['X-Requested-With'] || headers['Referer']?.includes(HIANIME_DOMAIN)) {
+        rpiParams.set('origin', `https://${HIANIME_DOMAIN}`);
+      }
+
       const rpiUrl = `${_rpiConfig.baseUrl}/hianime/stream?${rpiParams.toString()}`;
-      console.log(`[rpiFetch] Routing through RPI: ${url.substring(0, 80)} → ${rpiUrl.substring(0, 80)}`);
+      console.log(`[rpiFetch] Routing through RPI: ${url.substring(0, 80)}`);
       const res = await fetch(rpiUrl, { signal: AbortSignal.timeout(20000) });
       console.log(`[rpiFetch] RPI response: ${res.status} ${res.headers.get('content-type')}`);
       if (res.ok) return res;

@@ -126,12 +126,23 @@ async function _fetchViaCfAnimeKaiProxy(
   });
 }
 
+// AJAX headers — for /ajax/ API endpoints
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
   'Accept': 'application/json, text/javascript, */*; q=0.01',
   'Accept-Language': 'en-US,en;q=0.9',
   'Referer': 'https://animekai.to/',
   'X-Requested-With': 'XMLHttpRequest',
+  'Connection': 'keep-alive',
+};
+
+// Page headers — for fetching full HTML pages (watch pages, etc.)
+// Must NOT include X-Requested-With or JSON Accept to avoid getting
+// partial/AJAX responses instead of full HTML with syncData.
+const PAGE_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
   'Connection': 'keep-alive',
 };
 
@@ -440,8 +451,9 @@ async function getTmdbAnimeInfo(tmdbId: string, type: 'movie' | 'tv'): Promise<{
  */
 function normalizeTitle(title: string): string {
   return title.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '') // Remove special chars (including hyphens, colons)
-    .replace(/\s+/g, ' ')        // Normalize spaces
+    .replace(/[-_:;,./\\|]+/g, ' ') // Replace separators with spaces BEFORE stripping
+    .replace(/[^a-z0-9\s]/g, '')    // Remove remaining special chars
+    .replace(/\s+/g, ' ')           // Normalize spaces
     .replace(/\bpart\s+(\d+)\b/g, 'part$1') // "Part 1" → "part1" for consistent matching
     .replace(/\bseason\s+(\d+)\b/g, 'season$1') // "Season 2" → "season2"
     .trim();
@@ -581,11 +593,15 @@ async function searchAnimeKaiByMalId(malId: number, searchQuery: string): Promis
     const watchResults = await Promise.allSettled(
       scored.map(async (result) => {
         const watchResp = await cfFetch(`${KAI_BASE}/watch/${result.slug}`, {
-          headers: HEADERS,
+          headers: PAGE_HEADERS,
+          redirect: 'follow',
           signal: AbortSignal.timeout(6000),
         });
-        
-        if (!watchResp.ok) return null;
+
+        if (!watchResp.ok) {
+          console.log(`[AnimeKai]   - "${result.enTitle}" → HTTP ${watchResp.status} (skipped)`);
+          return null;
+        }
         
         const watchHtml = await watchResp.text();
         const syncMatch = watchHtml.match(/<script[^>]*id="syncData"[^>]*>([\s\S]*?)<\/script>/);
@@ -722,7 +738,8 @@ async function searchAnimeKaiByTitle(query: string): Promise<{ content_id: strin
     console.log(`[AnimeKai] Fetching watch page: ${watchUrl}`);
 
     const watchResponse = await cfFetch(watchUrl, {
-      headers: HEADERS,
+      headers: PAGE_HEADERS,
+      redirect: 'follow',
       signal: AbortSignal.timeout(8000),
     });
 

@@ -32,18 +32,29 @@ export async function handleProxy(req: RPIRequest, res: ServerResponse): Promise
     return;
   }
 
+  // Support custom headers via query params (same convention as stream-proxy)
+  const customUserAgent = req.url.searchParams.get('ua');
+  const customReferer = req.url.searchParams.get('referer');
+  const customOrigin = req.url.searchParams.get('origin');
+
   const url = new URL(decoded);
   const client = url.protocol === 'https:' ? https : http;
+
+  const reqHeaders: Record<string, string> = {
+    'User-Agent': customUserAgent
+      ? decodeURIComponent(customUserAgent)
+      : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': '*/*',
+  };
+  if (customReferer) reqHeaders['Referer'] = decodeURIComponent(customReferer);
+  if (customOrigin) reqHeaders['Origin'] = decodeURIComponent(customOrigin);
 
   const options: https.RequestOptions = {
     hostname: url.hostname,
     port: url.port || (url.protocol === 'https:' ? 443 : 80),
     path: url.pathname + url.search,
     method: 'GET',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': '*/*',
-    },
+    headers: reqHeaders,
     timeout: 30000,
   };
 
