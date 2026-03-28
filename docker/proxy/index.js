@@ -325,7 +325,7 @@ async function handleVidSrcStream(query, proxyBase) {
 // Port of cloudflare-proxy/src/hianime-proxy.ts
 // ============================================================================
 
-const HIANIME_DOMAIN = 'hianimez.to';
+const HIANIME_DOMAIN = 'aniwatchtv.to';
 const MEGACLOUD_KEYS_URLS = [
   'https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json',
   'https://raw.githubusercontent.com/CattoFish/MegacloudKeys/refs/heads/main/keys.json',

@@ -16,7 +16,7 @@ const PROXY_ALLOWED_DOMAINS = [
   'dev23app.site', 'net22lab.site', 'pro25zone.site', 'tech20hub.site',
   'code29wave.site', 'app28base.site', 'animekai.to', 'anikai.to', 'enc-dec.app',
   // HiAnime/MegaCloud CDN
-  'hianime.to', 'hianimez.to', 'hianime.nz', 'hianime.sx',
+  'hianime.to', 'hianimez.to', 'hianime.nz', 'hianime.sx', 'aniwatchtv.to',
   'megacloud.blog', 'megacloud.tv', 'mgstatics.xyz',
   // VIPRow
   'boanki.net', 'peulleieo.net', 'casthill.net', 'viprow.nu',
