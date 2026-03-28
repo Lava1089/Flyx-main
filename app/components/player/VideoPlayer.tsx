@@ -110,7 +110,8 @@ interface VideoPlayerProps {
 function applyStreamProxy(sourceUrl: string, providerName: string, requiresProxy?: boolean): string {
   if (!sourceUrl) return sourceUrl;
   // Already proxied — don't double-wrap
-  if (sourceUrl.includes('/flixer/stream') || sourceUrl.includes('/animekai/') ||
+  // Note: /animekai? (not /animekai/) is the proxy URL pattern from the API route
+  if (sourceUrl.includes('/flixer/stream') || sourceUrl.includes('/animekai') ||
       sourceUrl.includes('/hianime/') || sourceUrl.includes('/vidsrc/') ||
       sourceUrl.includes('/api/stream-proxy') || sourceUrl.includes('/stream/')) {
     return sourceUrl;
@@ -196,7 +197,16 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
   const [showControls, setShowControls] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [availableSources, setAvailableSources] = useState<any[]>([]);
+  const [availableSources, _setAvailableSources] = useState<any[]>([]);
+  const availableSourcesRef = useRef<any[]>([]);
+  // Keep ref in sync with state so HLS error handlers always have fresh data
+  const setAvailableSources: typeof _setAvailableSources = (update) => {
+    _setAvailableSources(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      availableSourcesRef.current = next;
+      return next;
+    });
+  };
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [buffered, setBuffered] = useState(0);
@@ -1376,44 +1386,31 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
           }
           
           if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                console.error('[HLS] Fatal network error, trying next source...', data);
-                setIsLoading(true);
-                setError(null);
-                
-                // Save current playback position before trying next source
-                if (video.currentTime > 0 && pendingSeekTimeRef.current === null) {
-                  pendingSeekTimeRef.current = video.currentTime;
-                  console.log('[VideoPlayer] Saving position before fallback:', pendingSeekTimeRef.current);
-                }
-                
-                // Mark the CURRENT source as 'down' since it failed
-                // BUT only if it was never confirmed working (first fragment never loaded)
-                // If it was confirmed working, this is a mid-stream error, not a dead source
-                if (!sourceConfirmedWorkingRef.current) {
-                  // Use functional updates to avoid stale closure issues
-                  setAvailableSources(prevSources => {
-                    const updatedSources = [...prevSources];
-                    if (updatedSources[currentSourceIndex]) {
-                      console.log(`[VideoPlayer] Marking source ${currentSourceIndex} (${updatedSources[currentSourceIndex].title}) as DOWN`);
-                      updatedSources[currentSourceIndex] = { 
-                        ...updatedSources[currentSourceIndex], 
-                        status: 'down' 
-                      };
-                      // Also update the cache
-                      setSourcesCache(prev => ({ ...prev, [provider]: updatedSources }));
-                    }
-                    return updatedSources;
-                  });
-                } else {
-                  console.log(`[VideoPlayer] Source ${currentSourceIndex} had a mid-stream error but was previously working — NOT marking as down`);
-                }
-                
-                // Try to find and fetch the next available source
-                const tryNextSource = async () => {
-                  // Get current sources from state (may be stale in closure, but we'll work with what we have)
-                  const currentSources = availableSources;
+            // Shared fallback: save position + mark source down + try next
+            const prepareAndFallback = () => {
+              setIsLoading(true);
+              setError(null);
+              if (video.currentTime > 0 && pendingSeekTimeRef.current === null) {
+                pendingSeekTimeRef.current = video.currentTime;
+                console.log('[VideoPlayer] Saving position before fallback:', pendingSeekTimeRef.current);
+              }
+              if (!sourceConfirmedWorkingRef.current) {
+                setAvailableSources(prevSources => {
+                  const updatedSources = [...prevSources];
+                  if (updatedSources[currentSourceIndex]) {
+                    console.log(`[VideoPlayer] Marking source ${currentSourceIndex} (${updatedSources[currentSourceIndex].title}) as DOWN`);
+                    updatedSources[currentSourceIndex] = { ...updatedSources[currentSourceIndex], status: 'down' };
+                    setSourcesCache(prev => ({ ...prev, [provider]: updatedSources }));
+                  }
+                  return updatedSources;
+                });
+              }
+            };
+
+            // Try to find and fetch the next available source (shared by all fatal error handlers)
+            const tryNextSource = async () => {
+                  // Use ref for fresh data — closure captures stale state
+                  const currentSources = availableSourcesRef.current;
                   const currentIdx = currentSourceIndex;
                   
                   // Look for next source to try
@@ -1533,23 +1530,32 @@ export default function VideoPlayer({ tmdbId, mediaType, season, episode, title,
                     }
                   }
                   
-                  return false;
-                };
-                
-                tryNextSource().then(found => {
-                  if (!found) {
-                    setIsLoading(false);
-                    setError('All sources failed. Try selecting a different server.');
-                    setHighlightServerButton(true);
-                  }
-                });
+              return false;
+            };
+
+            const handleFatalWithFallback = (errorLabel: string) => {
+              prepareAndFallback();
+              tryNextSource().then(found => {
+                if (!found) {
+                  setIsLoading(false);
+                  setError(`${errorLabel}. Try selecting a different server.`);
+                  setHighlightServerButton(true);
+                }
+              });
+            };
+
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.error('[HLS] Fatal network error, trying next source...', data);
+                handleFatalWithFallback('All sources failed');
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
+                console.error('[HLS] Fatal media error, attempting recovery...', data);
                 hls.recoverMediaError();
                 break;
               default:
-                setError('Fatal error loading video');
-                setHighlightServerButton(true);
+                console.error('[HLS] Fatal error (other), trying next source...', data.type, data.details);
+                handleFatalWithFallback('Fatal error loading video');
                 break;
             }
           }
