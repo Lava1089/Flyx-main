@@ -8,46 +8,7 @@ import { useWatchProgress } from '@/lib/hooks/useWatchProgress';
 import { useCast, CastMedia } from '@/hooks/useCast';
 import { usePresenceContext } from '@/components/analytics/PresenceProvider';
 import { getSavedVolume, getSavedMuteState, saveVolumeSettings } from '@/lib/utils/player-preferences';
-// Player Core hooks — shared logic extracted for reuse by both desktop and mobile players
-// The mobile player integrates these hooks for shared functionality while retaining
-// mobile-specific UI controls (gestures, touch controls, orientation handling, etc.)
-// TODO: Integrate core hooks (usePlayerState, useSubtitles, usePlaybackProgress, useSourceSwitcher)
-// to replace inline implementations. See ./core for shared player logic.
 import styles from './MobileVideoPlayer.module.css';
-
-// Copy URL button with feedback for external players
-function CopyUrlButton({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation();
-    
-    // Convert relative URLs to absolute URLs
-    let fullUrl = url;
-    if (url.startsWith('/')) {
-      fullUrl = `${window.location.origin}${url}`;
-    }
-    
-    try {
-      await navigator.clipboard.writeText(fullUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy URL:', err);
-    }
-  };
-
-  return (
-    <button 
-      className={`${styles.speedButton} ${copied ? styles.active : ''}`}
-      onClick={handleCopy}
-      onTouchEnd={(e) => e.stopPropagation()}
-      title="Copy stream URL"
-    >
-      {copied ? '✓' : '🔗'}
-    </button>
-  );
-}
 
 type AudioPreference = 'sub' | 'dub';
 type Provider = 'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'hexa' | 'animekai' | 'hianime' | 'primesrc';
@@ -74,20 +35,15 @@ interface MobileVideoPlayerProps {
   currentSourceIndex?: number;
   nextEpisode?: { season: number; episode: number; title?: string } | null;
   onNextEpisode?: () => void;
-  // Anime sub/dub props
   isAnime?: boolean;
   audioPref?: AudioPreference;
   onAudioPrefChange?: (pref: AudioPreference, currentTime: number) => void;
-  // Resume playback from specific time (used when switching sources/audio)
   initialTime?: number;
-  // IMDB ID for fetching subtitles
   imdbId?: string;
-  // Provider selection props
   currentProvider?: Provider;
   availableProviders?: Provider[];
   onProviderChange?: (provider: Provider, currentTime: number) => void;
   loadingProvider?: boolean;
-  // Skip intro/outro data (from AnimeKai)
   skipIntro?: [number, number] | null;
   skipOutro?: [number, number] | null;
 }
@@ -110,7 +66,6 @@ const triggerHaptic = (type: 'light' | 'medium' | 'heavy' = 'light') => {
   }
 };
 
-// Provider display names
 const PROVIDER_NAMES: Record<Provider, string> = {
   primesrc: 'PrimeSrc',
   flixer: 'Flixer',
@@ -121,6 +76,126 @@ const PROVIDER_NAMES: Record<Provider, string> = {
   animekai: 'AnimeKai',
   hianime: 'HiAnime',
 };
+
+// ── SVG Icon Components ─────────────────────────────────────────────────
+const IconBack = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 18 9 12 15 6" />
+  </svg>
+);
+const IconPlay = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M8 5v14l11-7z" />
+  </svg>
+);
+const IconPause = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </svg>
+);
+const IconSkipBack = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 19l-7-7 7-7" />
+    <path d="M18 19l-7-7 7-7" />
+  </svg>
+);
+const IconSkipForward = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 5l7 7-7 7" />
+    <path d="M6 5l7 7-7 7" />
+  </svg>
+);
+const IconFullscreenEnter = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+  </svg>
+);
+const IconFullscreenExit = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+    <line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" />
+  </svg>
+);
+const IconLock = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
+const IconUnlock = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" />
+  </svg>
+);
+const IconServer = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" />
+    <circle cx="6" cy="6" r="1" fill="currentColor" /><circle cx="6" cy="18" r="1" fill="currentColor" />
+  </svg>
+);
+const IconSubtitles = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="5" y1="12" x2="11" y2="12" /><line x1="13" y1="12" x2="19" y2="12" />
+    <line x1="5" y1="16" x2="15" y2="16" />
+  </svg>
+);
+const IconCast = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M1 18v3h3c0-1.66-1.34-3-3-3z" />
+    <path d="M1 14v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7z" />
+    <path d="M1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z" />
+    <path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
+  </svg>
+);
+const IconAirPlay = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 22h12l-6-6-6 6z" />
+    <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4v-2H3V5h18v12h-4v2h4c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
+  </svg>
+);
+const IconNextTrack = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 18l8.5-6L6 6v12z" /><rect x="16" y="6" width="2" height="12" rx="1" />
+  </svg>
+);
+const IconSkipForwardSmall = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M5 4l10 8-10 8V4z" /><rect x="17" y="5" width="2" height="14" rx="1" />
+  </svg>
+);
+const IconClose = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+const IconInfo = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><circle cx="12" cy="8" r="0.5" fill="currentColor" />
+  </svg>
+);
+const IconSettings = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+const IconBrightness = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+    <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+  </svg>
+);
+const IconVolume = ({ level }: { level: number }) => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    {level > 0 && <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />}
+    {level > 0.5 && <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />}
+    {level === 0 && <><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></>}
+  </svg>
+);
 
 export default function MobileVideoPlayer({
   tmdbId,
@@ -150,7 +225,7 @@ export default function MobileVideoPlayer({
 }: MobileVideoPlayerProps) {
   const mobileInfo = useIsMobile();
   const presenceContext = usePresenceContext();
-  
+
   // Lock in iOS and HLS support detection to prevent re-initialization on rotation
   const isIOSRef = useRef<boolean | null>(null);
   const supportsHLSRef = useRef<boolean | null>(null);
@@ -160,12 +235,11 @@ export default function MobileVideoPlayer({
   }
   const isIOS = isIOSRef.current ?? mobileInfo.isIOS;
   const supportsHLS = supportsHLSRef.current ?? mobileInfo.supportsHLS;
-  
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
   const seekPreviewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Core playback state
@@ -184,6 +258,7 @@ export default function MobileVideoPlayer({
   const [isLocked, setIsLocked] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
 
   // Orientation state
   const [isLandscape, setIsLandscape] = useState(false);
@@ -193,14 +268,13 @@ export default function MobileVideoPlayer({
   const [seekPreview, setSeekPreview] = useState<{ show: boolean; time: number; delta: number } | null>(null);
   const [doubleTapIndicator, setDoubleTapIndicator] = useState<{ show: boolean; side: 'left' | 'right'; x: number; y: number } | null>(null);
   const [brightnessLevel, setBrightnessLevel] = useState(1);
-  
+
   // Skip intro/outro state
   const [showSkipIntroButton, setShowSkipIntroButton] = useState(false);
   const [showSkipOutroButton, setShowSkipOutroButton] = useState(false);
   const skipIntroRef = useRef<[number, number] | null>(skipIntroProp);
   const skipOutroRef = useRef<[number, number] | null>(skipOutroProp);
-  
-  // Keep refs in sync with props
+
   useEffect(() => { skipIntroRef.current = skipIntroProp; }, [skipIntroProp]);
   useEffect(() => { skipOutroRef.current = skipOutroProp; }, [skipOutroProp]);
   const [volumeLevel, setVolumeLevel] = useState(() => getSavedVolume());
@@ -224,48 +298,34 @@ export default function MobileVideoPlayer({
   // Cast state
   const [isCastOverlayVisible, setIsCastOverlayVisible] = useState(false);
   const [castError, setCastError] = useState<string | null>(null);
-  const [showCastTips, setShowCastTips] = useState(false); // Cast Tips modal
+  const [showCastTips, setShowCastTips] = useState(false);
   const castErrorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Cast callbacks - memoized to prevent useCast from re-initializing
   const handleCastConnect = useCallback(() => {
-    console.log('[MobilePlayer] Cast/AirPlay connected');
     setCastError(null);
   }, []);
-  
+
   const handleCastDisconnect = useCallback(() => {
-    console.log('[MobilePlayer] Cast/AirPlay disconnected');
     setIsCastOverlayVisible(false);
   }, []);
-  
+
   const handleCastError = useCallback((error: string) => {
-    console.error('[MobilePlayer] Cast error:', error);
     setCastError(error);
-    if (castErrorTimeoutRef.current) {
-      clearTimeout(castErrorTimeoutRef.current);
-    }
-    castErrorTimeoutRef.current = setTimeout(() => {
-      setCastError(null);
-    }, 5000);
+    if (castErrorTimeoutRef.current) clearTimeout(castErrorTimeoutRef.current);
+    castErrorTimeoutRef.current = setTimeout(() => setCastError(null), 5000);
   }, []);
 
-  // Cast to TV functionality (Chromecast + AirPlay)
   const cast = useCast({
     videoRef: videoRef,
-    streamUrl: streamUrl, // Pass the actual m3u8 URL for Android casting
+    streamUrl: streamUrl,
     onConnect: handleCastConnect,
     onDisconnect: handleCastDisconnect,
     onError: handleCastError,
   });
 
-  // Build cast media object
   const getCastMedia = useCallback((): CastMedia | undefined => {
     if (!streamUrl) return undefined;
-    
-    const episodeInfo = mediaType === 'tv' && season && episode 
-      ? `S${season}E${episode}` 
-      : undefined;
-    
+    const episodeInfo = mediaType === 'tv' && season && episode ? `S${season}E${episode}` : undefined;
     return {
       url: streamUrl.startsWith('/') ? `${window.location.origin}${streamUrl}` : streamUrl,
       title: title || 'Unknown Title',
@@ -276,77 +336,42 @@ export default function MobileVideoPlayer({
     };
   }, [streamUrl, title, mediaType, season, episode, currentTime]);
 
-  // Handle cast button click - use ref to prevent double-firing on mobile
   const castClickHandledRef = useRef(false);
   const handleCastClick = useCallback(async (e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    
-    // Prevent double-firing from both onClick and onTouchEnd
-    if (castClickHandledRef.current) {
-      console.log('[MobilePlayer] Cast click already handled, skipping');
-      return;
-    }
+    if (castClickHandledRef.current) return;
     castClickHandledRef.current = true;
     setTimeout(() => { castClickHandledRef.current = false; }, 500);
-    
     triggerHaptic('light');
-    
-    console.log('[MobilePlayer] Cast button clicked!', {
-      isCasting: cast.isCasting,
-      isAirPlayActive: cast.isAirPlayActive,
-      isConnected: cast.isConnected,
-      isAvailable: cast.isAvailable,
-      isAirPlayAvailable: cast.isAirPlayAvailable,
-    });
-    
-    // If already casting, stop
+
     if (cast.isCasting || cast.isAirPlayActive) {
       cast.stop();
       setIsCastOverlayVisible(false);
       return;
     }
-    
-    // If already connected, load media
     if (cast.isConnected) {
       const media = getCastMedia();
       if (media) {
         videoRef.current?.pause();
         const success = await cast.loadMedia(media);
-        if (success) {
-          setIsCastOverlayVisible(true);
-        }
+        if (success) setIsCastOverlayVisible(true);
       }
       return;
     }
-    
-    // Try to start a cast session
-    // This will show the device picker (Chromecast or AirPlay depending on browser)
-    console.log('[MobilePlayer] Calling cast.requestSession()...');
     const connected = await cast.requestSession();
-    console.log('[MobilePlayer] requestSession returned:', connected);
-    
     if (connected) {
       const media = getCastMedia();
       if (media) {
         videoRef.current?.pause();
         const success = await cast.loadMedia(media);
-        if (success) {
-          setIsCastOverlayVisible(true);
-        }
+        if (success) setIsCastOverlayVisible(true);
       }
     }
-    
-    // If cast.lastError was set, it will be shown via the castError state
-    // which is synced from the useCast hook
     if (cast.lastError && !castError) {
       setCastError(cast.lastError);
-      if (castErrorTimeoutRef.current) {
-        clearTimeout(castErrorTimeoutRef.current);
-      }
-      castErrorTimeoutRef.current = setTimeout(() => {
-        setCastError(null);
-      }, 8000);
+      if (castErrorTimeoutRef.current) clearTimeout(castErrorTimeoutRef.current);
+      castErrorTimeoutRef.current = setTimeout(() => setCastError(null), 8000);
     }
   }, [cast, getCastMedia, castError]);
 
@@ -354,34 +379,16 @@ export default function MobileVideoPlayer({
   const seekStartTimeRef = useRef(0);
   const brightnessStartRef = useRef(1);
   const volumeStartRef = useRef(1);
-  
-  // Ref to track pending seek time (for resuming after source change)
   const pendingSeekTimeRef = useRef<number | null>(initialTime > 0 ? initialTime : null);
-  
-  // Store onError in a ref to avoid re-initialization when callback changes
   const onErrorRef = useRef(onError);
-  useEffect(() => {
-    onErrorRef.current = onError;
-  }, [onError]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-  // Track network error retries to auto-fallback to next source
   const networkRetryCountRef = useRef(0);
   const onSourceChangeRef = useRef(onSourceChange);
   useEffect(() => { onSourceChangeRef.current = onSourceChange; }, [onSourceChange]);
-  
-  // Auto-advance timer: if a source doesn't begin playing within 10s, skip to next source
+
   const playbackStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const playbackStartedRef = useRef<boolean>(false);
-
-  // Debug: Log anime props
-  useEffect(() => {
-    console.log('[MobilePlayer] Anime props:', { isAnime, audioPref, hasOnAudioPrefChange: !!onAudioPrefChange });
-  }, [isAnime, audioPref, onAudioPrefChange]);
-
-  // Debug: Log skip intro/outro props
-  useEffect(() => {
-    console.log('[MobilePlayer] Skip data:', { skipIntro: skipIntroProp, skipOutro: skipOutroProp });
-  }, [skipIntroProp, skipOutroProp]);
 
   // Watch progress tracking
   const {
@@ -398,25 +405,34 @@ export default function MobileVideoPlayer({
     episodeNumber: episode,
   });
 
-  // Auto-hide controls
+  // Auto-show gesture hints on first visit
+  useEffect(() => {
+    const key = 'flyx-gesture-hint-seen';
+    if (!localStorage.getItem(key)) {
+      const timer = setTimeout(() => {
+        setShowGestureHint(true);
+        localStorage.setItem(key, 'true');
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  // Auto-hide controls — consistent 3s timeout
   const resetControlsTimeout = useCallback(() => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     if (!isLocked) {
       setShowControls(true);
-      if (isPlaying && !showSourceMenu && !showSpeedMenu) {
-        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000);
+      if (isPlaying && !showSourceMenu && !showSpeedMenu && !showSettingsMenu) {
+        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
       }
     }
-  }, [isPlaying, showSourceMenu, showSpeedMenu, isLocked]);
+  }, [isPlaying, showSourceMenu, showSpeedMenu, showSettingsMenu, isLocked]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video || isLocked) return;
     if (video.paused) {
-      // User interaction — unmute if we were force-muted by autoplay policy
-      if (video.muted && !isMuted) {
-        video.muted = false;
-      }
+      if (video.muted && !isMuted) video.muted = false;
       video.play().catch(console.error);
     } else {
       video.pause();
@@ -454,10 +470,7 @@ export default function MobileVideoPlayer({
 
   const handleDoubleTap = useCallback((x: number, y: number, side: 'left' | 'center' | 'right') => {
     if (isLocked) return;
-    if (side === 'center') {
-      togglePlay();
-      return;
-    }
+    if (side === 'center') { togglePlay(); return; }
     const seekAmount = side === 'left' ? -10 : 10;
     skip(seekAmount);
     setDoubleTapIndicator({ show: true, side, x, y });
@@ -547,24 +560,21 @@ export default function MobileVideoPlayer({
     onVerticalDragRightEnd: handleVerticalDragRightEnd,
     onGestureStart: handleGestureStart,
     onGestureEnd: handleGestureEnd,
-    enabled: !showSourceMenu && !showSpeedMenu,
+    enabled: !showSourceMenu && !showSpeedMenu && !showSettingsMenu,
     preventScroll: true,
     doubleTapMaxDelay: 300,
     longPressDelay: 500,
     dragThreshold: 15,
   });
 
-
   const hlsConfig = useMemo(() => ({
     enableWorker: true,
     lowLatencyMode: false,
-    // Improved buffering for VOD content
-    backBufferLength: 60, // Keep 60s of back buffer for seeking
-    maxBufferLength: 45, // Buffer up to 45s ahead
-    maxMaxBufferLength: 90, // Allow up to 90s in good conditions
-    maxBufferSize: 60 * 1000 * 1000, // 60MB buffer size
-    maxBufferHole: 0.5, // Max gap to skip
-    // Aggressive retry settings for better stall recovery
+    backBufferLength: 60,
+    maxBufferLength: 45,
+    maxMaxBufferLength: 90,
+    maxBufferSize: 60 * 1000 * 1000,
+    maxBufferHole: 0.5,
     manifestLoadingTimeOut: 20000,
     manifestLoadingMaxRetry: 6,
     manifestLoadingRetryDelay: 1000,
@@ -574,62 +584,46 @@ export default function MobileVideoPlayer({
     fragLoadingTimeOut: 30000,
     fragLoadingMaxRetry: 8,
     fragLoadingRetryDelay: 1000,
-    // ABR settings for smoother playback
     startLevel: -1,
-    abrEwmaDefaultEstimate: 1000000, // 1Mbps default estimate
-    abrBandWidthFactor: 0.7, // Conservative bandwidth factor
-    abrBandWidthUpFactor: 0.5, // Even more conservative for upgrades
-    abrMaxWithRealBitrate: true, // Use real bitrate for ABR decisions
-    // Stall recovery
-    nudgeOffset: 0.1, // Small nudge to recover from stalls
-    nudgeMaxRetry: 5, // Max nudge retries
+    abrEwmaDefaultEstimate: 1000000,
+    abrBandWidthFactor: 0.7,
+    abrBandWidthUpFactor: 0.5,
+    abrMaxWithRealBitrate: true,
+    nudgeOffset: 0.1,
+    nudgeMaxRetry: 5,
   }), []);
 
   // Track the last initialized stream URL to prevent re-initialization on rotation
   const lastInitializedUrlRef = useRef<string | null>(null);
-  
+
   // Initialize HLS
   useEffect(() => {
     if (!streamUrl || !videoRef.current) return;
-    
-    // Skip re-initialization if we already initialized this URL
-    if (lastInitializedUrlRef.current === streamUrl && hlsRef.current) {
-      console.log('[MobilePlayer] Skipping HLS re-init, already initialized for:', streamUrl.substring(0, 50));
-      return;
-    }
-    
-    console.log('[MobilePlayer] Initializing HLS for:', streamUrl.substring(0, 50));
+    if (lastInitializedUrlRef.current === streamUrl && hlsRef.current) return;
+
     lastInitializedUrlRef.current = streamUrl;
-    networkRetryCountRef.current = 0; // Reset retry counter for new source
-    
+    networkRetryCountRef.current = 0;
+
     const video = videoRef.current;
     setIsLoading(true);
     setError(null);
-    
-    // Reset auto-advance state for new source
+
     playbackStartedRef.current = false;
     if (playbackStartTimeoutRef.current) {
       clearTimeout(playbackStartTimeoutRef.current);
       playbackStartTimeoutRef.current = null;
     }
-    
-    // Auto-advance: if playback doesn't start within 10s, try next source
+
     const startPlaybackTimeout = () => {
       playbackStartTimeoutRef.current = setTimeout(() => {
         if (playbackStartedRef.current) return;
-        
-        console.log(`[MobilePlayer] Source ${currentSourceIndex} didn't start within 10s, auto-advancing...`);
         const nextIdx = currentSourceIndex + 1;
         if (nextIdx < availableSources.length && availableSources[nextIdx]?.url) {
-          console.log(`[MobilePlayer] Auto-advancing to source ${nextIdx}: ${availableSources[nextIdx].title}`);
           onSourceChangeRef.current?.(nextIdx, video.currentTime || 0);
-        } else {
-          console.log('[MobilePlayer] No more sources in current provider, exhausted');
         }
       }, 10000);
     };
-    
-    // Cancel timeout when playback actually starts
+
     const onPlaying = () => {
       if (!playbackStartedRef.current) {
         playbackStartedRef.current = true;
@@ -642,13 +636,10 @@ export default function MobileVideoPlayer({
     video.addEventListener('playing', onPlaying);
 
     const attemptAutoplay = () => {
-      // Seek to pending time if set (resuming after source change)
       if (pendingSeekTimeRef.current !== null && pendingSeekTimeRef.current > 0) {
-        console.log('[MobilePlayer] Seeking to saved position:', pendingSeekTimeRef.current);
         video.currentTime = pendingSeekTimeRef.current;
         pendingSeekTimeRef.current = null;
       }
-      // Apply saved volume preferences
       const savedVolume = getSavedVolume();
       const savedMuted = getSavedMuteState();
       video.volume = savedVolume;
@@ -656,27 +647,20 @@ export default function MobileVideoPlayer({
       setVolumeLevel(savedVolume);
       setIsMuted(savedMuted);
       video.play().catch(() => {
-        // Browser blocked unmuted autoplay — mute and play, but track it
-        // so we can unmute on first user interaction
         video.muted = true;
         setIsMuted(true);
         video.play().catch(() => {});
       });
     };
 
-    // Check for saved progress and show resume prompt
     const checkResumeProgress = () => {
       if (hasShownResumePromptRef.current) return;
-      
-      // Skip if we have a pending seek time (source/audio change)
       if (pendingSeekTimeRef.current !== null && pendingSeekTimeRef.current > 0) {
         hasShownResumePromptRef.current = true;
         return;
       }
-      
       const savedTime = loadProgress();
       if (savedTime > 0 && video.duration > 0 && savedTime < video.duration - 30) {
-        console.log('[MobilePlayer] Found saved progress:', savedTime);
         setSavedProgress(savedTime);
         setShowResumePrompt(true);
         video.pause();
@@ -688,10 +672,7 @@ export default function MobileVideoPlayer({
 
     if (isIOS && supportsHLS) {
       video.src = streamUrl;
-      // Start auto-advance timeout for iOS native HLS
-      if (!showResumePrompt) {
-        startPlaybackTimeout();
-      }
+      if (!showResumePrompt) startPlaybackTimeout();
       const handleLoadedMetadata = () => {
         setDuration(video.duration);
         setIsLoading(false);
@@ -728,25 +709,15 @@ export default function MobileVideoPlayer({
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
-      // Start auto-advance timeout for HLS.js
-      if (!showResumePrompt) {
-        startPlaybackTimeout();
-      }
+      if (!showResumePrompt) startPlaybackTimeout();
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsLoading(false);
-        // Restore playback speed if not default
-        if (playbackSpeed !== 1 && video) {
-          video.playbackRate = playbackSpeed;
-        }
-        // Check for resume after duration is available
+        if (playbackSpeed !== 1 && video) video.playbackRate = playbackSpeed;
         const checkAndPlay = () => {
           if (video.duration > 0) {
             checkResumeProgress();
-            if (!hasShownResumePromptRef.current || !showResumePrompt) {
-              attemptAutoplay();
-            }
+            if (!hasShownResumePromptRef.current || !showResumePrompt) attemptAutoplay();
           } else {
-            // Wait for duration
             setTimeout(checkAndPlay, 100);
           }
         };
@@ -756,16 +727,11 @@ export default function MobileVideoPlayer({
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             networkRetryCountRef.current++;
-            console.log(`[MobilePlayer] Network error #${networkRetryCountRef.current}:`, data.details);
-            
             if (networkRetryCountRef.current <= 2) {
-              // Retry the same source a couple times
               hls.startLoad();
             } else {
-              // After 2 retries, try next source automatically
               const nextIndex = currentSourceIndex + 1;
               if (nextIndex < availableSources.length) {
-                console.log(`[MobilePlayer] Auto-switching to source ${nextIndex} after ${networkRetryCountRef.current} network failures`);
                 onSourceChangeRef.current?.(nextIndex, currentTime);
               } else {
                 setError('Stream unavailable. Try another source.');
@@ -793,16 +759,10 @@ export default function MobileVideoPlayer({
     }
 
     video.src = streamUrl;
-    // Start auto-advance timeout for native video
-    if (!showResumePrompt) {
-      startPlaybackTimeout();
-    }
+    if (!showResumePrompt) startPlaybackTimeout();
     video.addEventListener('loadedmetadata', () => {
       setIsLoading(false);
-      // Restore playback speed if not default
-      if (playbackSpeed !== 1) {
-        video.playbackRate = playbackSpeed;
-      }
+      if (playbackSpeed !== 1) video.playbackRate = playbackSpeed;
       attemptAutoplay();
     });
     return () => {
@@ -812,87 +772,62 @@ export default function MobileVideoPlayer({
         playbackStartTimeoutRef.current = null;
       }
     };
-  // Note: isIOS and supportsHLS are locked refs, so they won't cause re-runs
-  // onError is intentionally excluded - it's only used for error callbacks, not initialization
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamUrl, hlsConfig]);
 
-  // Hide controls after 2 seconds when playing (stay visible when paused)
+  // Auto-hide controls after 3s when playing
   useEffect(() => {
     if (isPlaying && !isLoading && showControls) {
       const hideTimer = setTimeout(() => {
-        if (isPlaying && !showSourceMenu && !showSpeedMenu && !isLocked) {
+        if (isPlaying && !showSourceMenu && !showSpeedMenu && !showSettingsMenu && !isLocked) {
           setShowControls(false);
         }
-      }, 2000);
+      }, 3000);
       return () => clearTimeout(hideTimer);
     }
-  }, [isPlaying, isLoading, showControls, showSourceMenu, showSpeedMenu, isLocked]);
+  }, [isPlaying, isLoading, showControls, showSourceMenu, showSpeedMenu, showSettingsMenu, isLocked]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    
-    // Throttle timeupdate to reduce state updates
     let lastTimeUpdate = 0;
-    
-    const onPlay = () => { 
+
+    const onPlay = () => {
       setIsPlaying(true);
       handleWatchResume(video.currentTime, video.duration);
-      
-      // Update presence to "watching" for mobile users
       presenceContext?.setActivityType('watching', {
-        contentId: tmdbId,
-        contentTitle: title,
-        contentType: mediaType,
-        seasonNumber: season,
-        episodeNumber: episode,
+        contentId: tmdbId, contentTitle: title, contentType: mediaType,
+        seasonNumber: season, episodeNumber: episode,
       });
-      
-      // Note: Auto-fullscreen removed - it requires user gesture and causes console errors
-      // Users can tap the fullscreen button or rotate their device
     };
-    const onPause = () => { 
-      setIsPlaying(false); 
+    const onPause = () => {
+      setIsPlaying(false);
       setShowControls(true);
       handleWatchPause(video.currentTime, video.duration);
-      
-      // Update presence back to "browsing" when paused
       presenceContext?.setActivityType('browsing');
     };
     const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => { setIsBuffering(false); setIsLoading(false); };
     const onTimeUpdate = () => {
-      // Throttle to ~4 updates per second to reduce re-renders
       const now = Date.now();
       if (now - lastTimeUpdate < 250) return;
       lastTimeUpdate = now;
-      
       if (!isGestureActive) {
         setCurrentTime(video.currentTime);
-        // Track watch progress
-        if (video.duration > 0 && !showResumePrompt) {
-          handleProgress(video.currentTime, video.duration);
-        }
+        if (video.duration > 0 && !showResumePrompt) handleProgress(video.currentTime, video.duration);
       }
       if (video.buffered.length > 0) {
         setBuffered((video.buffered.end(video.buffered.length - 1) / video.duration) * 100);
       }
-      
-      // Show/hide skip intro button based on current time
       const currentSkipIntro = skipIntroRef.current;
       if (currentSkipIntro) {
         const [introStart, introEnd] = currentSkipIntro;
-        const inIntro = video.currentTime >= introStart && video.currentTime < introEnd;
-        setShowSkipIntroButton(inIntro);
+        setShowSkipIntroButton(video.currentTime >= introStart && video.currentTime < introEnd);
       }
-      
-      // Show/hide skip outro button based on current time
       const currentSkipOutro = skipOutroRef.current;
       if (currentSkipOutro) {
         const [outroStart, outroEnd] = currentSkipOutro;
-        const inOutro = video.currentTime >= outroStart && video.currentTime < outroEnd;
-        setShowSkipOutroButton(inOutro);
+        setShowSkipOutroButton(video.currentTime >= outroStart && video.currentTime < outroEnd);
       }
     };
     const onDurationChange = () => setDuration(video.duration);
@@ -919,17 +854,13 @@ export default function MobileVideoPlayer({
   // Orientation detection
   useEffect(() => {
     const checkOrientation = () => {
-      // Check using multiple methods for best compatibility
       let isLand = false;
       if (screen.orientation) {
         isLand = screen.orientation.type.includes('landscape');
       } else if (typeof window !== 'undefined') {
-        // Fallback: check window dimensions
         isLand = window.innerWidth > window.innerHeight;
       }
       setIsLandscape(isLand);
-      
-      // Show rotate hint briefly when in portrait and playing
       if (!isLand && !localStorage.getItem('mobile-rotate-hint-seen')) {
         setShowRotateHint(true);
         setTimeout(() => {
@@ -938,21 +869,12 @@ export default function MobileVideoPlayer({
         }, 4000);
       }
     };
-
-    // Initial check
     checkOrientation();
-
-    // Listen for orientation changes
-    if (screen.orientation) {
-      screen.orientation.addEventListener('change', checkOrientation);
-    }
+    if (screen.orientation) screen.orientation.addEventListener('change', checkOrientation);
     window.addEventListener('resize', checkOrientation);
     window.addEventListener('orientationchange', checkOrientation);
-
     return () => {
-      if (screen.orientation) {
-        screen.orientation.removeEventListener('change', checkOrientation);
-      }
+      if (screen.orientation) screen.orientation.removeEventListener('change', checkOrientation);
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
     };
@@ -985,31 +907,19 @@ export default function MobileVideoPlayer({
     };
   }, []);
 
-  // Simple fullscreen toggle - native experience, no forced orientation
   const toggleFullscreen = useCallback(async () => {
     const video = videoRef.current;
     const container = containerRef.current;
     if (!video || !container) return;
-    
     try {
       if (!isFullscreen) {
-        // Enter fullscreen - use native iOS fullscreen for best experience
-        if ((video as any).webkitEnterFullscreen) {
-          (video as any).webkitEnterFullscreen();
-        } else if ((container as any).webkitRequestFullscreen) {
-          await (container as any).webkitRequestFullscreen();
-        } else if (container.requestFullscreen) {
-          await container.requestFullscreen();
-        }
+        if ((video as any).webkitEnterFullscreen) (video as any).webkitEnterFullscreen();
+        else if ((container as any).webkitRequestFullscreen) await (container as any).webkitRequestFullscreen();
+        else if (container.requestFullscreen) await container.requestFullscreen();
       } else {
-        // Exit fullscreen
-        if ((video as any).webkitExitFullscreen) {
-          (video as any).webkitExitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-          (document as any).webkitExitFullscreen();
-        } else if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        }
+        if ((video as any).webkitExitFullscreen) (video as any).webkitExitFullscreen();
+        else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
+        else if (document.exitFullscreen) await document.exitFullscreen();
       }
     } catch (e) { console.error('[MobilePlayer] Fullscreen error:', e); }
     triggerHaptic('light');
@@ -1028,18 +938,11 @@ export default function MobileVideoPlayer({
     triggerHaptic('light');
   }, []);
 
-  // Resume playback handlers
   const handleResumePlayback = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    
-    console.log('[MobilePlayer] Resuming from:', savedProgress);
     video.currentTime = savedProgress;
-    video.play().catch(() => {
-      video.muted = true;
-      setIsMuted(true);
-      video.play().catch(() => {});
-    });
+    video.play().catch(() => { video.muted = true; setIsMuted(true); video.play().catch(() => {}); });
     setShowResumePrompt(false);
     handleWatchResume(savedProgress, video.duration);
     triggerHaptic('light');
@@ -1048,14 +951,8 @@ export default function MobileVideoPlayer({
   const handleStartOver = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    
-    console.log('[MobilePlayer] Starting from beginning');
     video.currentTime = 0;
-    video.play().catch(() => {
-      video.muted = true;
-      setIsMuted(true);
-      video.play().catch(() => {});
-    });
+    video.play().catch(() => { video.muted = true; setIsMuted(true); video.play().catch(() => {}); });
     setShowResumePrompt(false);
     handleWatchStart(0, video.duration);
     triggerHaptic('light');
@@ -1074,7 +971,6 @@ export default function MobileVideoPlayer({
   // Fetch subtitles
   const fetchSubtitles = useCallback(async () => {
     if (!imdbId) return;
-    
     setSubtitlesLoading(true);
     try {
       const params = new URLSearchParams({ imdbId });
@@ -1082,85 +978,58 @@ export default function MobileVideoPlayer({
         params.append('season', season.toString());
         params.append('episode', episode.toString());
       }
-      
       const response = await fetch(`/api/subtitles?${params}`);
       const data = await response.json();
-      
       if (data.success && data.subtitles && Array.isArray(data.subtitles)) {
         setAvailableSubtitles(data.subtitles);
       } else {
         setAvailableSubtitles([]);
       }
-    } catch (err) {
-      console.error('[MobilePlayer] Failed to fetch subtitles:', err);
+    } catch {
       setAvailableSubtitles([]);
     } finally {
       setSubtitlesLoading(false);
     }
   }, [imdbId, mediaType, season, episode]);
 
-  // Load subtitle track
   const loadSubtitle = useCallback((subtitle: SubtitleTrack | null) => {
     const video = videoRef.current;
     if (!video) return;
-
-    // Remove existing tracks
     const tracks = video.querySelectorAll('track');
     tracks.forEach(track => track.remove());
-
     if (subtitle) {
-      // Pass language code for proper encoding detection (especially for Arabic, Hebrew, etc.)
       const langCode = subtitle.iso639 || subtitle.langCode || '';
       const subtitleUrl = `/api/subtitle-proxy?url=${encodeURIComponent(subtitle.url)}&lang=${encodeURIComponent(langCode)}&_t=${Date.now()}`;
-      
       const track = document.createElement('track');
       track.kind = 'subtitles';
       track.label = subtitle.language || 'Subtitles';
       track.srclang = subtitle.iso639 || 'en';
       track.src = subtitleUrl;
       track.default = true;
-      
       track.addEventListener('load', () => {
         if (video.textTracks) {
-          for (let i = 0; i < video.textTracks.length; i++) {
-            video.textTracks[i].mode = 'showing';
-          }
+          for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = 'showing';
         }
       });
-      
       video.appendChild(track);
       setCurrentSubtitle(subtitle.id);
     } else {
       setCurrentSubtitle(null);
     }
-    
     setShowSubtitleMenu(false);
     triggerHaptic('light');
   }, []);
 
-  // Fetch IMDB ID and then subtitles
   useEffect(() => {
-    if (imdbId) {
-      fetchSubtitles();
-      return;
-    }
-    
-    // If no imdbId prop, fetch it from TMDB
+    if (imdbId) { fetchSubtitles(); return; }
     const getImdbIdAndFetchSubtitles = async () => {
       try {
-        // Skip TMDB lookup for MAL-direct anime (tmdbId=0)
-        if (tmdbId === '0') {
-          console.log('[MobilePlayer] Skipping IMDB lookup for MAL-direct anime (tmdbId=0)');
-          return;
-        }
-        
+        if (tmdbId === '0') return;
         const apiKey = process.env.NEXT_PUBLIC_TMDB_API_KEY;
         if (!apiKey || !tmdbId) return;
-        
         const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/external_ids?api_key=${apiKey}`;
         const response = await fetch(url);
         const data = await response.json();
-        
         if (data.imdb_id) {
           setSubtitlesLoading(true);
           const params = new URLSearchParams({ imdbId: data.imdb_id });
@@ -1168,27 +1037,33 @@ export default function MobileVideoPlayer({
             params.append('season', season.toString());
             params.append('episode', episode.toString());
           }
-          
           const subResponse = await fetch(`/api/subtitles?${params}`);
           const subData = await subResponse.json();
-          
           if (subData.success && subData.subtitles && Array.isArray(subData.subtitles)) {
             setAvailableSubtitles(subData.subtitles);
           }
           setSubtitlesLoading(false);
         }
-      } catch (err) {
-        console.error('[MobilePlayer] Failed to fetch IMDB ID or subtitles:', err);
+      } catch {
         setSubtitlesLoading(false);
       }
     };
-    
     getImdbIdAndFetchSubtitles();
   }, [imdbId, tmdbId, mediaType, season, episode, fetchSubtitles]);
 
   const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+  // ─── Copy stream URL helper ────────────────────────────────────────
+  const handleCopyUrl = useCallback(async () => {
+    let fullUrl = streamUrl;
+    if (streamUrl.startsWith('/')) fullUrl = `${window.location.origin}${streamUrl}`;
+    try { await navigator.clipboard.writeText(fullUrl); } catch {}
+    triggerHaptic('light');
+  }, [streamUrl]);
 
+  // ══════════════════════════════════════════════════════════════════════
+  // JSX
+  // ══════════════════════════════════════════════════════════════════════
   return (
     <div
       ref={containerRef}
@@ -1206,6 +1081,7 @@ export default function MobileVideoPlayer({
         x-webkit-airplay="allow"
       />
 
+      {/* ── Loading / Buffering ─────────────────────────────────────── */}
       {(isLoading || isBuffering) && (
         <div className={styles.loadingOverlay}>
           <div className={styles.spinner} />
@@ -1213,9 +1089,12 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
+      {/* ── Error ───────────────────────────────────────────────────── */}
       {error && (
         <div className={styles.errorOverlay}>
-          <span className={styles.errorIcon}>⚠️</span>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e50914" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
           <p>{error}</p>
           <button className={styles.retryButton} onClick={() => { setError(null); setIsLoading(true); videoRef.current?.load(); }}>
             Retry
@@ -1223,32 +1102,20 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Cast Error Toast */}
+      {/* ── Cast Error Toast ────────────────────────────────────────── */}
       {castError && (
         <div className={styles.castErrorToast}>
-          <span className={styles.castErrorIcon}>📺</span>
+          <IconCast />
           <p>{castError}</p>
         </div>
       )}
 
-      {/* Cast Overlay - shown when casting to TV */}
+      {/* ── Cast Overlay ────────────────────────────────────────────── */}
       {isCastOverlayVisible && (cast.isCasting || cast.isAirPlayActive) && (
         <div className={styles.castOverlay}>
           <div className={styles.castOverlayContent}>
             <div className={styles.castingIndicator}>
-              {cast.isAirPlayAvailable ? (
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 22h12l-6-6-6 6z" />
-                  <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4v-2H3V5h18v12h-4v2h4c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-                </svg>
-              ) : (
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M1 18v3h3c0-1.66-1.34-3-3-3z" />
-                  <path d="M1 14v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7z" />
-                  <path d="M1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z" />
-                  <path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-                </svg>
-              )}
+              {cast.isAirPlayAvailable ? <IconAirPlay /> : <IconCast />}
             </div>
             <h3 className={styles.castTitle}>
               {cast.isAirPlayActive ? 'AirPlaying to TV' : 'Casting to TV'}
@@ -1257,54 +1124,52 @@ export default function MobileVideoPlayer({
             {mediaType === 'tv' && season && episode && (
               <p className={styles.castEpisode}>S{season} E{episode}</p>
             )}
-            <button 
+            <button
               className={styles.stopCastButton}
-              onClick={(e) => {
-                e.stopPropagation();
-                cast.stop();
-                setIsCastOverlayVisible(false);
-                triggerHaptic('light');
-              }}
-              onTouchEnd={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); cast.stop(); setIsCastOverlayVisible(false); triggerHaptic('light'); }}
             >
               Stop {cast.isAirPlayActive ? 'AirPlay' : 'Casting'}
+            </button>
+            <button
+              className={styles.castTipsLink}
+              onClick={(e) => { e.stopPropagation(); setShowCastTips(true); }}
+            >
+              Having trouble? View cast tips
             </button>
           </div>
         </div>
       )}
 
-      {/* Resume Playback Prompt */}
+      {/* ── Resume Playback Prompt ──────────────────────────────────── */}
       {showResumePrompt && (
         <div className={styles.resumePromptOverlay} onClick={(e) => e.stopPropagation()}>
           <div className={styles.resumePromptContent}>
             <h3>Resume Playback?</h3>
             <p>Continue from {formatTime(savedProgress)}</p>
             <div className={styles.resumePromptButtons}>
-              <button 
-                className={styles.resumeButton}
-                onClick={handleResumePlayback}
-              >
-                ▶️ Resume
+              <button className={styles.resumeButton} onClick={handleResumePlayback}>
+                <IconPlay /> Resume
               </button>
-              <button 
-                className={styles.startOverButton}
-                onClick={handleStartOver}
-              >
-                ⏮️ Start Over
+              <button className={styles.startOverButton} onClick={handleStartOver}>
+                Start Over
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── Double Tap Indicator ────────────────────────────────────── */}
       {doubleTapIndicator?.show && (
         <div className={`${styles.doubleTapIndicator} ${styles[doubleTapIndicator.side]}`} style={{ left: doubleTapIndicator.x, top: doubleTapIndicator.y }}>
           <div className={styles.doubleTapRipple} />
-          <span className={styles.doubleTapIcon}>{doubleTapIndicator.side === 'left' ? '⏪' : '⏩'}</span>
+          <span className={styles.doubleTapIcon}>
+            {doubleTapIndicator.side === 'left' ? <IconSkipBack /> : <IconSkipForward />}
+          </span>
           <span>10s</span>
         </div>
       )}
 
+      {/* ── Seek Preview ────────────────────────────────────────────── */}
       {seekPreview?.show && (
         <div className={styles.seekPreview}>
           <span className={styles.seekPreviewTime}>{formatTime(seekPreview.time)}</span>
@@ -1315,9 +1180,10 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
+      {/* ── Brightness Overlay ──────────────────────────────────────── */}
       {showBrightnessOverlay && (
         <div className={styles.gestureOverlay}>
-          <span className={styles.gestureIcon}>☀️</span>
+          <IconBrightness />
           <div className={styles.gestureBar}>
             <div className={styles.gestureFill} style={{ height: `${(brightnessLevel / 1.5) * 100}%` }} />
           </div>
@@ -1325,9 +1191,10 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
+      {/* ── Volume Overlay ──────────────────────────────────────────── */}
       {showVolumeOverlay && (
         <div className={styles.gestureOverlay}>
-          <span className={styles.gestureIcon}>{volumeLevel === 0 ? '🔇' : volumeLevel < 0.5 ? '🔉' : '🔊'}</span>
+          <IconVolume level={volumeLevel} />
           <div className={styles.gestureBar}>
             <div className={styles.gestureFill} style={{ height: `${volumeLevel * 100}%` }} />
           </div>
@@ -1335,78 +1202,50 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
+      {/* ── Long-Press Speed ────────────────────────────────────────── */}
       {longPressActive && (
         <div className={styles.speedIndicator}>
-          <span>⏩ 2x Speed</span>
+          <IconSkipForward />
+          <span>2x Speed</span>
         </div>
       )}
 
-      {/* Rotate hint for portrait mode */}
+      {/* ── Rotate Hint ─────────────────────────────────────────────── */}
       {showRotateHint && !isLandscape && (
         <div className={styles.rotateHint}>
-          <span className={styles.rotateIcon}>📱↻</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" /><path d="M12 18h.01" />
+          </svg>
           <span>Rotate for fullscreen</span>
         </div>
       )}
 
-      {/* Gesture Hints Overlay */}
+      {/* ── Gesture Hints Overlay ───────────────────────────────────── */}
       {showGestureHint && (
         <div className={styles.gestureHintOverlay} onClick={() => setShowGestureHint(false)}>
           <div className={styles.gestureHintContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.gestureHintHeader}>
               <h3>Gesture Controls</h3>
-              <button className={styles.gestureHintClose} onClick={() => setShowGestureHint(false)}>✕</button>
+              <button className={styles.gestureHintClose} onClick={() => setShowGestureHint(false)}><IconClose /></button>
             </div>
             <div className={styles.gestureHintList}>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>👆</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Tap</span>
-                  <span className={styles.gestureHintDesc}>Show/hide controls</span>
+              {[
+                { icon: 'Tap', action: 'Tap', desc: 'Show/hide controls' },
+                { icon: '2x Tap', action: 'Double tap sides', desc: 'Skip ±10 seconds' },
+                { icon: '2x Tap', action: 'Double tap center', desc: 'Play/Pause' },
+                { icon: 'Hold', action: 'Long press', desc: '2x speed while held' },
+                { icon: '↔', action: 'Swipe horizontal', desc: 'Seek through video' },
+                { icon: '↕ L', action: 'Swipe up/down (left)', desc: 'Adjust brightness' },
+                { icon: '↕ R', action: 'Swipe up/down (right)', desc: 'Adjust volume' },
+              ].map((g) => (
+                <div className={styles.gestureHintItem} key={g.action}>
+                  <span className={styles.gestureHintIcon}>{g.icon}</span>
+                  <div className={styles.gestureHintText}>
+                    <span className={styles.gestureHintAction}>{g.action}</span>
+                    <span className={styles.gestureHintDesc}>{g.desc}</span>
+                  </div>
                 </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>👆👆</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Double tap left/right</span>
-                  <span className={styles.gestureHintDesc}>Skip ±10 seconds</span>
-                </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>👆👆</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Double tap center</span>
-                  <span className={styles.gestureHintDesc}>Play/Pause</span>
-                </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>👆⏱️</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Long press</span>
-                  <span className={styles.gestureHintDesc}>2x speed while held</span>
-                </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>↔️</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Swipe horizontal</span>
-                  <span className={styles.gestureHintDesc}>Seek through video</span>
-                </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>↕️☀️</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Swipe up/down (left side)</span>
-                  <span className={styles.gestureHintDesc}>Adjust brightness</span>
-                </div>
-              </div>
-              <div className={styles.gestureHintItem}>
-                <span className={styles.gestureHintIcon}>↕️🔊</span>
-                <div className={styles.gestureHintText}>
-                  <span className={styles.gestureHintAction}>Swipe up/down (right side)</span>
-                  <span className={styles.gestureHintDesc}>Adjust volume</span>
-                </div>
-              </div>
+              ))}
             </div>
             <button className={styles.gestureHintDismiss} onClick={() => setShowGestureHint(false)}>
               Got it!
@@ -1415,26 +1254,26 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Lock indicator - tap anywhere on it to unlock */}
+      {/* ── Lock Indicator ──────────────────────────────────────────── */}
       {isLocked && showControls && (
-        <div 
-          className={styles.lockIndicator} 
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            setIsLocked(false);
-            triggerHaptic('medium');
-          }}
-          onTouchEnd={(e) => e.stopPropagation()}
+        <div
+          className={styles.lockIndicator}
+          onClick={(e) => { e.stopPropagation(); setIsLocked(false); triggerHaptic('medium'); }}
         >
-          <span>🔒 Tap to unlock</span>
+          <IconLock />
+          <span>Tap to unlock</span>
         </div>
       )}
 
+      {/* ══════════════════════════════════════════════════════════════ */}
+      {/* ── Player Controls ─────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════ */}
       <div className={`${styles.controls} ${showControls && !isLocked ? styles.visible : ''}`}>
-        {/* Top Bar */}
+
+        {/* ── Top Bar ───────────────────────────────────────────────── */}
         <div className={styles.topBar}>
-          <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); onBack?.(); }} onTouchEnd={(e) => e.stopPropagation()}>
-            ←
+          <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); onBack?.(); }}>
+            <IconBack />
           </button>
           <div className={styles.titleArea}>
             <h2 className={styles.title}>{title}</h2>
@@ -1443,26 +1282,16 @@ export default function MobileVideoPlayer({
             )}
           </div>
           <div className={styles.topButtons}>
-            {/* DEBUG: Show anime status - remove after debugging */}
-            <span style={{ color: isAnime ? 'lime' : 'red', fontSize: '10px', marginRight: '8px' }}>
-              {isAnime ? '🎌' : '📺'}
-            </span>
             {/* Sub/Dub Toggle for Anime */}
             {isAnime && (
-              <button 
-                className={styles.subDubToggle} 
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  if (!onAudioPrefChange) {
-                    console.warn('[MobilePlayer] onAudioPrefChange not provided!');
-                    return;
-                  }
-                  const newPref = audioPref === 'sub' ? 'dub' : 'sub';
-                  // Pass current playback time to preserve position
-                  onAudioPrefChange(newPref, currentTime);
+              <button
+                className={styles.subDubToggle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!onAudioPrefChange) return;
+                  onAudioPrefChange(audioPref === 'sub' ? 'dub' : 'sub', currentTime);
                   triggerHaptic('light');
-                }} 
-                onTouchEnd={(e) => e.stopPropagation()}
+                }}
               >
                 <span className={audioPref === 'sub' ? styles.activeLabel : styles.inactiveLabel}>SUB</span>
                 <div className={styles.toggleTrack} data-active={audioPref}>
@@ -1471,98 +1300,57 @@ export default function MobileVideoPlayer({
                 <span className={audioPref === 'dub' ? styles.activeLabel : styles.inactiveLabel}>DUB</span>
               </button>
             )}
-            {/* Subtitles Button */}
-            <button 
+            {/* Subtitles */}
+            <button
               className={`${styles.iconButton} ${currentSubtitle ? styles.activeIcon : ''}`}
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                setShowSubtitleMenu(true);
-                triggerHaptic('light');
-              }} 
-              onTouchEnd={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); setShowSubtitleMenu(true); triggerHaptic('light'); }}
               title="Subtitles"
             >
-              CC
+              <IconSubtitles />
             </button>
-            {/* Help/Gesture Hints Button */}
-            <button 
-              className={styles.iconButton} 
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                setShowGestureHint(true);
-                triggerHaptic('light');
-              }} 
-              onTouchEnd={(e) => e.stopPropagation()}
-              title="Show gesture hints"
-            >
-              ❓
-            </button>
-            {/* Cast / AirPlay Button */}
-            <button 
+            {/* Cast / AirPlay */}
+            <button
               className={`${styles.iconButton} ${cast.isCasting || cast.isAirPlayActive ? styles.activeIcon : ''}`}
               onClick={handleCastClick}
-              onTouchEnd={(e) => {
-                e.stopPropagation();
-                // On mobile, onClick may not fire reliably, so handle touch here too
-                handleCastClick(e);
-              }}
               title={cast.isAirPlayAvailable ? 'AirPlay' : 'Cast to TV'}
             >
-              {cast.isAirPlayAvailable ? (
-                // AirPlay icon
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 22h12l-6-6-6 6z" />
-                  <path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4v-2H3V5h18v12h-4v2h4c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-                </svg>
-              ) : (
-                // Chromecast icon
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M1 18v3h3c0-1.66-1.34-3-3-3z" />
-                  <path d="M1 14v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7z" />
-                  <path d="M1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z" />
-                  <path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-                </svg>
-              )}
+              {cast.isAirPlayAvailable ? <IconAirPlay /> : <IconCast />}
             </button>
-            {/* Cast Tips Button */}
-            <button 
+            {/* Settings (lock, gestures, cast tips, copy URL) */}
+            <button
               className={styles.iconButton}
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                setShowCastTips(true);
-                triggerHaptic('light');
-              }}
-              onTouchEnd={(e) => e.stopPropagation()}
-              title="Cast Tips & Help"
-              style={{ fontSize: '12px', fontWeight: 600 }}
+              onClick={(e) => { e.stopPropagation(); setShowSettingsMenu(true); triggerHaptic('light'); }}
+              title="Settings"
             >
-              ?
+              <IconSettings />
             </button>
-            <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); toggleLock(); }} onTouchEnd={(e) => e.stopPropagation()}>
-              🔒
-            </button>
-            <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); setShowSourceMenu(true); }} onTouchEnd={(e) => e.stopPropagation()}>
-              📡
+            {/* Server / Source */}
+            <button
+              className={styles.iconButton}
+              onClick={(e) => { e.stopPropagation(); setShowSourceMenu(true); }}
+              title="Sources"
+            >
+              <IconServer />
             </button>
           </div>
         </div>
 
-        {/* Center Controls */}
+        {/* ── Center Controls ───────────────────────────────────────── */}
         <div className={styles.centerControls}>
-          <button className={styles.skipButton} onClick={(e) => { e.stopPropagation(); skip(-10); }} onTouchEnd={(e) => e.stopPropagation()}>
-            <span className={styles.skipIcon}>⏪</span>
+          <button className={styles.skipButton} onClick={(e) => { e.stopPropagation(); skip(-10); }}>
+            <IconSkipBack />
             <span className={styles.skipText}>10</span>
           </button>
-          <button className={styles.playButton} onClick={(e) => { e.stopPropagation(); togglePlay(); }} onTouchEnd={(e) => e.stopPropagation()}>
-            {isPlaying ? '⏸️' : '▶️'}
+          <button className={styles.playButton} onClick={(e) => { e.stopPropagation(); togglePlay(); }}>
+            {isPlaying ? <IconPause /> : <IconPlay />}
           </button>
-          <button className={styles.skipButton} onClick={(e) => { e.stopPropagation(); skip(10); }} onTouchEnd={(e) => e.stopPropagation()}>
-            <span className={styles.skipIcon}>⏩</span>
+          <button className={styles.skipButton} onClick={(e) => { e.stopPropagation(); skip(10); }}>
+            <IconSkipForward />
             <span className={styles.skipText}>10</span>
           </button>
         </div>
 
-        {/* Bottom Bar */}
+        {/* ── Bottom Bar ────────────────────────────────────────────── */}
         <div className={styles.bottomBar}>
           <div className={styles.progressContainer} onTouchStart={handleProgressTouch} onTouchMove={handleProgressTouch}>
             <div className={styles.progressTrack}>
@@ -1572,44 +1360,31 @@ export default function MobileVideoPlayer({
             <div className={styles.progressThumb} style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }} />
           </div>
           <div className={styles.bottomControls}>
-            {/* Time on left: current / total */}
             <span className={styles.timeDisplay}>
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
-            
-            {/* Center buttons */}
             <div className={styles.bottomButtons}>
-              <button className={styles.speedButton} onClick={(e) => { e.stopPropagation(); setShowSpeedMenu(true); }} onTouchEnd={(e) => e.stopPropagation()}>
+              <button className={styles.speedButton} onClick={(e) => { e.stopPropagation(); setShowSpeedMenu(true); }}>
                 {playbackSpeed}x
               </button>
               {nextEpisode && onNextEpisode && (
-                <button 
-                  className={styles.nextEpisodeButton} 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    console.log('[MobilePlayer] Next episode clicked:', nextEpisode);
-                    onNextEpisode(); 
-                    triggerHaptic('light');
-                  }} 
-                  onTouchEnd={(e) => e.stopPropagation()}
+                <button
+                  className={styles.nextEpisodeButton}
+                  onClick={(e) => { e.stopPropagation(); onNextEpisode(); triggerHaptic('light'); }}
                 >
                   <span>Next</span>
-                  <span className={styles.nextIcon}>⏭️</span>
+                  <IconNextTrack />
                 </button>
               )}
-              {/* Copy URL button */}
-              <CopyUrlButton url={streamUrl} />
             </div>
-            
-            {/* Fullscreen on far right */}
-            <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} onTouchEnd={(e) => e.stopPropagation()}>
-              {isFullscreen ? '⛶' : '⛶'}
+            <button className={styles.iconButton} onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}>
+              {isFullscreen ? <IconFullscreenExit /> : <IconFullscreenEnter />}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Skip Intro Button */}
+      {/* ── Skip Intro Button ───────────────────────────────────────── */}
       {showSkipIntroButton && skipIntroProp && (
         <button
           className={styles.skipIntroOutroButton}
@@ -1621,14 +1396,13 @@ export default function MobileVideoPlayer({
               triggerHaptic('light');
             }
           }}
-          onTouchEnd={(e) => e.stopPropagation()}
         >
           <span>Skip Intro</span>
-          <span>⏭️</span>
+          <IconSkipForwardSmall />
         </button>
       )}
 
-      {/* Skip Outro Button */}
+      {/* ── Skip Outro Button ───────────────────────────────────────── */}
       {showSkipOutroButton && skipOutroProp && (
         <button
           className={styles.skipIntroOutroButton}
@@ -1640,23 +1414,20 @@ export default function MobileVideoPlayer({
               triggerHaptic('light');
             }
           }}
-          onTouchEnd={(e) => e.stopPropagation()}
         >
           <span>Skip Outro</span>
-          <span>⏭️</span>
+          <IconSkipForwardSmall />
         </button>
       )}
 
-      {/* Source Menu */}
+      {/* ── Source Menu ──────────────────────────────────────────────── */}
       {showSourceMenu && (
         <div className={styles.menuOverlay} onClick={() => setShowSourceMenu(false)}>
           <div className={styles.menuContent} onClick={e => e.stopPropagation()}>
             <div className={styles.menuHeader}>
               <h3>Select Source</h3>
-              <button className={styles.menuClose} onClick={() => setShowSourceMenu(false)}>✕</button>
+              <button className={styles.menuClose} onClick={() => setShowSourceMenu(false)}><IconClose /></button>
             </div>
-            
-            {/* Provider Tabs */}
             {availableProviders.length > 1 && (
               <div className={styles.providerTabs}>
                 {availableProviders.map(provider => (
@@ -1676,14 +1447,9 @@ export default function MobileVideoPlayer({
                 ))}
               </div>
             )}
-            
-            {/* Loading indicator */}
             {loadingProvider && (
-              <div className={styles.loadingIndicator}>
-                <span>Loading sources...</span>
-              </div>
+              <div className={styles.loadingIndicator}><span>Loading sources...</span></div>
             )}
-            
             <div className={styles.menuList}>
               {!loadingProvider && availableSources.length === 0 ? (
                 <div className={styles.noSources}>
@@ -1694,16 +1460,11 @@ export default function MobileVideoPlayer({
                   <button
                     key={index}
                     className={`${styles.menuItem} ${index === currentSourceIndex ? styles.active : ''}`}
-                    onClick={() => { 
-                      // Pass current playback time to preserve position
-                      onSourceChange?.(index, currentTime); 
-                      setShowSourceMenu(false); 
-                      triggerHaptic('light'); 
-                    }}
+                    onClick={() => { onSourceChange?.(index, currentTime); setShowSourceMenu(false); triggerHaptic('light'); }}
                   >
                     <span>{source.title || `Source ${index + 1}`}</span>
                     {source.quality && <span className={styles.quality}>{source.quality}</span>}
-                    {index === currentSourceIndex && <span className={styles.checkmark}>✓</span>}
+                    {index === currentSourceIndex && <span className={styles.checkmark}>&#10003;</span>}
                   </button>
                 ))
               )}
@@ -1712,13 +1473,13 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Speed Menu */}
+      {/* ── Speed Menu ──────────────────────────────────────────────── */}
       {showSpeedMenu && (
         <div className={styles.menuOverlay} onClick={() => setShowSpeedMenu(false)}>
           <div className={styles.menuContent} onClick={e => e.stopPropagation()}>
             <div className={styles.menuHeader}>
               <h3>Playback Speed</h3>
-              <button className={styles.menuClose} onClick={() => setShowSpeedMenu(false)}>✕</button>
+              <button className={styles.menuClose} onClick={() => setShowSpeedMenu(false)}><IconClose /></button>
             </div>
             <div className={styles.menuList}>
               {speedOptions.map(speed => (
@@ -1729,7 +1490,7 @@ export default function MobileVideoPlayer({
                 >
                   <span>{speed}x</span>
                   {speed === 1 && <span className={styles.normalLabel}>Normal</span>}
-                  {speed === playbackSpeed && <span className={styles.checkmark}>✓</span>}
+                  {speed === playbackSpeed && <span className={styles.checkmark}>&#10003;</span>}
                 </button>
               ))}
             </div>
@@ -1737,24 +1498,22 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Subtitle Menu */}
+      {/* ── Subtitle Menu ───────────────────────────────────────────── */}
       {showSubtitleMenu && (
         <div className={styles.menuOverlay} onClick={() => setShowSubtitleMenu(false)}>
           <div className={styles.menuContent} onClick={e => e.stopPropagation()}>
             <div className={styles.menuHeader}>
               <h3>Subtitles</h3>
-              <button className={styles.menuClose} onClick={() => setShowSubtitleMenu(false)}>✕</button>
+              <button className={styles.menuClose} onClick={() => setShowSubtitleMenu(false)}><IconClose /></button>
             </div>
             <div className={styles.menuList}>
-              {/* Off option */}
               <button
                 className={`${styles.menuItem} ${!currentSubtitle ? styles.active : ''}`}
                 onClick={() => loadSubtitle(null)}
               >
                 <span>Off</span>
-                {!currentSubtitle && <span className={styles.checkmark}>✓</span>}
+                {!currentSubtitle && <span className={styles.checkmark}>&#10003;</span>}
               </button>
-              
               {subtitlesLoading ? (
                 <div className={styles.menuLoading}>Loading subtitles...</div>
               ) : availableSubtitles.length > 0 ? (
@@ -1765,7 +1524,7 @@ export default function MobileVideoPlayer({
                     onClick={() => loadSubtitle(subtitle)}
                   >
                     <span>{subtitle.language}</span>
-                    {currentSubtitle === subtitle.id && <span className={styles.checkmark}>✓</span>}
+                    {currentSubtitle === subtitle.id && <span className={styles.checkmark}>&#10003;</span>}
                   </button>
                 ))
               ) : (
@@ -1776,139 +1535,91 @@ export default function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Cast Tips Modal */}
-      {showCastTips && (
-        <div className={styles.menuOverlay} onClick={() => setShowCastTips(false)}>
-          <div className={styles.menuContent} onClick={e => e.stopPropagation()} style={{ maxHeight: '85vh' }}>
+      {/* ── Settings Menu ───────────────────────────────────────────── */}
+      {showSettingsMenu && (
+        <div className={styles.menuOverlay} onClick={() => setShowSettingsMenu(false)}>
+          <div className={styles.menuContent} onClick={e => e.stopPropagation()}>
             <div className={styles.menuHeader}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="#e50914">
-                  <path d="M1 18v3h3c0-1.66-1.34-3-3-3z" />
-                  <path d="M1 14v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7z" />
-                  <path d="M1 10v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z" />
-                  <path d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" />
-                </svg>
-                Cast Tips
-              </h3>
-              <button className={styles.menuClose} onClick={() => setShowCastTips(false)}>✕</button>
+              <h3>Settings</h3>
+              <button className={styles.menuClose} onClick={() => setShowSettingsMenu(false)}><IconClose /></button>
             </div>
-            <div className={styles.menuList} style={{ padding: '12px' }}>
-              {/* iOS/iPhone Section */}
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: 'white', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  📱 iPhone / iPad
-                </h4>
-                <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
-                  <li>Tap the AirPlay button above</li>
-                  <li>Select your Apple TV or AirPlay TV</li>
-                  <li>Video plays directly on your TV</li>
-                </ol>
-                <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                  ✅ AirPlay sends the stream directly for smooth playback
-                </p>
-              </div>
-
-              {/* Android Section */}
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: 'white', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  🤖 Android
-                </h4>
-                <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)' }}>
-                  <strong>Option 1:</strong> Tap the Cast button above (works with Chromecast)
-                </p>
-                <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)' }}>
-                  <strong>Option 2 (Recommended):</strong> Use Screen Mirroring:
-                </p>
-                <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
-                  <li>Swipe down for Quick Settings</li>
-                  <li>Tap "Smart View" / "Screen Cast" / "Wireless Display"</li>
-                  <li>Select your TV</li>
-                </ol>
-                <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                  💡 Screen mirroring works with all TVs and stream types
-                </p>
-              </div>
-
-              {/* Windows Section */}
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  🖥️ Windows PC
-                </h4>
-                <p style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)' }}>
-                  Press <strong style={{ background: '#333', padding: '2px 6px', borderRadius: '4px' }}>Win + K</strong> for best results:
-                </p>
-                <ol style={{ margin: 0, paddingLeft: '18px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
-                  <li>Select your TV from wireless displays</li>
-                  <li>Choose "Duplicate" or "Second screen only"</li>
-                </ol>
-                <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                  💡 Smoother than Chrome tab casting
-                </p>
-              </div>
-
-              {/* Smart TV Section - IMPORTANT WARNING */}
-              <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(255, 193, 7, 0.15)', borderRadius: '10px', border: '1px solid rgba(255, 193, 7, 0.4)' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: '#ffc107', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  ⚠️ LG / Samsung Smart TVs
-                </h4>
-                <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
-                  These TVs do NOT support native Chromecast!
-                </p>
-                <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)' }}>
-                  The cast button won't work properly. You must use screen mirroring:
-                </p>
-                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
-                  <li><strong>Android:</strong> Quick Settings → Smart View / Screen Cast</li>
-                  <li><strong>Windows:</strong> Press Win + K</li>
-                  <li><strong>Chrome:</strong> Menu (⋮) → Cast → Sources → Cast tab</li>
-                </ul>
-                <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                  💡 For smooth casting, buy a Chromecast device (~$30)
-                </p>
-              </div>
-
-              {/* Troubleshooting */}
-              <div style={{ padding: '12px', backgroundColor: 'rgba(229, 9, 20, 0.1)', borderRadius: '10px', border: '1px solid rgba(229, 9, 20, 0.3)' }}>
-                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.95rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  🔧 Tips
-                </h4>
-                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
-                  <li>Same WiFi network required</li>
-                  <li>Right-click casting is always laggy</li>
-                  <li>Use the cast button for best quality</li>
-                </ul>
-              </div>
-            </div>
-            <div style={{ padding: '12px' }}>
-              <button 
-                onClick={() => setShowCastTips(false)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: '#e50914',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: 'white',
-                  fontSize: '0.95rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Got it!
+            <div className={styles.menuList}>
+              <button className={styles.menuItem} onClick={() => { toggleLock(); setShowSettingsMenu(false); }}>
+                <span>{isLocked ? 'Unlock Screen' : 'Lock Screen'}</span>
+                <span className={styles.settingsIcon}>{isLocked ? <IconUnlock /> : <IconLock />}</span>
+              </button>
+              <button className={styles.menuItem} onClick={() => { setShowSettingsMenu(false); setShowGestureHint(true); }}>
+                <span>Gesture Controls</span>
+                <span className={styles.settingsIcon}><IconInfo /></span>
+              </button>
+              <button className={styles.menuItem} onClick={() => { setShowSettingsMenu(false); setShowCastTips(true); }}>
+                <span>Cast Tips</span>
+                <span className={styles.settingsIcon}><IconCast /></span>
+              </button>
+              <button className={styles.menuItem} onClick={() => { handleCopyUrl(); setShowSettingsMenu(false); }}>
+                <span>Copy Stream URL</span>
+                <span className={styles.settingsIcon}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                </span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Unlock Button - only show briefly when tapped while locked */}
+      {/* ── Cast Tips Modal ─────────────────────────────────────────── */}
+      {showCastTips && (
+        <div className={styles.menuOverlay} onClick={() => setShowCastTips(false)}>
+          <div className={styles.menuContent} onClick={e => e.stopPropagation()} style={{ maxHeight: '85vh' }}>
+            <div className={styles.menuHeader}>
+              <h3 className={styles.castTipsTitle}><IconCast /> Cast Tips</h3>
+              <button className={styles.menuClose} onClick={() => setShowCastTips(false)}><IconClose /></button>
+            </div>
+            <div className={styles.castTipsList}>
+              <div className={styles.castTipSection}>
+                <h4>iPhone / iPad</h4>
+                <ol>
+                  <li>Tap the AirPlay button above</li>
+                  <li>Select your Apple TV or AirPlay TV</li>
+                  <li>Video plays directly on your TV</li>
+                </ol>
+              </div>
+              <div className={styles.castTipSection}>
+                <h4>Android</h4>
+                <p><strong>Option 1:</strong> Tap the Cast button above (Chromecast)</p>
+                <p><strong>Option 2:</strong> Screen Mirroring — swipe down for Quick Settings, tap Smart View / Screen Cast</p>
+              </div>
+              <div className={styles.castTipSection}>
+                <h4>Windows PC</h4>
+                <p>Press <kbd>Win + K</kbd> and select your TV from wireless displays.</p>
+              </div>
+              <div className={`${styles.castTipSection} ${styles.castTipWarning}`}>
+                <h4>LG / Samsung Smart TVs</h4>
+                <p>These TVs do NOT support native Chromecast. Use screen mirroring (Android: Smart View, Windows: Win+K, Chrome: Menu → Cast → Cast tab).</p>
+              </div>
+              <div className={styles.castTipSection}>
+                <h4>Tips</h4>
+                <ul>
+                  <li>Same WiFi network required</li>
+                  <li>Use the cast button for best quality</li>
+                  <li>For smooth casting, consider a Chromecast device</li>
+                </ul>
+              </div>
+            </div>
+            <div className={styles.castTipsDismiss}>
+              <button className={styles.gestureHintDismiss} onClick={() => setShowCastTips(false)}>Got it!</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unlock Button (shown when locked) ───────────────────────── */}
       {isLocked && showControls && (
-        <button className={styles.unlockButton} onClick={(e) => { 
-          e.stopPropagation(); 
-          setIsLocked(false);
-          triggerHaptic('medium');
-        }} onTouchEnd={(e) => e.stopPropagation()}>
-          🔓
+        <button className={styles.unlockButton} onClick={(e) => { e.stopPropagation(); setIsLocked(false); triggerHaptic('medium'); }}>
+          <IconUnlock />
         </button>
       )}
     </div>

@@ -438,73 +438,82 @@ function WatchContent() {
       console.log(`[WatchPage] Mobile provider order: ${providerOrder.join(' → ')} (isAnime=${isAnime}, malId=${malId})`);
       
       for (const provider of providerOrder) {
-        const params = new URLSearchParams({
-          tmdbId: contentId,
-          type: mediaType,
-          provider,
-        });
-
-        if (mediaType === 'tv' && seasonId && episodeId) {
-          params.append('season', seasonId.toString());
-          params.append('episode', episodeId.toString());
-        }
-        
-        if (malId) params.append('malId', malId);
-        if (malTitle) params.append('malTitle', malTitle);
-
         try {
           console.log(`[WatchPage] Trying ${provider}...`);
-          const response = await fetch(`/api/stream/extract?${params}`, { cache: 'no-store' });
-          const data = await response.json();
 
-          if (data.success && data.sources && data.sources.length > 0) {
-            // Filter out sources without valid URLs
-            const validSources = data.sources.filter((s: any) => s.url && s.url.length > 0);
-            
-            if (validSources.length > 0) {
-              const sources = validSources.map((s: any) => ({
-                title: s.title || s.quality || `${provider} Source`,
-                url: s.url,
-                quality: s.quality,
-                provider: provider,
-                skipIntro: s.skipIntro,
-                skipOutro: s.skipOutro,
-              }));
-              
-              setMobileSources(sources);
-              setCurrentProvider(provider); // Track which provider succeeded
-              
-              // For anime, try to find a source matching the audio preference
-              let selectedIndex = 0;
-              if (provider === 'animekai' || provider === 'hianime') {
-                // If we're using an anime provider, this is anime content
-                console.log(`[WatchPage] ${provider} succeeded - setting isAnimeContent to TRUE`);
-                isAnimeDetectedRef.current = true;
-                setIsAnimeContent(true);
-                const matchingIndex = sources.findIndex((s: any) => 
-                  s.title && sourceMatchesAudioPref(s.title, currentAudioPref)
-                );
-                if (matchingIndex >= 0) {
-                  selectedIndex = matchingIndex;
-                }
-              }
-              
-              setMobileStreamUrl(sources[selectedIndex].url);
-              setMobileSourceIndex(selectedIndex);
-              clearTimeout(timeoutId);
-              setMobileLoading(false);
-              console.log(`[WatchPage] ✓ Mobile stream loaded from ${provider}:`, 
-                sources[selectedIndex].url?.substring(0, 50), 
-                provider === 'animekai' ? `(${currentAudioPref})` : '');
-              // Log skip data if available
-              if (sources[selectedIndex].skipIntro || sources[selectedIndex].skipOutro) {
-                console.log('[WatchPage] Skip data available:', {
-                  skipIntro: sources[selectedIndex].skipIntro,
-                  skipOutro: sources[selectedIndex].skipOutro,
-                });
-              }
-              return;
+          let validSources: any[] = [];
+
+          // Flixer: use browser-direct extraction (CF Worker WASM) — same as desktop player.
+          // The server-side /api/stream/extract route cannot extract flixer because it
+          // requires the browser to call hexa.su directly with the user's residential IP.
+          if (provider === 'flixer') {
+            const { extractFlixerClient } = await import('@/app/lib/services/flixer-client-extractor');
+            const clientSources = await extractFlixerClient(
+              contentId,
+              mediaType as 'movie' | 'tv',
+              seasonId ? Number(seasonId) : undefined,
+              episodeId ? Number(episodeId) : undefined,
+            );
+            validSources = clientSources.filter((s: any) => s.url && s.url.length > 0);
+          } else {
+            // All other providers: use the API route
+            const params = new URLSearchParams({
+              tmdbId: contentId,
+              type: mediaType,
+              provider,
+            });
+            if (mediaType === 'tv' && seasonId && episodeId) {
+              params.append('season', seasonId.toString());
+              params.append('episode', episodeId.toString());
             }
+            if (malId) params.append('malId', malId);
+            if (malTitle) params.append('malTitle', malTitle);
+
+            const response = await fetch(`/api/stream/extract?${params}`, { cache: 'no-store' });
+            const data = await response.json();
+            if (data.success && data.sources && data.sources.length > 0) {
+              validSources = data.sources.filter((s: any) => s.url && s.url.length > 0);
+            }
+          }
+
+          if (validSources.length > 0) {
+            const sources = validSources.map((s: any) => ({
+              title: s.title || s.quality || `${provider} Source`,
+              url: s.url,
+              quality: s.quality,
+              provider: provider,
+              skipIntro: s.skipIntro,
+              skipOutro: s.skipOutro,
+            }));
+
+            setMobileSources(sources);
+            setCurrentProvider(provider);
+
+            let selectedIndex = 0;
+            if (provider === 'animekai' || provider === 'hianime') {
+              console.log(`[WatchPage] ${provider} succeeded - setting isAnimeContent to TRUE`);
+              isAnimeDetectedRef.current = true;
+              setIsAnimeContent(true);
+              const matchingIndex = sources.findIndex((s: any) =>
+                s.title && sourceMatchesAudioPref(s.title, currentAudioPref)
+              );
+              if (matchingIndex >= 0) selectedIndex = matchingIndex;
+            }
+
+            setMobileStreamUrl(sources[selectedIndex].url);
+            setMobileSourceIndex(selectedIndex);
+            clearTimeout(timeoutId);
+            setMobileLoading(false);
+            console.log(`[WatchPage] ✓ Mobile stream loaded from ${provider}:`,
+              sources[selectedIndex].url?.substring(0, 50),
+              provider === 'animekai' ? `(${currentAudioPref})` : '');
+            if (sources[selectedIndex].skipIntro || sources[selectedIndex].skipOutro) {
+              console.log('[WatchPage] Skip data available:', {
+                skipIntro: sources[selectedIndex].skipIntro,
+                skipOutro: sources[selectedIndex].skipOutro,
+              });
+            }
+            return;
           }
           console.log(`[WatchPage] ${provider} returned no valid sources, trying next...`);
         } catch (e) {
@@ -539,62 +548,68 @@ function WatchContent() {
 
   // Handle provider change for mobile player
   const handleProviderChange = useCallback(async (provider: 'vidsrc' | '1movies' | 'flixer' | 'uflix' | 'animekai' | 'hianime' | 'hexa' | 'primesrc', currentTime: number = 0) => {
-    // Save current playback time to resume after provider change
     setMobileResumeTime(currentTime);
     setLoadingProvider(true);
     console.log('[WatchPage] Provider change to:', provider, 'saving time:', currentTime);
-    
-    const params = new URLSearchParams({
-      tmdbId: contentId,
-      type: mediaType,
-      provider,
-    });
-
-    if (mediaType === 'tv' && seasonId && episodeId) {
-      params.append('season', seasonId.toString());
-      params.append('episode', episodeId.toString());
-    }
-    
-    if (malId) params.append('malId', malId);
-    if (malTitle) params.append('malTitle', malTitle);
 
     try {
-      const response = await fetch(`/api/stream/extract?${params}`, { cache: 'no-store' });
-      const data = await response.json();
+      let validSources: any[] = [];
 
-      if (data.success && data.sources && data.sources.length > 0) {
-        const validSources = data.sources.filter((s: any) => s.url && s.url.length > 0);
-        
-        if (validSources.length > 0) {
-          const sources = validSources.map((s: any) => ({
-            title: s.title || s.quality || `${provider} Source`,
-            url: s.url,
-            quality: s.quality,
-            provider: provider,
-            skipIntro: s.skipIntro,
-            skipOutro: s.skipOutro,
-          }));
-          
-          setMobileSources(sources);
-          setCurrentProvider(provider);
-          setMobileStreamUrl(sources[0].url);
-          setMobileSourceIndex(0);
-          
-          if (provider === 'animekai' || provider === 'hianime') {
-            isAnimeDetectedRef.current = true;
-            setIsAnimeContent(true);
-          }
-          
-          console.log(`[WatchPage] ✓ Provider changed to ${provider}:`, sources[0].url?.substring(0, 50));
-        } else {
-          setMobileSources([]);
-          setCurrentProvider(provider);
-          console.log(`[WatchPage] ${provider} returned no valid sources`);
+      // Flixer: browser-direct extraction (same as desktop player)
+      if (provider === 'flixer') {
+        const { extractFlixerClient } = await import('@/app/lib/services/flixer-client-extractor');
+        const clientSources = await extractFlixerClient(
+          contentId,
+          mediaType as 'movie' | 'tv',
+          seasonId ? Number(seasonId) : undefined,
+          episodeId ? Number(episodeId) : undefined,
+        );
+        validSources = clientSources.filter((s: any) => s.url && s.url.length > 0);
+      } else {
+        const params = new URLSearchParams({
+          tmdbId: contentId,
+          type: mediaType,
+          provider,
+        });
+        if (mediaType === 'tv' && seasonId && episodeId) {
+          params.append('season', seasonId.toString());
+          params.append('episode', episodeId.toString());
         }
+        if (malId) params.append('malId', malId);
+        if (malTitle) params.append('malTitle', malTitle);
+
+        const response = await fetch(`/api/stream/extract?${params}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (data.success && data.sources && data.sources.length > 0) {
+          validSources = data.sources.filter((s: any) => s.url && s.url.length > 0);
+        }
+      }
+
+      if (validSources.length > 0) {
+        const sources = validSources.map((s: any) => ({
+          title: s.title || s.quality || `${provider} Source`,
+          url: s.url,
+          quality: s.quality,
+          provider: provider,
+          skipIntro: s.skipIntro,
+          skipOutro: s.skipOutro,
+        }));
+
+        setMobileSources(sources);
+        setCurrentProvider(provider);
+        setMobileStreamUrl(sources[0].url);
+        setMobileSourceIndex(0);
+
+        if (provider === 'animekai' || provider === 'hianime') {
+          isAnimeDetectedRef.current = true;
+          setIsAnimeContent(true);
+        }
+
+        console.log(`[WatchPage] ✓ Provider changed to ${provider}:`, sources[0].url?.substring(0, 50));
       } else {
         setMobileSources([]);
         setCurrentProvider(provider);
-        console.log(`[WatchPage] ${provider} returned no sources`);
+        console.log(`[WatchPage] ${provider} returned no valid sources`);
       }
     } catch (e) {
       console.error(`[WatchPage] Provider change to ${provider} failed:`, e);

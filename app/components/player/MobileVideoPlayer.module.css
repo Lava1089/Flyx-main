@@ -1319,3 +1319,115 @@
   font-size: 1.75rem;
 }
 
+/* ── Settings Menu ──────────────────────────────────────────────── */
+.settingsIcon {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── Cast Tips Link (inside cast overlay) ───────────────────────── */
+.castTipsLink {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.castTipsLink:active {
+  color: white;
+}
+
+/* ── Cast Tips Modal (structured) ───────────────────────────────── */
+.castTipsTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+}
+
+.castTipsTitle svg {
+  color: #e50914;
+}
+
+.castTipsList {
+  padding: 0.75rem 1rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.castTipSection {
+  margin-bottom: 1rem;
+  padding: 0.875rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.castTipSection:last-child {
+  margin-bottom: 0;
+}
+
+.castTipSection h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: white;
+  font-weight: 600;
+}
+
+.castTipSection p {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.5;
+}
+
+.castTipSection p:last-child {
+  margin-bottom: 0;
+}
+
+.castTipSection ol,
+.castTipSection ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+}
+
+.castTipSection kbd {
+  background: #333;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: inherit;
+}
+
+.castTipWarning {
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.35);
+}
+
+.castTipWarning h4 {
+  color: #ffc107;
+}
+
+.castTipsDismiss {
+  padding: 0.75rem 1rem;
+}
+
+/* ── Speed indicator layout fix ─────────────────────────────────── */
+.speedIndicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
