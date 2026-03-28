@@ -134,15 +134,19 @@ async function extractFromProvider(
   episode?: number,
 ): Promise<ExtractResult | null> {
   if (provider === 'hianime') {
-    return extractHiAnimeStreams(
+    const result = await extractHiAnimeStreams(
       malId,
       title,
       isMovie ? undefined : (episode || 1),
     );
+    return {
+      ...result,
+      sources: result.sources.map(s => ({ ...s, title: s.title ?? '' })),
+    };
   }
 
   if (provider === 'animekai') {
-    return extractAnimeKaiStreams(
+    const result = await extractAnimeKaiStreams(
       '0',
       isMovie ? 'movie' : 'tv',
       isMovie ? undefined : 1,
@@ -150,6 +154,10 @@ async function extractFromProvider(
       malId,
       title,
     );
+    return {
+      ...result,
+      sources: result.sources.map(s => ({ ...s, title: s.title ?? '' })),
+    };
   }
 
   return null;

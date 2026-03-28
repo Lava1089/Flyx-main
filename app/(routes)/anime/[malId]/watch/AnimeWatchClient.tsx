@@ -7,10 +7,8 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { getProviderSettings, saveProviderSettings } from '@/lib/sync';
 import { malService } from '@/lib/services/mal';
 import type { MALAnime } from '@/lib/services/mal';
+import { sourceMatchesAudioPreference, type AnimeAudioPreference } from '@/lib/utils/player-preferences';
 import styles from '../../../watch/[id]/WatchPage.module.css';
-
-// Type alias for anime audio preference
-type AnimeAudioPreference = 'sub' | 'dub';
 
 // Desktop video player
 const DesktopVideoPlayer = dynamic(
@@ -127,14 +125,9 @@ export default function AnimeWatchClient() {
     loadAnime();
   }, [malId, episodeParam]);
 
-  // Helper to check if source matches audio preference
+  // Use shared audio preference matching (consistent with desktop VideoPlayer)
   const sourceMatchesAudioPref = useCallback((sourceTitle: string, pref: AnimeAudioPreference): boolean => {
-    const title = sourceTitle.toLowerCase();
-    if (pref === 'dub') {
-      return title.includes('(dub)') || title.includes('dub)') || title.includes('dubbed');
-    }
-    return title.includes('(sub)') || title.includes('sub)') || title.includes('subbed') || 
-           (!title.includes('dub') && !title.includes('dubbed'));
+    return sourceMatchesAudioPreference(sourceTitle, pref);
   }, []);
 
   // Fetch stream for mobile player

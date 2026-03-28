@@ -47,7 +47,9 @@ export function createStreamProxyHandler(path: string) {
       return;
     }
 
-    const decoded = decodeURIComponent(targetUrl);
+    // searchParams.get() already decodes the URL — don't double-decode
+    // (double-decoding turns %20 into literal spaces, breaking URLs)
+    const decoded = targetUrl;
     if (!isAllowedProxyDomain(decoded)) {
       sendJsonError(res, 403, { error: 'Domain not allowed', timestamp: Date.now() });
       return;
@@ -60,7 +62,7 @@ export function createStreamProxyHandler(path: string) {
       'Accept': '*/*',
       'Accept-Encoding': 'identity',
       'Referer': customReferer ? decodeURIComponent(customReferer) : config.referer,
-      'Origin': customOrigin ? decodeURIComponent(customOrigin) : config.origin,
+      ...(customOrigin === '__skip__' ? {} : { 'Origin': customOrigin ? decodeURIComponent(customOrigin) : config.origin }),
     };
 
     if (customAuth) {

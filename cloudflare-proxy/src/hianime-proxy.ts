@@ -200,8 +200,9 @@ function decryptSrc2(src: string, clientKey: string, megacloudKey: string): stri
 // ============================================================================
 
 async function getMegaCloudClientKey(sourceId: string): Promise<string> {
-  const res = await fetch(`https://megacloud.blog/embed-2/v3/e-1/${sourceId}`, {
-    headers: { 'User-Agent': UA, 'Referer': `https://${HIANIME_DOMAIN}/` },
+  // Route through RPI — CF Worker IPs are blocked by MegaCloud
+  const res = await rpiFetch(`https://megacloud.blog/embed-2/v3/e-1/${sourceId}`, {
+    'User-Agent': UA, 'Referer': `https://${HIANIME_DOMAIN}/`,
   });
   const text = await res.text();
 
@@ -305,14 +306,11 @@ async function rpiFetch(url: string, headers: Record<string, string> = {}): Prom
         url,
         key: _rpiConfig.key,
       });
-      // Override the hardcoded megacloud.blog Referer/Origin with HiAnime headers.
-      // The /hianime/stream handler reads these from query params: ua, referer, origin
+      // Pass UA but DON'T override Referer/Origin for HiAnime scraping.
+      // The default megacloud.blog Referer/Origin from the stream config works
+      // for fetching HiAnime pages. Overriding to aniwatchtv.to causes rejection
+      // (the server detects non-browser IPs sending same-origin headers).
       if (headers['User-Agent']) rpiParams.set('ua', headers['User-Agent']);
-      if (headers['Referer']) rpiParams.set('referer', headers['Referer']);
-      // For AJAX requests, set origin to HiAnime domain
-      if (headers['X-Requested-With'] || headers['Referer']?.includes(HIANIME_DOMAIN)) {
-        rpiParams.set('origin', `https://${HIANIME_DOMAIN}`);
-      }
 
       const rpiUrl = `${_rpiConfig.baseUrl}/hianime/stream?${rpiParams.toString()}`;
       console.log(`[rpiFetch] Routing through RPI: ${url.substring(0, 80)}`);
@@ -336,7 +334,9 @@ async function rpiFetch(url: string, headers: Record<string, string> = {}): Prom
 
 async function hianimeSearch(query: string): Promise<Array<{ id: string; name: string; hianimeId: string | null }>> {
   // Use AJAX search suggestion endpoint — the /search page requires JS rendering
-  const searchUrl = `https://${HIANIME_DOMAIN}/ajax/search/suggest?keyword=${encodeURIComponent(query)}`;
+  // Use + for spaces instead of %20 — rpiFetch goes through URLSearchParams + decodeURIComponent
+  // on the RPI proxy, which double-decodes %20 into literal spaces (breaking the URL).
+  const searchUrl = `https://${HIANIME_DOMAIN}/ajax/search/suggest?keyword=${query.replace(/ /g, '+')}`;
   console.log(`[hianimeSearch] Searching: ${searchUrl}`);
   const res = await rpiFetch(
     searchUrl,
@@ -345,12 +345,15 @@ async function hianimeSearch(query: string): Promise<Array<{ id: string; name: s
   const results: Array<{ id: string; name: string; hianimeId: string | null }> = [];
 
   try {
-    const json = await res.json() as { status: boolean; html: string };
+    // Read as text first then parse — res.json() fails silently on octet-stream responses
+    const rawText = await res.text();
+    console.log(`[hianimeSearch] Raw response: ${rawText.length} bytes, starts: ${rawText.substring(0, 50)}`);
+    const json = JSON.parse(rawText) as { status: boolean; html: string };
     console.log(`[hianimeSearch] JSON status: ${json.status}, html length: ${json.html?.length || 0}`);
     if (!json.status || !json.html) return results;
 
-    // Parse suggestion results — links like <a href="/solo-leveling-18718">
-    const itemRegex = /<a[^>]*href="\/([^"?]+)"[^>]*class="[^"]*nav-item[^"]*"[^>]*>/g;
+    // Parse suggestion results — links like <a href="/one-punch-man-63?ref=search">
+    const itemRegex = /<a[^>]*href="\/([^"?]+)(?:\?[^"]*)?"[^>]*class="[^"]*nav-item[^"]*"[^>]*>/g;
     const nameRegex = /<h3[^>]*class="[^"]*film-name[^"]*"[^>]*>([^<]*)<\/h3>/g;
     
     // Extract all links first
@@ -476,16 +479,17 @@ async function extractMegaCloudStream(embedUrl: string): Promise<MegaCloudResult
   const url = new URL(embedUrl);
   const sourceId = url.pathname.split('/').pop()!;
 
-  const [clientKey, megacloudKey] = await Promise.all([
-    getMegaCloudClientKey(sourceId),
-    getMegaCloudKey(),
-  ]);
+  // Step 1: Get client key from embed page (route through RPI — CF IPs blocked)
+  const clientKey = await getMegaCloudClientKey(sourceId);
 
-  const srcRes = await fetch(
+  // Step 2: Fetch sources (route through RPI)
+  const srcRes = await rpiFetch(
     `https://megacloud.blog/embed-2/v3/e-1/getSources?id=${sourceId}&_k=${clientKey}`,
-    { headers: { 'User-Agent': UA, 'Referer': embedUrl } }
+    { 'User-Agent': UA, 'Referer': embedUrl }
   );
-  const srcData = await srcRes.json() as {
+  const srcText = await srcRes.text();
+  console.log(`[MegaCloud] getSources response: ${srcText.length} bytes`);
+  const srcData = JSON.parse(srcText) as {
     sources: string | MegaCloudSource[];
     tracks?: MegaCloudTrack[];
     encrypted?: boolean;
@@ -495,8 +499,13 @@ async function extractMegaCloudStream(embedUrl: string): Promise<MegaCloudResult
 
   let sources: MegaCloudSource[];
   if (!srcData.encrypted && Array.isArray(srcData.sources)) {
+    // Unencrypted — no key needed (current MegaCloud behavior as of Mar 2026)
     sources = srcData.sources;
+    console.log(`[MegaCloud] Sources unencrypted: ${sources.length} streams`);
   } else {
+    // Encrypted — need MegaCloud key for decryption
+    console.log(`[MegaCloud] Sources encrypted, fetching key...`);
+    const megacloudKey = await getMegaCloudKey();
     const decrypted = decryptSrc2(srcData.sources as string, clientKey, megacloudKey);
     sources = JSON.parse(decrypted);
   }
@@ -598,9 +607,17 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
   // Debug endpoint — test rpiFetch directly
   if (path === '/hianime/debug') {
     setRpiConfig(env);
-    const testUrl = `https://${HIANIME_DOMAIN}/ajax/search/suggest?keyword=Solo+Leveling`;
+    // Use query param keyword or default, and optionally mirror hianimeSearch headers
+    const keyword = url.searchParams.get('q') || 'Solo+Leveling';
+    const useAjax = url.searchParams.get('ajax') === '1';
+    const testUrl = `https://${HIANIME_DOMAIN}/ajax/search/suggest?keyword=${keyword}`;
+    const testHeaders: Record<string, string> = { 'User-Agent': UA };
+    if (useAjax) {
+      testHeaders['X-Requested-With'] = 'XMLHttpRequest';
+      testHeaders['Referer'] = `https://${HIANIME_DOMAIN}/`;
+    }
     try {
-      const res = await rpiFetch(testUrl, { 'User-Agent': UA });
+      const res = await rpiFetch(testUrl, testHeaders);
       const text = await res.text();
       let parsed: unknown = null;
       try { parsed = JSON.parse(text); } catch { /* not json */ }
@@ -613,6 +630,8 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
         hasHtml: typeof (parsed as { html?: string })?.html === 'string',
         htmlLength: (parsed as { html?: string })?.html?.length || 0,
         first200: text.substring(0, 200),
+        // Also test hianimeSearch directly
+        searchResults: await hianimeSearch(keyword.replace(/\+/g, ' ')),
       }, 200);
     } catch (e) {
       return jsonResponse({ error: (e as Error).message, rpiConfigSet: !!_rpiConfig }, 500);
@@ -792,8 +811,9 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
 
     const hasRpi = !!(env.RPI_PROXY_URL && env.RPI_PROXY_KEY);
 
-    // Detect MegaCloud CDN URLs early — needed by all strategies
-    const isMegaCloudCdn = decodedUrl.includes('/_v7/') || decodedUrl.includes('/_v8/') || decodedUrl.includes('/_v6/');
+    // All HiAnime stream URLs are CDN URLs that need megacloud.blog headers.
+    // Domains rotate constantly (stormshade84, windytrail24, etc.) so match broadly.
+    const isMegaCloudCdn = true;
 
     // Build RPI base URL once for reuse across strategies
     let rpiBaseUrl = '';
@@ -811,15 +831,15 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
     let strategy2Status = 0;
     let strategy3Status = 0;
     try {
+      // Always send megacloud.blog Referer/Origin — required by all HiAnime CDN domains
+      // (stormshade, netmagcdn, and classic _v7/_v8 CDN paths)
       const fetchHeaders: Record<string, string> = {
         'User-Agent': UA,
         'Accept': '*/*',
         'Accept-Encoding': 'identity',
+        'Referer': 'https://megacloud.blog/',
+        'Origin': 'https://megacloud.blog',
       };
-      if (isMegaCloudCdn) {
-        fetchHeaders['Referer'] = 'https://megacloud.blog/';
-        fetchHeaders['Origin'] = 'https://megacloud.blog';
-      }
       const response = await fetch(decodedUrl, {
         headers: fetchHeaders,
         signal: AbortSignal.timeout(10000),
@@ -846,6 +866,7 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
         const rpiUrl = `${rpiBaseUrl}/hianime/stream?${rpiParams.toString()}`;
         logger.debug('Forwarding to RPI /hianime/stream', { rpiUrl: rpiUrl.substring(0, 80) });
 
+        console.log(`[HiAnime Stream] Strategy 2 RPI URL: ${rpiUrl.substring(0, 150)}`);
         const rpiResponse = await fetchWithRetry(rpiUrl, {
           signal: AbortSignal.timeout(isMegaCloudCdn ? 20000 : 45000),
         }, isMegaCloudCdn ? 2 : 3, 1000); // Fewer retries for CDN to fail fast to Strategy 3
@@ -854,6 +875,9 @@ export async function handleHiAnimeRequest(request: Request, env: Env): Promise<
         if (rpiResponse.ok) {
           return await buildStreamResponseFromFetch(rpiResponse, decodedUrl, proxyOrigin, '/hianime/stream', 'rpi');
         }
+        // Log the error body for debugging
+        const errBody = await rpiResponse.text().catch(() => '');
+        console.log(`[HiAnime Stream] Strategy 2 failed: ${rpiResponse.status}, body: ${errBody.substring(0, 200)}`);
         logger.warn('RPI proxy returned error', { status: rpiResponse.status });
       } catch (error) {
         logger.warn('RPI proxy error', { error: (error as Error).message });

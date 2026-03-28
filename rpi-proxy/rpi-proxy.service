@@ -4,11 +4,14 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/rpi-proxy
+User=vynx
+WorkingDirectory=/home/vynx/rpi-proxy
 Environment=API_KEY=CHANGE_THIS_TO_YOUR_KEY
 Environment=PORT=3001
-ExecStart=/usr/bin/node server.js
+ExecStart=/home/vynx/.nvm/versions/node/v20.15.0/bin/node dist/index.js
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
 Restart=always
 RestartSec=5
 

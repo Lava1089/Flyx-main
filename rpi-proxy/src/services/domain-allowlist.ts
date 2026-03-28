@@ -18,6 +18,7 @@ const PROXY_ALLOWED_DOMAINS = [
   // HiAnime/MegaCloud CDN
   'hianime.to', 'hianimez.to', 'hianime.nz', 'hianime.sx', 'aniwatchtv.to',
   'megacloud.blog', 'megacloud.tv', 'mgstatics.xyz',
+  'netmagcdn.com', 'stormshade84.live',
   // VIPRow
   'boanki.net', 'peulleieo.net', 'casthill.net', 'viprow.nu',
   // PPV
@@ -59,6 +60,11 @@ export function isAllowedProxyDomain(url: string): boolean {
     }
     // MegaCloud CDN uses rotating hostnames with /_v paths
     if (parsed.pathname.startsWith('/_v')) {
+      return true;
+    }
+    // HiAnime CDN uses rotating domains (stormshade84.live, windytrail24.online, etc.)
+    // with consistent /slh-eerht/ path prefix for all playlists and segments
+    if (parsed.pathname.startsWith('/slh-eerht/')) {
       return true;
     }
     return false;
