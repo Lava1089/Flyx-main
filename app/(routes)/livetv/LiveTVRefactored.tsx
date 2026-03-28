@@ -97,19 +97,15 @@ export default function LiveTVRefactored() {
     setShowLiveOnly(false);
   };
 
-  // When switching to PPV, default to showing only live events
   const handleProviderChange = (provider: typeof selectedProvider) => {
     setSelectedProvider(provider);
     setSelectedCategory('all');
-    // PPV should default to live-only since users expect live content
-    if (provider === 'ppv') {
-      setShowLiveOnly(true);
-    }
+    setShowLiveOnly(false);
   };
 
   // Total counts
-  const totalEvents = stats.dlhd.events;
-  const totalLive = stats.dlhd.live;
+  const totalEvents = stats.dlhd.events + stats.ppv.events;
+  const totalLive = stats.dlhd.live + stats.ppv.live;
   const totalChannels = stats.dlhd.channels + stats.cdnlive.channels;
 
   return (
