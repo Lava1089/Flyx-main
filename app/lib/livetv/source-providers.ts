@@ -9,7 +9,7 @@
 
 import { getTvPlaylistUrl } from '@/app/lib/proxy-config';
 
-export type LiveTVSourceType = 'dlhd' | 'cdnlive' | 'viprow';
+export type LiveTVSourceType = 'dlhd' | 'cdnlive' | 'ppv';
 
 export interface StreamSource {
   type: LiveTVSourceType;
@@ -30,14 +30,14 @@ export interface StreamResult {
 export interface ChannelMapping {
   dlhdId?: string;
   cdnliveId?: string;
-  viprowUrl?: string;
+  ppvSlug?: string;
 }
 
 // Source configuration - order determines fallback priority
 export const LIVE_TV_SOURCES: StreamSource[] = [
   { type: 'dlhd', name: 'DLHD', priority: 1, enabled: true },
   { type: 'cdnlive', name: 'CDN Live', priority: 2, enabled: true },
-  { type: 'viprow', name: 'VIPRow', priority: 3, enabled: true },
+  { type: 'ppv', name: 'PPV.to', priority: 3, enabled: true },
 ];
 
 /**
@@ -131,55 +131,42 @@ export async function getCDNLiveStream(cdnliveId: string): Promise<StreamResult>
 }
 
 /**
- * Get stream URL from VIPRow
- * 
- * VIPRow streams are now handled directly by the Cloudflare Worker.
- * The /viprow/stream endpoint extracts and proxies the m3u8 with all URLs rewritten.
+ * Get stream URL from PPV.to
+ *
+ * PPV streams are proxied through the Cloudflare Worker /ppv/stream endpoint.
+ * The CF Worker routes through Hetzner VPS or RPI proxy to reach gg.poocloud.in
+ * which blocks datacenter IPs.
+ *
+ * Stream URL pattern: https://gg.poocloud.in/{slug}/index.m3u8
+ * Segments now served from Cloudflare R2 storage (direct access, no proxy needed).
  */
-export async function getVIPRowStream(viprowUrl: string, linkNum: number = 1): Promise<StreamResult> {
+export async function getPPVStream(ppvSlug: string): Promise<StreamResult> {
   try {
-    // Check if Cloudflare proxy is configured
     const cfProxyUrl = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL;
-    
+
     if (!cfProxyUrl) {
-      // Fallback to local API route which returns embed URL
-      const apiUrl = `/api/livetv/viprow-stream?url=${encodeURIComponent(viprowUrl)}&link=${linkNum}`;
-      const response = await fetch(apiUrl);
-      const data = await response.json();
-      
-      if (!data.success) {
-        return {
-          success: false,
-          source: 'viprow',
-          error: data.error || 'Failed to get VIPRow stream',
-        };
-      }
-      
-      // Return embed URL for iframe playback (fallback)
       return {
-        success: true,
-        streamUrl: data.playerUrl || data.embedUrl,
-        source: 'viprow',
-        headers: data.headers,
-        isLive: true,
+        success: false,
+        source: 'ppv',
+        error: 'CF proxy not configured — PPV requires proxy for poocloud.in',
       };
     }
-    
-    // Use Cloudflare proxy directly - returns playable m3u8
+
     const baseUrl = cfProxyUrl.replace(/\/stream\/?$/, '');
-    const streamUrl = `${baseUrl}/viprow/stream?url=${encodeURIComponent(viprowUrl)}&link=${linkNum}`;
-    
+    const m3u8Url = `https://gg.poocloud.in/${ppvSlug}/index.m3u8`;
+    const streamUrl = `${baseUrl}/ppv/stream?url=${encodeURIComponent(m3u8Url)}`;
+
     return {
       success: true,
       streamUrl,
-      source: 'viprow',
+      source: 'ppv',
       isLive: true,
     };
   } catch (error: any) {
     return {
       success: false,
-      source: 'viprow',
-      error: error.message || 'Failed to get VIPRow stream',
+      source: 'ppv',
+      error: error.message || 'Failed to get PPV stream',
     };
   }
 }
@@ -230,11 +217,11 @@ export async function getStreamWithFallback(
         }
         break;
         
-      case 'viprow':
-        if (channelMapping.viprowUrl) {
-          result = await getVIPRowStream(channelMapping.viprowUrl);
+      case 'ppv':
+        if (channelMapping.ppvSlug) {
+          result = await getPPVStream(channelMapping.ppvSlug);
           if (result.success) return result;
-          errors.push(`VIPRow: ${result.error}`);
+          errors.push(`PPV: ${result.error}`);
         }
         break;
     }

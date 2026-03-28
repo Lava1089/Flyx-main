@@ -1,8 +1,8 @@
 /**
- * VIPRow Provider Module
+ * VIPRow Provider Module (Legacy — delegates to PPV)
  *
- * Wraps the existing VIPRow live TV logic behind the unified Provider interface.
- * VIPRow handles live sports events via Cloudflare Worker proxy.
+ * VIPRow has been replaced by PPV.to for live sports events.
+ * This module is kept for registry compatibility but uses getPPVStream.
  * Requirements: 1.1, 1.6, 1.7, 2.1, 8.2
  */
 
@@ -15,14 +15,14 @@ import type {
   MediaType,
   ContentCategory,
 } from '../types';
-import { getVIPRowStream } from '../../livetv/source-providers';
+import { getPPVStream } from '../../livetv/source-providers';
 
 const SUPPORTED_CONTENT: ContentCategory[] = ['live-sports'];
 
 export class VIPRowProvider implements Provider {
   readonly name = 'viprow';
   readonly priority = 110;
-  readonly enabled = true;
+  readonly enabled = false; // Disabled — PPV provider handles live events now
 
   supportsContent(_mediaType: MediaType, metadata?: { isAnime?: boolean; isLive?: boolean }): boolean {
     return metadata?.isLive === true;
@@ -31,15 +31,14 @@ export class VIPRowProvider implements Provider {
   async extract(request: ExtractionRequest): Promise<ExtractionResult> {
     const start = Date.now();
     try {
-      // For VIPRow, tmdbId is used as the event URL
-      const result = await getVIPRowStream(request.tmdbId);
+      const result = await getPPVStream(request.tmdbId);
       if (!result.success || !result.streamUrl) {
         return {
           success: false,
           sources: [],
           subtitles: [],
           provider: this.name,
-          error: result.error || 'VIPRow stream not available',
+          error: result.error || 'Stream not available',
           timing: Date.now() - start,
         };
       }
@@ -49,7 +48,7 @@ export class VIPRowProvider implements Provider {
           url: result.streamUrl,
           quality: 'auto',
           type: 'hls',
-          title: 'VIPRow',
+          title: 'PPV',
           requiresSegmentProxy: false,
         }],
         subtitles: [],
@@ -62,7 +61,7 @@ export class VIPRowProvider implements Provider {
         sources: [],
         subtitles: [],
         provider: this.name,
-        error: err.message || 'VIPRow extraction failed',
+        error: err.message || 'Extraction failed',
         timing: Date.now() - start,
       };
     }

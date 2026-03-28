@@ -87,13 +87,16 @@ export function VideoPlayer({ event, channel, isOpen, onClose }: VideoPlayerProp
         return getTvPlaylistUrl(ch.channelId, selectedBackend);
       }
 
-      if (event.source === 'viprow' && event.viprowUrl) {
+      if (event.source === 'ppv' && event.ppvSlug) {
         const cfProxy = process.env.NEXT_PUBLIC_CF_STREAM_PROXY_URL;
         if (cfProxy) {
           const baseUrl = cfProxy.replace(/\/stream\/?$/, '');
-          return `${baseUrl}/viprow/stream?url=${encodeURIComponent(event.viprowUrl)}&link=1`;
+          // PPV 24/7 streams: poocloud slug from poster URL -> gg.poocloud.in/{slug}/index.m3u8
+          // PPV live events: use uri_name to construct the poocloud URL
+          const m3u8Url = `https://gg.poocloud.in/${encodeURIComponent(event.ppvSlug)}/index.m3u8`;
+          return `${baseUrl}/ppv/stream?url=${encodeURIComponent(m3u8Url)}`;
         }
-        return `/api/livetv/viprow-stream?url=${encodeURIComponent(event.viprowUrl)}&link=1`;
+        return null; // PPV requires the CF Worker proxy
       }
     }
 

@@ -31,7 +31,7 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // Valid domains for PPV streams
 // poocloud.in = m3u8 playlists (needs RPI proxy due to IPv6 blocking)
 // vidsaver.io = actual video segments (can be fetched directly!)
-const VALID_DOMAINS = ['poocloud.in', 'modistreams.org', 'pooembed.top', 'dzine.ai', 'vidsaver.io'];
+const VALID_DOMAINS = ['poocloud.in', 'modistreams.org', 'pooembed.eu', 'pooembed.top', 'dzine.ai', 'vidsaver.io', 'r2.cloudflarestorage.com'];
 
 function corsHeaders(): Record<string, string> {
   return {

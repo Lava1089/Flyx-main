@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 // TYPES
 // ============================================================================
 
-export type Provider = 'dlhd' | 'cdnlive' | 'viprow';
+export type Provider = 'dlhd' | 'cdnlive' | 'ppv';
 export type ContentType = 'events' | 'channels';
 
 export interface LiveEvent {
@@ -32,7 +32,10 @@ export interface LiveEvent {
   startsAt?: number;
   endsAt?: number;
   startsIn?: string; // Human-readable time until start
-  viprowUrl?: string; // For VIPRow events
+  viprowUrl?: string; // Legacy — unused
+  ppvSlug?: string; // PPV.to poocloud stream slug
+  ppvId?: number; // PPV.to stream ID
+  alwaysLive?: boolean; // 24/7 streams
 }
 
 export interface TVChannel {
@@ -57,7 +60,7 @@ export interface Category {
 export interface ProviderStats {
   dlhd: { events: number; channels: number; live: number };
   cdnlive: { channels: number };
-  viprow: { events: number; live: number };
+  ppv: { events: number; live: number };
 }
 
 // ============================================================================
@@ -160,10 +163,10 @@ export function useLiveTVData() {
   const [cdnLoading, setCdnLoading] = useState(true);
   const [cdnError, setCdnError] = useState<string | null>(null);
 
-  // VIPRow State - Live Events
-  const [viprowEvents, setViprowEvents] = useState<LiveEvent[]>([]);
-  const [viprowLoading, setViprowLoading] = useState(true);
-  const [viprowError, setViprowError] = useState<string | null>(null);
+  // PPV.to State - Live Events
+  const [ppvEvents, setPpvEvents] = useState<LiveEvent[]>([]);
+  const [ppvLoading, setPpvLoading] = useState(true);
+  const [ppvError, setPpvError] = useState<string | null>(null);
 
   // DLHD Fetcher
   const fetchDLHD = useCallback(async () => {
@@ -284,23 +287,23 @@ export function useLiveTVData() {
     }
   }, []);
 
-  // VIPRow Fetcher - Live Events from viprow.nu
-  const fetchVIPRow = useCallback(async () => {
-    setViprowLoading(true);
-    setViprowError(null);
-    
+  // PPV.to Fetcher - Live Events from api.ppv.to
+  const fetchPPV = useCallback(async () => {
+    setPpvLoading(true);
+    setPpvError(null);
+
     try {
-      const response = await fetch('/api/livetv/viprow-schedule');
+      const response = await fetch('/api/livetv/ppv-streams');
       if (!response.ok) {
-        console.warn('[LiveTV] VIPRow returned', response.status);
-        setViprowEvents([]);
+        console.warn('[LiveTV] PPV returned', response.status);
+        setPpvEvents([]);
         return;
       }
       const data = await response.json();
 
       if (!data.success) {
-        console.warn('[LiveTV] VIPRow not successful:', data.error || data.warning);
-        setViprowEvents([]);
+        console.warn('[LiveTV] PPV not successful:', data.error);
+        setPpvEvents([]);
         return;
       }
 
@@ -308,22 +311,29 @@ export function useLiveTVData() {
         id: event.id,
         title: event.title,
         sport: event.sport,
+        league: event.league,
         time: event.time,
         isoTime: event.isoTime,
         isLive: event.isLive,
-        source: 'viprow' as const,
-        channels: [], // VIPRow uses direct URLs, not channels
+        source: 'ppv' as const,
+        poster: event.poster,
+        viewers: event.viewers,
+        channels: [],
         startsIn: event.startsIn,
-        viprowUrl: event.url,
+        ppvSlug: event.ppvSlug,
+        ppvId: event.ppvId,
+        alwaysLive: event.alwaysLive,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
       }));
 
-      setViprowEvents(events);
+      setPpvEvents(events);
     } catch (error) {
-      console.error('[LiveTV] VIPRow fetch error:', error);
-      setViprowEvents([]);
-      setViprowError(error instanceof Error ? error.message : 'Failed to load VIPRow');
+      console.error('[LiveTV] PPV fetch error:', error);
+      setPpvEvents([]);
+      setPpvError(error instanceof Error ? error.message : 'Failed to load PPV');
     } finally {
-      setViprowLoading(false);
+      setPpvLoading(false);
     }
   }, []);
 
@@ -331,13 +341,13 @@ export function useLiveTVData() {
   useEffect(() => {
     fetchDLHD();
     fetchCDNLive();
-    fetchVIPRow();
-  }, [fetchDLHD, fetchCDNLive, fetchVIPRow]);
+    fetchPPV();
+  }, [fetchDLHD, fetchCDNLive, fetchPPV]);
 
   // All Events (DLHD + VIPRow)
   const allEvents = useMemo(() => {
-    return [...dlhdEvents, ...viprowEvents];
-  }, [dlhdEvents, viprowEvents]);
+    return [...dlhdEvents, ...ppvEvents];
+  }, [dlhdEvents, ppvEvents]);
 
   // All Channels (DLHD + CDN Live)
   const allChannels = useMemo(() => {
@@ -349,8 +359,8 @@ export function useLiveTVData() {
     let events = allEvents;
     
     // Filter by provider
-    if (selectedProvider === 'viprow') {
-      events = viprowEvents;
+    if (selectedProvider === 'ppv') {
+      events = ppvEvents;
     } else if (selectedProvider === 'dlhd') {
       events = dlhdEvents;
     }
@@ -368,7 +378,7 @@ export function useLiveTVData() {
     }
     
     return events;
-  }, [allEvents, viprowEvents, dlhdEvents, selectedProvider, searchQuery]);
+  }, [allEvents, ppvEvents, dlhdEvents, selectedProvider, searchQuery]);
 
   // Filtered Channels
   const filteredChannels = useMemo(() => {
@@ -442,36 +452,36 @@ export function useLiveTVData() {
     cdnlive: {
       channels: cdnChannels.length,
     },
-    viprow: {
-      events: viprowEvents.length,
-      live: viprowEvents.filter(e => e.isLive).length,
+    ppv: {
+      events: ppvEvents.length,
+      live: ppvEvents.filter(e => e.isLive).length,
     },
-  }), [dlhdEvents, dlhdChannels, cdnChannels, viprowEvents]);
+  }), [dlhdEvents, dlhdChannels, cdnChannels, ppvEvents]);
 
   // Loading state
   const loading = useMemo(() => {
     if (contentType === 'events') {
-      if (selectedProvider === 'viprow') return viprowLoading;
+      if (selectedProvider === 'ppv') return ppvLoading;
       return dlhdLoading;
     }
     return selectedProvider === 'cdnlive' ? cdnLoading : dlhdLoading;
-  }, [contentType, selectedProvider, dlhdLoading, cdnLoading, viprowLoading]);
+  }, [contentType, selectedProvider, dlhdLoading, cdnLoading, ppvLoading]);
 
   // Error state
   const error = useMemo(() => {
     if (contentType === 'events') {
-      if (selectedProvider === 'viprow') return viprowError;
+      if (selectedProvider === 'ppv') return ppvError;
       return dlhdError;
     }
     return selectedProvider === 'cdnlive' ? cdnError : dlhdError;
-  }, [contentType, selectedProvider, dlhdError, cdnError, viprowError]);
+  }, [contentType, selectedProvider, dlhdError, cdnError, ppvError]);
 
   // Refresh
   const refresh = useCallback(() => {
     fetchDLHD();
     fetchCDNLive();
-    fetchVIPRow();
-  }, [fetchDLHD, fetchCDNLive, fetchVIPRow]);
+    fetchPPV();
+  }, [fetchDLHD, fetchCDNLive, fetchPPV]);
 
   return {
     // Content type toggle

@@ -97,12 +97,12 @@ export default function LiveTVRefactored() {
     setShowLiveOnly(false);
   };
 
-  // When switching to VIPRow, default to showing only live events
+  // When switching to PPV, default to showing only live events
   const handleProviderChange = (provider: typeof selectedProvider) => {
     setSelectedProvider(provider);
     setSelectedCategory('all');
-    // VIPRow should default to live-only since users expect live content
-    if (provider === 'viprow') {
+    // PPV should default to live-only since users expect live content
+    if (provider === 'ppv') {
       setShowLiveOnly(true);
     }
   };
@@ -190,12 +190,12 @@ export default function LiveTVRefactored() {
                 <span className={styles.sourceTabCount}>{stats.dlhd.events}</span>
               </button>
               <button
-                onClick={() => handleProviderChange('viprow')}
-                className={`${styles.sourceTab} ${selectedProvider === 'viprow' ? styles.active : ''}`}
+                onClick={() => handleProviderChange('ppv')}
+                className={`${styles.sourceTab} ${selectedProvider === 'ppv' ? styles.active : ''}`}
               >
                 <span className={styles.sourceTabIcon}>🏟️</span>
-                <span className={styles.sourceTabLabel}>VIPRow</span>
-                <span className={styles.sourceTabCount}>{stats.viprow.events}</span>
+                <span className={styles.sourceTabLabel}>PPV.to</span>
+                <span className={styles.sourceTabCount}>{stats.ppv.events}</span>
               </button>
             </div>
 
@@ -206,7 +206,7 @@ export default function LiveTVRefactored() {
                 className={`${styles.filterPill} ${showLiveOnly ? styles.active : ''}`}
               >
                 <span className={styles.liveDot} />
-                Live Now ({selectedProvider === 'viprow' ? stats.viprow.live : stats.dlhd.live})
+                Live Now ({selectedProvider === 'ppv' ? stats.ppv.live : stats.dlhd.live})
               </button>
               
               <button

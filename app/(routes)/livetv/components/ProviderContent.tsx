@@ -27,7 +27,7 @@ const ITEMS_PER_PAGE = 24;
 const PROVIDER_TITLES: Record<Provider, string> = {
   dlhd: 'DaddyLive HD',
   cdnlive: 'CDN Live TV',
-  viprow: 'VIPRow Sports',
+  ppv: 'PPV.to Live Events',
 };
 
 export const ProviderContent = memo(function ProviderContent({

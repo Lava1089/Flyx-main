@@ -6,7 +6,7 @@
 import { memo } from 'react';
 import styles from '../LiveTV.module.css';
 
-export type Provider = 'dlhd' | 'cdnlive' | 'viprow';
+export type Provider = 'dlhd' | 'cdnlive' | 'ppv';
 
 interface ProviderTabsProps {
   selectedProvider: Provider;
@@ -14,7 +14,7 @@ interface ProviderTabsProps {
   stats: {
     dlhd: { events: number; channels: number };
     cdnlive: { channels: number };
-    viprow: { events: number; live: number };
+    ppv: { events: number; live: number };
   };
   loading?: boolean;
 }
@@ -37,11 +37,11 @@ const PROVIDERS: Array<{
     description: 'TV Channels',
     icon: '🌐' 
   },
-  { 
-    id: 'viprow', 
-    label: 'VIPRow', 
-    description: 'Live Events',
-    icon: '🎯' 
+  {
+    id: 'ppv',
+    label: 'PPV.to',
+    description: 'Live Events & PPV',
+    icon: '🏟️'
   },
 ];
 
@@ -57,8 +57,8 @@ export const ProviderTabs = memo(function ProviderTabs({
         return stats.dlhd.events + stats.dlhd.channels;
       case 'cdnlive':
         return stats.cdnlive.channels;
-      case 'viprow':
-        return stats.viprow.events;
+      case 'ppv':
+        return stats.ppv.events;
       default:
         return 0;
     }
