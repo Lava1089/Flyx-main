@@ -1069,7 +1069,7 @@ grecaptcha.ready(function(){
     const { generateJWT } = await import('./direct/fast-extractor');
     const { token: jwtToken, channelKey } = await generateJWT(channel);
     
-    const servers = ['zeko', 'chevy', 'nfs', 'ddy6'];
+    const servers = ['zeko', 'chevy', 'nfs', 'ddy6', 'x4', 'wind', 'dokko1', 'wiki'];
     const domain = 'soyspace.cyou';
     let realKeyUrl: string | null = null;
     let workingServer: string | null = null;

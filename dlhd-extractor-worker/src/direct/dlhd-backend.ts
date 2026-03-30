@@ -16,7 +16,7 @@ import { getProxyConfig } from '../discovery/fetcher';
 
 // Known DLHD servers discovered via server_lookup API (Jan 2026)
 // Discovered by scanning all 850 channels - these are ALL the servers
-const DLHD_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki'];
+const DLHD_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki', 'x4'];
 const DLHD_DOMAINS = ['soyspace.cyou', 'dvalna.ru'];
 
 // The ONLY working lookup endpoint

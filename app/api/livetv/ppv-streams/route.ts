@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 const PPV_API = 'https://api.ppv.to/api/streams';
 
@@ -66,10 +66,16 @@ export async function GET() {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ success: false, error: `PPV API returned ${res.status}` }, { status: 502 });
+      const body = await res.text().catch(() => '');
+      return NextResponse.json({ success: false, error: `PPV API returned ${res.status}`, details: body.substring(0, 200) }, { status: 502 });
     }
 
-    const data = await res.json();
+    let data: any;
+    try {
+      data = await res.json();
+    } catch (parseErr: any) {
+      return NextResponse.json({ success: false, error: 'Failed to parse PPV API response', details: parseErr.message }, { status: 502 });
+    }
     if (!data.success || !data.streams) {
       return NextResponse.json({ success: false, error: 'PPV API returned no streams' }, { status: 502 });
     }
@@ -143,6 +149,10 @@ export async function GET() {
     });
   } catch (error: any) {
     console.error('[PPV] API fetch error:', error);
-    return NextResponse.json({ success: false, error: error.message || 'PPV fetch failed' }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: error.message || 'PPV fetch failed',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    }, { status: 500 });
   }
 }

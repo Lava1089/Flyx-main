@@ -10,7 +10,7 @@ const PROXY_ALLOWED_DOMAINS = [
   'www.ksohls.ru', 'ksohls.ru', 'lefttoplay.xyz', 'hitsplay.fun', 'codepcplay.fun',
   'enviromentalspace.sbs', 'keylocking.ru', 'the-sunmoon.site',
   'ai-hls.site',  // New primary M3U8/key/verify server (Mar 27, 2026)
-  'goalwagon.net', 'extinctdeprive.net', 'daddylivestream.com',
+  'goalwagon.net', 'extinctdeprive.net', 'daddylivestream.com', 'obstream.sx',
   // AnimeKai/MegaUp
   'megaup.net', 'megaup.live', 'megaup.cc', '4spromax.site', 'hub26link.site',
   'dev23app.site', 'net22lab.site', 'pro25zone.site', 'tech20hub.site',

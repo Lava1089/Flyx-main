@@ -67,10 +67,15 @@ const PLAYER_DOMAIN = 'www.ksohls.ru';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 
 
-// UPDATED March 27, 2026: sec.ai-hls.site is new primary M3U8/verify/key server
+// UPDATED March 30, 2026: Full server list from live scan. x4 is NEW.
 const ALL_SERVER_KEYS = [
-  'zeko',     // Primary server (confirmed via browser recon Mar 27)
-  'ddy6',     // Fallback
+  'zeko',
+  'ddy6',
+  'wind',
+  'dokko1',
+  'nfs',
+  'wiki',
+  'x4',
 ];
 const CDN_DOMAIN = 'soyspace.cyou';
 const M3U8_SERVER = 'sec.ai-hls.site'; // Primary M3U8 + verify + key server (no chevy. prefix)
