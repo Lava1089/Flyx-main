@@ -987,11 +987,14 @@ async function extractAllServers(
     // Step 2: Warm-up (with bw90agfmywth header)
     const availableServers = await getAvailableServers(loader, apiKey, apiPath, logger, config);
 
-    // Use available servers, or priority list if warm-up returned nothing useful
-    const priorityOrder = ['delta', 'alpha', 'bravo', 'charlie', 'echo', 'foxtrot', 'golf'];
+    // Use warm-up results if we got a filtered list (< 26 = real availability data).
+    // If warm-up returned all 26 (decrypt failed → fallback) or 0, query ALL servers.
+    // Promise.allSettled handles failures gracefully, and querying all 26 in parallel
+    // only adds ~0-200ms vs querying 7, while ensuring we never miss content that
+    // lives on less-common servers (hotel→zulu).
     const serversToQuery = availableServers.length > 0 && availableServers.length < 26
       ? availableServers
-      : priorityOrder;
+      : Object.keys(SERVER_NAMES);
 
     logger.info(`Querying ${serversToQuery.length} servers in parallel for ${type}/${tmdbId}`);
 

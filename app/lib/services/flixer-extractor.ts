@@ -151,7 +151,7 @@ export async function extractFlixerStreams(
     const warmupData = await hexaDecrypt(warmupResult.encrypted);
     const servers = warmupData.servers?.length > 0 && warmupData.servers.length < 26
       ? warmupData.servers
-      : ['delta', 'alpha', 'bravo', 'charlie', 'echo', 'foxtrot', 'golf'];
+      : Object.keys(SERVER_NAMES);
 
     console.log(`[Hexa] ${servers.length} servers available: ${servers.slice(0, 6).join(', ')}`);
 
