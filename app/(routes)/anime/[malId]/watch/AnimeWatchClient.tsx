@@ -5,10 +5,35 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { getProviderSettings, saveProviderSettings } from '@/lib/sync';
+import { getFlixerStreamProxyUrl, getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import { malService } from '@/lib/services/mal';
 import type { MALAnime } from '@/lib/services/mal';
 import { sourceMatchesAudioPreference, type AnimeAudioPreference } from '@/lib/utils/player-preferences';
 import styles from '../../../watch/[id]/WatchPage.module.css';
+
+// Proxy source URLs for mobile player — mirrors applyStreamProxy in VideoPlayer.tsx
+function proxySourceUrl(sourceUrl: string, providerName: string, requiresProxy?: boolean): string {
+  if (!sourceUrl) return sourceUrl;
+  if (sourceUrl.includes('/flixer/stream') || sourceUrl.includes('/animekai') ||
+      sourceUrl.includes('/hianime/') || sourceUrl.includes('/hianime?') ||
+      sourceUrl.includes('/vidsrc/') || sourceUrl.includes('/api/stream-proxy') ||
+      sourceUrl.includes('/stream/')) {
+    return sourceUrl;
+  }
+  const needsProxy = requiresProxy ||
+    sourceUrl.includes('.workers.dev') ||
+    sourceUrl.includes('frostcomet') ||
+    sourceUrl.includes('thunderleaf') ||
+    sourceUrl.includes('skyember') ||
+    sourceUrl.includes('nightbreeze') ||
+    sourceUrl.includes('wind.');
+  if (!needsProxy) return sourceUrl;
+
+  if (providerName === 'flixer') return getFlixerStreamProxyUrl(sourceUrl);
+  if (providerName === 'hianime') return getHiAnimeStreamProxyUrl(sourceUrl);
+  if (providerName === 'animekai') return getAnimeKaiProxyUrl(sourceUrl);
+  return sourceUrl;
+}
 
 // Desktop video player
 const DesktopVideoPlayer = dynamic(
@@ -167,7 +192,7 @@ export default function AnimeWatchClient() {
           const activeProvider = data.provider || useProvider;
           const sources = validSources.map((s: any) => ({
             title: s.title || s.quality || `${activeProvider} Source`,
-            url: s.url,
+            url: proxySourceUrl(s.url, activeProvider, s.requiresSegmentProxy),
             quality: s.quality,
             provider: activeProvider,
             skipIntro: s.skipIntro,
@@ -251,7 +276,7 @@ export default function AnimeWatchClient() {
           const activeProvider = data.provider || provider;
           const sources = validSources.map((s: any) => ({
             title: s.title || s.quality || `${activeProvider} Source`,
-            url: s.url,
+            url: proxySourceUrl(s.url, activeProvider, s.requiresSegmentProxy),
             quality: s.quality,
             provider: activeProvider,
             skipIntro: s.skipIntro,

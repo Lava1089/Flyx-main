@@ -1264,13 +1264,29 @@ grecaptcha.ready(function(){
         domains = [domain] as readonly string[];
         console.log(`[/play] Forced backend: ${server}.${domain}`);
       } else {
-        // OPTIMIZED Mar 27 2026: Skip slow dynamic lookup — use all known servers immediately.
-        // Since we race all candidates in parallel, the lookup just adds ~1-2s latency
-        // for no benefit. The M3U8 race will find the working server in ~500ms.
+        // OPTIMIZED Mar 30 2026: Use dynamic server_lookup FIRST (fast from CF edge, ~200ms).
+        // This gives us the EXACT server for the channel, avoiding 12+ wasted 404 requests.
+        // Only fall back to racing all servers if lookup fails.
         const chNum = parseInt(channelId, 10);
-        const primary = getServerForChannel(chNum);
+        let primary: string | null = null;
+
+        // Try dynamic lookup first (very fast from CF, cached 2 min)
+        try {
+          primary = await lookupServer(chNum);
+          if (primary) {
+            console.log(`[/play] server_lookup: ch${channelId} -> ${primary}`);
+          }
+        } catch {
+          // lookup failed, will fall back to static map
+        }
+
+        // Fall back to static map
+        if (!primary) {
+          primary = getServerForChannel(chNum);
+        }
+
         const allServers = getAllServers();
-        // Put primary first if known, then remaining servers
+        // Put primary first if known, then remaining servers as fallback
         servers = primary
           ? [primary, ...allServers.filter(s => s !== primary)]
           : [...allServers];
@@ -1302,73 +1318,96 @@ grecaptcha.ready(function(){
         'Authorization': `Bearer ${token}`,
       };
 
-      // OPTIMIZED Mar 27 2026: Fire M3U8 requests immediately with ALL known servers
-      // Don't wait for dynamic lookup — race everything in parallel for minimum latency.
-      // sec.ai-hls.site is primary (no chevy. prefix), chevy.soyspace.cyou is fallback.
+      // OPTIMIZED Mar 30 2026: Two-phase M3U8 fetch strategy.
+      // Phase 1: Try the PRIMARY server only (known from lookup/static map) with tight timeout.
+      //   This is the fast path — usually resolves in ~200ms from CF edge.
+      // Phase 2: If primary fails, race ALL servers as fallback (same as before).
       type M3U8Result = { content: string; server: string; domain: string };
       let m3u8Content: string | null = null;
       let workingServer: string | null = null;
       let workingDomain: string | null = null;
-      let lastError: string | null = null;
 
-      const m3u8Candidates: Array<{ url: string; server: string; domain: string }> = [];
+      // Phase 1: Try primary server directly (fast path, ~200-500ms)
+      const primaryServer = servers[0]; // First server is the best candidate (from lookup or static map)
+      const primaryUrl = `https://sec.ai-hls.site/proxy/${primaryServer}/${channelKey}/mono.css`;
 
-      for (const server of servers) {
-        // sec.ai-hls.site — primary, fastest
-        m3u8Candidates.push({
-          url: `https://sec.ai-hls.site/proxy/${server}/${channelKey}/mono.css`,
-          server,
-          domain: 'ai-hls.site',
+      try {
+        console.log(`[/play] Phase 1: Trying primary ${primaryServer} on sec.ai-hls.site...`);
+        const primaryResp = await fetch(primaryUrl, {
+          headers: m3u8Headers,
+          signal: AbortSignal.timeout(3000), // Tight 3s timeout for primary
         });
-        // chevy.{domain} — fallback
-        for (const domain of domains) {
-          m3u8Candidates.push({
-            url: `https://chevy.${domain}/proxy/${server}/${channelKey}/mono.css`,
-            server,
-            domain: domain as string,
-          });
+        if (primaryResp.ok) {
+          const content = await primaryResp.text();
+          if (content.includes('#EXTM3U') || content.includes('#EXT-X-')) {
+            m3u8Content = content;
+            workingServer = primaryServer;
+            workingDomain = 'ai-hls.site';
+            console.log(`[/play] ✅ Phase 1 HIT: ${primaryServer}.ai-hls.site (${Date.now() - startTime}ms)`);
+          }
         }
+      } catch (e) {
+        console.log(`[/play] Phase 1 missed: ${e instanceof Error ? e.message : 'timeout'}`);
       }
-      
-      console.log(`[/play] Racing ${m3u8Candidates.length} M3U8 candidates in parallel...`);
-      
-      // Race: resolve with first valid M3U8, reject individual failures silently
-      const m3u8Result = await new Promise<M3U8Result | null>((resolve) => {
-        let settled = false;
-        let pending = m3u8Candidates.length;
-        
-        for (const candidate of m3u8Candidates) {
-          const controller = new AbortController();
-          const tid = setTimeout(() => controller.abort(), 8000);
-          
-          fetch(candidate.url, { headers: m3u8Headers, signal: controller.signal })
-            .then(async (response) => {
-              clearTimeout(tid);
-              if (settled) return;
-              if (!response.ok) { pending--; if (pending === 0 && !settled) { settled = true; resolve(null); } return; }
-              const content = await response.text();
-              if (settled) return;
-              if (content.includes('#EXTM3U') || content.includes('#EXT-X-')) {
-                settled = true;
-                console.log(`[/play] ✅ Winner: ${candidate.server}.${candidate.domain}`);
-                resolve({ content, server: candidate.server, domain: candidate.domain });
-              } else {
+
+      // Phase 2: Race all candidates if primary failed
+      if (!m3u8Content) {
+        const m3u8Candidates: Array<{ url: string; server: string; domain: string }> = [];
+
+        for (const server of servers) {
+          m3u8Candidates.push({
+            url: `https://sec.ai-hls.site/proxy/${server}/${channelKey}/mono.css`,
+            server,
+            domain: 'ai-hls.site',
+          });
+          for (const domain of domains) {
+            m3u8Candidates.push({
+              url: `https://chevy.${domain}/proxy/${server}/${channelKey}/mono.css`,
+              server,
+              domain: domain as string,
+            });
+          }
+        }
+
+        console.log(`[/play] Phase 2: Racing ${m3u8Candidates.length} candidates...`);
+
+        const m3u8Result = await new Promise<M3U8Result | null>((resolve) => {
+          let settled = false;
+          let pending = m3u8Candidates.length;
+
+          for (const candidate of m3u8Candidates) {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 6000);
+
+            fetch(candidate.url, { headers: m3u8Headers, signal: controller.signal })
+              .then(async (response) => {
+                clearTimeout(tid);
+                if (settled) return;
+                if (!response.ok) { pending--; if (pending === 0 && !settled) { settled = true; resolve(null); } return; }
+                const content = await response.text();
+                if (settled) return;
+                if (content.includes('#EXTM3U') || content.includes('#EXT-X-')) {
+                  settled = true;
+                  console.log(`[/play] ✅ Phase 2 winner: ${candidate.server}.${candidate.domain}`);
+                  resolve({ content, server: candidate.server, domain: candidate.domain });
+                } else {
+                  pending--;
+                  if (pending === 0 && !settled) { settled = true; resolve(null); }
+                }
+              })
+              .catch(() => {
+                clearTimeout(tid);
                 pending--;
                 if (pending === 0 && !settled) { settled = true; resolve(null); }
-              }
-            })
-            .catch(() => {
-              clearTimeout(tid);
-              pending--;
-              if (pending === 0 && !settled) { settled = true; resolve(null); }
-            });
+              });
+          }
+        });
+
+        if (m3u8Result) {
+          m3u8Content = m3u8Result.content;
+          workingServer = m3u8Result.server;
+          workingDomain = m3u8Result.domain;
         }
-      });
-      
-      if (m3u8Result) {
-        m3u8Content = m3u8Result.content;
-        workingServer = m3u8Result.server;
-        workingDomain = m3u8Result.domain;
       }
       
       // If no server worked, return error
@@ -1497,80 +1536,17 @@ grecaptcha.ready(function(){
         });
       }
       
-      // Step 4: Fetch the REAL key and inline it in the M3U8
+      // Step 4: Skip key inlining — let HLS.js fetch keys via /key endpoint.
+      // CRITICAL FIX Mar 30 2026: Key inlining via RPI proxy was adding 8-10 seconds
+      // to every /play response, causing channels to never load. The /key endpoint
+      // already handles key fetching separately (~2.5s) and HLS.js requests it
+      // non-blocking while buffering segments. This makes /play return in <1s.
       const rewriteStart = Date.now();
       const m3u8Url = workingDomain === 'ai-hls.site'
         ? `https://sec.ai-hls.site/proxy/${workingServer}/${channelKey}/mono.css`
         : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
 
-      // Extract key URL from M3U8 and fetch it server-side
-      let inlineKeyBase64: string | undefined;
-      const keyLineMatch = m3u8Content.match(/URI="([^"]+)"/);
-      if (keyLineMatch) {
-        const keyUri = keyLineMatch[1];
-        // Use the M3U8 origin for the key (they share the same key numbers).
-        // But ALWAYS prefer sec.ai-hls.site — most reliable for RPI whitelist.
-        let keyFullUrl: string;
-        if (keyUri.startsWith('http')) {
-          keyFullUrl = keyUri;
-        } else {
-          // Resolve relative URI against the M3U8 origin
-          const m3u8Origin = new URL(m3u8Url).origin;
-          keyFullUrl = `${m3u8Origin}${keyUri.startsWith('/') ? '' : '/'}${keyUri}`;
-        }
-        // Key URL stays on the same host as the M3U8.
-        // The RPI verifies on the same host, ensuring whitelist applies.
-
-        console.log(`[/play] Fetching key to inline: ${keyFullUrl.substring(0, 80)}`);
-
-        function toB64(bytes: Uint8Array): string {
-          let b = '';
-          for (let i = 0; i < bytes.length; i++) b += String.fromCharCode(bytes[i]);
-          return btoa(b);
-        }
-
-        // PRIMARY: RPI proxy with ProxyJet sticky sessions (residential IP, whitelisted)
-        // Retry up to 3 times — each attempt creates a new ProxyJet sticky session.
-        // ~70% success per attempt → 97% after 3 attempts.
-        if (env.RPI_PROXY_URL && env.RPI_PROXY_API_KEY) {
-          for (let attempt = 1; attempt <= 3 && !inlineKeyBase64; attempt++) {
-            try {
-              console.log(`[/play] RPI key attempt ${attempt}/3...`);
-              const rpiUrl = `${env.RPI_PROXY_URL}/dlhd-key-v6?url=${encodeURIComponent(keyFullUrl)}&key=${env.RPI_PROXY_API_KEY}`;
-              const rResp = await fetch(rpiUrl, {
-                headers: { 'X-API-Key': env.RPI_PROXY_API_KEY },
-                signal: AbortSignal.timeout(18000),
-              });
-              if (rResp.ok) {
-                const rBuf = await rResp.arrayBuffer();
-                if (rBuf.byteLength === 16) {
-                  inlineKeyBase64 = toB64(new Uint8Array(rBuf));
-                  console.log(`[/play] ✅ Key inlined from RPI (attempt ${attempt})`);
-                }
-              } else {
-                console.log(`[/play] RPI attempt ${attempt}: ${rResp.status}`);
-              }
-            } catch (e) {
-              console.log(`[/play] RPI attempt ${attempt} error: ${e}`);
-            }
-          }
-        }
-
-        // FALLBACK: direct fetch (CF worker IP — almost always returns fake key)
-        if (!inlineKeyBase64) {
-          const dlhdH = { 'User-Agent': 'Mozilla/5.0', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' };
-          try {
-            const kResp = await fetch(keyFullUrl, { headers: dlhdH, signal: AbortSignal.timeout(5000) });
-            if (kResp.ok) {
-              const kBuf = await kResp.arrayBuffer();
-              if (kBuf.byteLength === 16) {
-                inlineKeyBase64 = toB64(new Uint8Array(kBuf));
-                console.log(`[/play] Key inlined from direct (likely fake)`);
-              }
-            }
-          } catch {}
-        }
-      }
+      const inlineKeyBase64: string | undefined = undefined;
 
       const rewrittenM3u8 = await rewriteM3u8ForPlayEndpoint(
         m3u8Content,

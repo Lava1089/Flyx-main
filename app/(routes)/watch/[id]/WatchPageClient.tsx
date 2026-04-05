@@ -5,7 +5,34 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { getProviderSettings, saveProviderSettings, SYNC_DATA_CHANGED_EVENT } from '@/lib/sync';
+import { getFlixerStreamProxyUrl, getAnimeKaiProxyUrl, getHiAnimeStreamProxyUrl } from '@/app/lib/proxy-config';
 import styles from './WatchPage.module.css';
+
+// Proxy source URLs for mobile player — mirrors applyStreamProxy in VideoPlayer.tsx
+function proxySourceUrl(sourceUrl: string, providerName: string, requiresProxy?: boolean): string {
+  if (!sourceUrl) return sourceUrl;
+  // Already proxied — don't double-wrap
+  if (sourceUrl.includes('/flixer/stream') || sourceUrl.includes('/animekai') ||
+      sourceUrl.includes('/hianime/') || sourceUrl.includes('/hianime?') ||
+      sourceUrl.includes('/vidsrc/') || sourceUrl.includes('/api/stream-proxy') ||
+      sourceUrl.includes('/stream/')) {
+    return sourceUrl;
+  }
+  // Only proxy if the source says it needs it (or it's a known CDN URL)
+  const needsProxy = requiresProxy ||
+    sourceUrl.includes('.workers.dev') ||
+    sourceUrl.includes('frostcomet') ||
+    sourceUrl.includes('thunderleaf') ||
+    sourceUrl.includes('skyember') ||
+    sourceUrl.includes('nightbreeze') ||
+    sourceUrl.includes('wind.');
+  if (!needsProxy) return sourceUrl;
+
+  if (providerName === 'flixer') return getFlixerStreamProxyUrl(sourceUrl);
+  if (providerName === 'hianime') return getHiAnimeStreamProxyUrl(sourceUrl);
+  if (providerName === 'animekai') return getAnimeKaiProxyUrl(sourceUrl);
+  return sourceUrl;
+}
 
 // Type alias for anime audio preference
 type AnimeAudioPreference = 'sub' | 'dub';
@@ -479,7 +506,7 @@ function WatchContent() {
           if (validSources.length > 0) {
             const sources = validSources.map((s: any) => ({
               title: s.title || s.quality || `${provider} Source`,
-              url: s.url,
+              url: proxySourceUrl(s.url, provider, s.requiresSegmentProxy),
               quality: s.quality,
               provider: provider,
               skipIntro: s.skipIntro,
@@ -588,7 +615,7 @@ function WatchContent() {
       if (validSources.length > 0) {
         const sources = validSources.map((s: any) => ({
           title: s.title || s.quality || `${provider} Source`,
-          url: s.url,
+          url: proxySourceUrl(s.url, provider, s.requiresSegmentProxy),
           quality: s.quality,
           provider: provider,
           skipIntro: s.skipIntro,
