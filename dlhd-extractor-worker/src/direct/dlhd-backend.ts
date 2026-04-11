@@ -17,11 +17,11 @@ import { getProxyConfig } from '../discovery/fetcher';
 // Known DLHD servers discovered via server_lookup API (Jan 2026)
 // Discovered by scanning all 850 channels - these are ALL the servers
 const DLHD_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki', 'x4'];
-const DLHD_DOMAINS = ['soyspace.cyou', 'dvalna.ru'];
+const DLHD_DOMAINS = ['embedkclx.sbs', 'enviromentalanimal.horse', 'soyspace.cyou', 'dvalna.ru'];
 
 // The ONLY working lookup endpoint
-// UPDATED Mar 27, 2026: sec.ai-hls.site is the new primary M3U8/lookup/verify server
-const LOOKUP_ENDPOINT = 'https://sec.ai-hls.site/server_lookup';
+// UPDATED Apr 10, 2026: sec.ai-hls.site is DEAD (403). embedkclx.sbs is new primary.
+const LOOKUP_ENDPOINT = 'https://chevy.embedkclx.sbs/server_lookup';
 
 // Auth source
 // UPDATED Mar 27, 2026: www.ksohls.ru is the current player domain (browser recon confirmed)

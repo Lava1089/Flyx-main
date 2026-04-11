@@ -21,7 +21,7 @@ interface StreamConfig {
 const STREAM_CONFIGS: Record<string, StreamConfig> = {
   '/flixer/stream':  { referer: 'https://hexa.su/', origin: 'https://hexa.su', label: 'Flixer' },
   '/hianime/stream': { referer: 'https://megacloud.blog/', origin: 'https://megacloud.blog', label: 'HiAnime' },
-  '/dlhd/stream':    { referer: 'https://enviromentalspace.sbs/', origin: 'https://enviromentalspace.sbs', label: 'DLHD' },
+  '/dlhd/stream':    { referer: 'https://embedkclx.sbs/', origin: 'https://embedkclx.sbs', label: 'DLHD' },
   '/vidlink/stream': { referer: 'https://vidlink.pro/', origin: 'https://vidlink.pro', label: 'VidLink' },
   '/vidsrc/stream':  { referer: 'https://vidsrc.cc/', origin: 'https://vidsrc.cc', label: 'VidSrc' },
   '/1movies/stream': { referer: 'https://1movies.com/', origin: 'https://1movies.com', label: '1Movies' },

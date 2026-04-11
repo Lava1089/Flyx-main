@@ -121,7 +121,7 @@ async function rewriteM3u8ForPlayEndpoint(
             const baseOrigin = new URL(baseUrl).origin;
             absoluteKeyUrl = `${baseOrigin}${uri.startsWith('/') ? '' : '/'}${uri}`;
           } catch {
-            absoluteKeyUrl = `https://sec.ai-hls.site${uri.startsWith('/') ? '' : '/'}${uri}`;
+            absoluteKeyUrl = `https://chevy.embedkclx.sbs${uri.startsWith('/') ? '' : '/'}${uri}`;
           }
         }
         const proxiedKeyUrl = `${workerBaseUrl}/key?url=${encodeURIComponent(absoluteKeyUrl)}`;
@@ -178,7 +178,7 @@ async function refreshWhitelistViaRelay(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': relayKey },
     body: JSON.stringify({
-      url: 'https://sec.ai-hls.site/verify',
+      url: 'https://chevy.embedkclx.sbs/verify',
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' },
       body: verifyBody,
@@ -268,7 +268,7 @@ grecaptcha.ready(function(){
       }
 
       // POST verify with correct Origin — whitelists THIS CF edge IP
-      const verifyResp = await fetch('https://sec.ai-hls.site/verify', {
+      const verifyResp = await fetch('https://chevy.embedkclx.sbs/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' },
         body: JSON.stringify({ 'recaptcha-token': body.token, 'channel_id': body.channel }),
@@ -328,11 +328,12 @@ grecaptcha.ready(function(){
     const keyPath = extractKeyPath(keyUrl);
 
     // Build list of key URLs to try (different servers, same key path)
-    // UPDATED Mar 27 2026: sec.ai-hls.site is new primary, chevy.soyspace.cyou fallback
+    // UPDATED Apr 10 2026: sec.ai-hls.site is DEAD (403). All chevy.{domain} now.
     const keyServers = [keyUrl];
     if (keyPath) {
       const servers = [
-        `https://sec.ai-hls.site${keyPath}`,
+        `https://chevy.embedkclx.sbs${keyPath}`,
+        `https://chevy.enviromentalanimal.horse${keyPath}`,
         `https://chevy.soyspace.cyou${keyPath}`,
         `https://chevy.vovlacosa.sbs${keyPath}`,
       ];
@@ -479,7 +480,7 @@ grecaptcha.ready(function(){
           console.log(`[/key] reCAPTCHA token obtained (${token.length}b), POSTing verify via relay...`);
 
           const verifyResult = await relayPost(
-            'https://sec.ai-hls.site/verify',
+            'https://chevy.embedkclx.sbs/verify',
             { 'Content-Type': 'application/json', 'Origin': 'https://www.ksohls.ru', 'Referer': 'https://www.ksohls.ru/' },
             JSON.stringify({ 'recaptcha-token': token, 'channel_id': channel }),
             stickyUsername,
@@ -518,13 +519,13 @@ grecaptcha.ready(function(){
 
       // ─── Step 2: Self-whitelist + fetch (Mar 27 2026) ──────────────────
       // CRITICAL: verify and key fetch MUST hit the SAME server hostname.
-      // The whitelist is PER-SERVER — whitelisting on sec.ai-hls.site doesn't
+      // The whitelist is PER-SERVER — whitelisting on chevy.embedkclx.sbs doesn't
       // help if the key is fetched from chevy.soyspace.cyou.
       const channelMatch = keyUrl.match(/\/(premium\d+)\//);
       const channel = channelMatch ? channelMatch[1] : 'premium51';
 
       // Extract the hostname from the key URL — verify on THAT same host
-      const keyHost = (() => { try { return new URL(keyUrl).origin; } catch { return 'https://sec.ai-hls.site'; } })();
+      const keyHost = (() => { try { return new URL(keyUrl).origin; } catch { return 'https://chevy.embedkclx.sbs'; } })();
       const verifyUrl = `${keyHost}/verify`;
 
       console.log(`[/key] Self-whitelist: verify=${verifyUrl} key=${keyUrl.substring(0, 60)}`);
@@ -820,11 +821,8 @@ grecaptcha.ready(function(){
       status: 'online' | 'offline' | 'timeout';
       responseTime?: number;
     }> => {
-      // UPDATED Mar 27 2026: sec.ai-hls.site uses direct URL (no chevy. prefix)
-      // chevy.{domain} pattern still works for soyspace.cyou
-      const m3u8Url = backend.domain === 'ai-hls.site'
-        ? `https://sec.ai-hls.site/proxy/${backend.server}/${channelKey}/mono.css`
-        : `https://chevy.${backend.domain}/proxy/${backend.server}/${channelKey}/mono.css`;
+      // UPDATED Apr 10 2026: sec.ai-hls.site is DEAD. All use chevy.{domain} pattern now.
+      const m3u8Url = `https://chevy.${backend.domain}/proxy/${backend.server}/${channelKey}/mono.css`;
       const startTime = Date.now();
 
       try {
@@ -924,9 +922,9 @@ grecaptcha.ready(function(){
     const testUrl = 'https://chevy.soyspace.cyou/test';
     const RPI_PROXY_DOMAINS = [
       'dlhd.link', 'dlhd.dad', 'thedaddy.top', 'soyspace.cyou',
-      'topembed.pw', 'enviromentalspace.sbs', 'dvalna.ru', 'keylocking.ru',
+      'topembed.pw', 'embedkclx.sbs', 'enviromentalanimal.horse', 'dvalna.ru', 'keylocking.ru',
       'adffdafdsafds.sbs', 'dlstreams.top', 'vovlacosa.sbs', 'the-sunmoon.site',
-      'vmvmv.shop', 'daddylivestream.com', 'ai-hls.site', 'ksohls.ru',
+      'vmvmv.shop', 'daddylivestream.com', 'ai-hls.site', 'ksohls.ru', 'aivideox.site',
     ];
     const hostname = new URL(testUrl).hostname;
     const shouldProxy = RPI_PROXY_DOMAINS.some(domain => 
@@ -1329,10 +1327,10 @@ grecaptcha.ready(function(){
 
       // Phase 1: Try primary server directly (fast path, ~200-500ms)
       const primaryServer = servers[0]; // First server is the best candidate (from lookup or static map)
-      const primaryUrl = `https://sec.ai-hls.site/proxy/${primaryServer}/${channelKey}/mono.css`;
+      const primaryUrl = `https://chevy.embedkclx.sbs/proxy/${primaryServer}/${channelKey}/mono.css`;
 
       try {
-        console.log(`[/play] Phase 1: Trying primary ${primaryServer} on sec.ai-hls.site...`);
+        console.log(`[/play] Phase 1: Trying primary ${primaryServer} on chevy.embedkclx.sbs...`);
         const primaryResp = await fetch(primaryUrl, {
           headers: m3u8Headers,
           signal: AbortSignal.timeout(3000), // Tight 3s timeout for primary
@@ -1342,8 +1340,8 @@ grecaptcha.ready(function(){
           if (content.includes('#EXTM3U') || content.includes('#EXT-X-')) {
             m3u8Content = content;
             workingServer = primaryServer;
-            workingDomain = 'ai-hls.site';
-            console.log(`[/play] ✅ Phase 1 HIT: ${primaryServer}.ai-hls.site (${Date.now() - startTime}ms)`);
+            workingDomain = 'embedkclx.sbs';
+            console.log(`[/play] ✅ Phase 1 HIT: ${primaryServer}.embedkclx.sbs (${Date.now() - startTime}ms)`);
           }
         }
       } catch (e) {
@@ -1355,12 +1353,7 @@ grecaptcha.ready(function(){
         const m3u8Candidates: Array<{ url: string; server: string; domain: string }> = [];
 
         for (const server of servers) {
-          m3u8Candidates.push({
-            url: `https://sec.ai-hls.site/proxy/${server}/${channelKey}/mono.css`,
-            server,
-            domain: 'ai-hls.site',
-          });
-          for (const domain of domains) {
+          for (const domain of ['embedkclx.sbs', 'enviromentalanimal.horse', ...domains]) {
             m3u8Candidates.push({
               url: `https://chevy.${domain}/proxy/${server}/${channelKey}/mono.css`,
               server,
@@ -1542,9 +1535,7 @@ grecaptcha.ready(function(){
       // already handles key fetching separately (~2.5s) and HLS.js requests it
       // non-blocking while buffering segments. This makes /play return in <1s.
       const rewriteStart = Date.now();
-      const m3u8Url = workingDomain === 'ai-hls.site'
-        ? `https://sec.ai-hls.site/proxy/${workingServer}/${channelKey}/mono.css`
-        : `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
+      const m3u8Url = `https://chevy.${workingDomain}/proxy/${workingServer}/${channelKey}/mono.css`;
 
       const inlineKeyBase64: string | undefined = undefined;
 

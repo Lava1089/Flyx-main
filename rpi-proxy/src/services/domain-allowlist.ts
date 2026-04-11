@@ -4,12 +4,15 @@
  */
 
 const PROXY_ALLOWED_DOMAINS = [
-  // DLHD key/M3U8 servers (updated March 27, 2026)
+  // DLHD key/M3U8 servers (updated April 10, 2026)
   'soyspace.cyou', 'adsfadfds.cfd', 'dvalna.ru', 'topembed.pw', 'dlhd.link', 'dlhd.dad',
   'daddylive.mp', 'dlstreams.top', 'adffdafdsafds.sbs', 'vovlacosa.sbs', 'vmvmv.shop',
   'www.ksohls.ru', 'ksohls.ru', 'lefttoplay.xyz', 'hitsplay.fun', 'codepcplay.fun',
   'enviromentalspace.sbs', 'keylocking.ru', 'the-sunmoon.site',
-  'ai-hls.site',  // New primary M3U8/key/verify server (Mar 27, 2026)
+  'ai-hls.site',
+  'embedkclx.sbs',              // New primary M3U8/key/verify/embed (Apr 10, 2026)
+  'enviromentalanimal.horse',    // New fallback M3U8/key/verify (Apr 10, 2026)
+  'aivideox.site',               // New segment CDN (Apr 10, 2026)
   'goalwagon.net', 'extinctdeprive.net', 'daddylivestream.com', 'obstream.sx',
   // AnimeKai/MegaUp
   'megaup.net', 'megaup.live', 'megaup.cc', '4spromax.site', 'hub26link.site',

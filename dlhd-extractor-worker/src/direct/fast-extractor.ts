@@ -31,25 +31,20 @@ const ALL_SERVERS = ['ddy6', 'zeko', 'wind', 'dokko1', 'nfs', 'wiki', 'x4'] as c
 
 // All known DLHD domains for M3U8 proxy
 // SECURITY: Keep these private - don't expose via public APIs
-// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix)
-// chevy.soyspace.cyou still works as fallback
-const ALL_DOMAINS = ['soyspace.cyou'] as const;
+// UPDATED Apr 10 2026: sec.ai-hls.site is DEAD (403). New primary: embedkclx.sbs
+// All servers now use chevy.{domain} prefix pattern
+const ALL_DOMAINS = ['embedkclx.sbs', 'enviromentalanimal.horse', 'soyspace.cyou'] as const;
 
 // Domains for server_lookup API (ordered by reliability)
-// UPDATED Mar 27 2026: chevy.{domain} works from server IPs.
-const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'] as const;
+// UPDATED Apr 10 2026: embedkclx.sbs is new primary, enviromentalanimal.horse is new fallback
+const LOOKUP_DOMAINS = ['embedkclx.sbs', 'enviromentalanimal.horse', 'vovlacosa.sbs', 'soyspace.cyou'] as const;
 
 // Default domain (for M3U8 proxy)
-const DEFAULT_DOMAIN = 'soyspace.cyou';
+const DEFAULT_DOMAIN = 'embedkclx.sbs';
 
-// Primary M3U8 server for server-side fetching
-// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix!)
-// chevy.soyspace.cyou still works as fallback
-const M3U8_SERVER = 'sec.ai-hls.site';
-
-// Key domain — no auth headers needed (only IP whitelist via reCAPTCHA)
-// UPDATED Mar 27 2026: sec.ai-hls.site is new primary, soyspace.cyou fallback
-export const KEY_DOMAIN = 'soyspace.cyou';
+// Key domain — no auth headers needed (reCAPTCHA enforcement appears disabled as of Apr 10 2026)
+// UPDATED Apr 10 2026: embedkclx.sbs is new primary
+export const KEY_DOMAIN = 'embedkclx.sbs';
 
 // Fallback request timeout (ms)
 const FALLBACK_REQUEST_TIMEOUT = 8000;
@@ -84,12 +79,9 @@ export async function lookupServer(channelId: number): Promise<string | null> {
   const channelKey = `premium${channelId}`;
   
   // Race all lookup domains in parallel — first valid response wins
-  // UPDATED Mar 27 2026: sec.ai-hls.site added as primary lookup
+  // UPDATED Apr 10 2026: sec.ai-hls.site is DEAD (403). All use chevy.{domain} now.
   try {
-    const lookupUrls = [
-      `https://sec.ai-hls.site/server_lookup?channel_id=${encodeURIComponent(channelKey)}`,
-      ...LOOKUP_DOMAINS.map(d => `https://chevy.${d}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`),
-    ];
+    const lookupUrls = LOOKUP_DOMAINS.map(d => `https://chevy.${d}/server_lookup?channel_id=${encodeURIComponent(channelKey)}`);
     const result = await Promise.any(
       lookupUrls.map(async (lookupUrl) => {
         const controller = new AbortController();
@@ -197,7 +189,7 @@ export function getServerForChannel(channelId: number): string | null {
 
 /**
  * Build M3U8 URL for a channel on a specific server/domain
- * UPDATED Mar 27 2026: M3U8 served via sec.ai-hls.site (primary) or chevy.soyspace.cyou (fallback)
+ * UPDATED Apr 10 2026: M3U8 served via chevy.embedkclx.sbs (primary) or chevy.soyspace.cyou (fallback)
  * UPDATED Mar 30 2026: Handle 'top1/cdn' server key (slash in path, forward-deployed by DLHD)
  * Pattern: https://{m3u8Server}/proxy/{server}/premium{ch}/mono.css
  * DLHD's own player uses M3U8_SERVER directly — confirmed via page source extraction.

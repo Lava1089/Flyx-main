@@ -114,9 +114,9 @@ async function generateSignature(sessionId: string, resource: string, timestamp:
 // CONSTANTS
 // =============================================================================
 
-// UPDATED March 24, 2026: enviromentalspace.sbs is the new player domain (was ksohls.ru → lefttoplay.xyz → epaly.fun)
-// Main site redirect chain: thedaddy.top → daddylivestream.com → dlhd.dad → dlhd.link → dlstreams.top
-const PLAYER_DOMAIN = 'enviromentalspace.sbs';
+// UPDATED Apr 10, 2026: embedkclx.sbs is the new player/embed domain. enviromentalspace.sbs is DEAD (SSL failure).
+// Main site redirect chain: daddylivestream.com → dlhd.dad → dlhd.link → dlstreams.top (dlhd.so is DEAD)
+const PLAYER_DOMAIN = 'embedkclx.sbs';
 const PARENT_DOMAIN = 'dlstreams.top';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
@@ -161,10 +161,10 @@ const CHANNEL_TO_TOPEMBED: Record<string, string> = {
   '92': 'BeinSports2[Arab]',
 };
 
-/** M3U8 servers (March 24, 2026): ai.the-sunmoon.site is primary, soyspace.cyou is fallback */
-/** go.ai-chatx.site is dead (ECONNREFUSED). Keys now via key.keylocking.ru */
-const CDN_DOMAIN = 'soyspace.cyou';
-const M3U8_SERVERS = ['ai.the-sunmoon.site', 'soyspace.cyou'];
+/** M3U8 servers (Apr 10, 2026): chevy.embedkclx.sbs is primary, enviromentalanimal.horse + soyspace.cyou fallbacks */
+/** DEAD: ai.the-sunmoon.site, sec.ai-hls.site (403), key.keylocking.ru (403) */
+const CDN_DOMAIN = 'embedkclx.sbs';
+const M3U8_SERVERS = ['embedkclx.sbs', 'enviromentalanimal.horse', 'soyspace.cyou'];
 
 /** HMAC secret for PoW computation - loaded from environment variable */
 // SECURITY: Never hardcode secrets in source code
@@ -427,10 +427,10 @@ async function fetchAuthData(channel: string, logger: any, env?: Env): Promise<S
   logger.info('Fetching fresh JWT', { channel });
 
   // ============================================================================
-  // METHOD 1: Try enviromentalspace.sbs first (March 24, 2026 - replaces ksohls.ru)
-  // Then fall back to ksohls.ru (still works but may be deprecated)
+  // METHOD 1: Try embedkclx.sbs first (Apr 10, 2026 - enviromentalspace.sbs is DEAD)
+  // Then fall back to ksohls.ru (still works for direct access)
   // ============================================================================
-  const playerDomains = ['enviromentalspace.sbs', 'www.ksohls.ru'];
+  const playerDomains = ['embedkclx.sbs', 'www.ksohls.ru'];
   for (const playerDomain of playerDomains) {
     try {
       const playerUrl = `https://${playerDomain}/premiumtv/daddyhd.php?id=${channel}`;
@@ -701,40 +701,10 @@ const FALLBACK_SERVER_KEYS = ['wiki', 'hzt', 'x4', 'zeko', 'wind', 'nfs', 'ddy6'
  * Uses RPI proxy as fallback since DLHD CDN may block CF IPs
  */
 async function fetchServerKey(channelKey: string, logger: any, env?: Env): Promise<string | null> {
-  // Try multiple lookup domains (March 24, 2026: ai.the-sunmoon.site is new primary)
-  // Also try direct (non-chevy) lookup on the new M3U8 server
-  const lookupDomains = ['vovlacosa.sbs', 'soyspace.cyou'];
+  // UPDATED Apr 10, 2026: ai.the-sunmoon.site and sec.ai-hls.site are DEAD.
+  // All use chevy.{domain} pattern now. embedkclx.sbs is new primary.
+  const lookupDomains = ['embedkclx.sbs', 'enviromentalanimal.horse', 'vovlacosa.sbs', 'soyspace.cyou'];
 
-  // Try ai.the-sunmoon.site first (new primary M3U8 server)
-  try {
-    const url = `https://ai.the-sunmoon.site/server_lookup?channel_id=${channelKey}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Origin': `https://${PLAYER_DOMAIN}`,
-        'Referer': `https://${PLAYER_DOMAIN}/`,
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const text = await response.text();
-      if (text.startsWith('{')) {
-        const data = JSON.parse(text) as { server_key?: string };
-        if (data.server_key) {
-          logger.info('Server lookup success (ai.the-sunmoon.site)', { channelKey, serverKey: data.server_key });
-          return data.server_key;
-        }
-      }
-    }
-  } catch (error) {
-    logger.warn('ai.the-sunmoon.site lookup error', { error: (error as Error).message });
-  }
-  
   for (const domain of lookupDomains) {
     const url = `https://chevy.${domain}/server_lookup?channel_id=${channelKey}`;
     
@@ -1254,7 +1224,7 @@ async function handleKeyProxy(url: URL, logger: any, origin: string | null, env?
  */
 
 // Known DLHD CDN domains that block Cloudflare IPs
-const DLHD_DOMAINS = ['soyspace.cyou', 'go.ai-chatx.site', 'dvalna.ru', 'arbitrageai.cc'];
+const DLHD_DOMAINS = ['soyspace.cyou', 'embedkclx.sbs', 'enviromentalanimal.horse', 'aivideox.site', 'dvalna.ru', 'arbitrageai.cc'];
 
 /**
  * Check if a URL is from a DLHD CDN domain that blocks CF IPs

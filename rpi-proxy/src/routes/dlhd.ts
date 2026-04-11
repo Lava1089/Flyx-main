@@ -407,11 +407,12 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
   const channelMatch = keyPath.match(/\/(premium\d+)\//);
   const channel = channelMatch ? channelMatch[1] : 'premium44';
 
-  // Key servers — UPDATED Mar 27 2026: sec.ai-hls.site is primary (no chevy. prefix)
+  // Key servers — UPDATED Apr 10 2026: sec.ai-hls.site is DEAD (403). All chevy.{domain} now.
   const keyServers = [
     ...new Set([
       decoded,
-      `https://sec.ai-hls.site${keyPath}`,
+      `https://chevy.embedkclx.sbs${keyPath}`,
+      `https://chevy.enviromentalanimal.horse${keyPath}`,
       `https://chevy.soyspace.cyou${keyPath}`,
       `https://chevy.vovlacosa.sbs${keyPath}`,
     ])
@@ -466,7 +467,7 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
   }
 
   let validKey: Buffer | null = null;
-  const keyHost = (() => { try { return new URL(decoded).origin; } catch { return 'https://sec.ai-hls.site'; } })();
+  const keyHost = (() => { try { return new URL(decoded).origin; } catch { return 'https://chevy.embedkclx.sbs'; } })();
 
   // ─── FAST PATH: fetch key with cached session (~1s) ────────────────
   if (cached) {
@@ -568,9 +569,9 @@ export async function handleDLHDKeyV6(req: RPIRequest, res: ServerResponse): Pro
 // =============================================================================
 
 const RESTREAM_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-const LOOKUP_DOMAINS = ['vovlacosa.sbs', 'soyspace.cyou'];
-const CDN_DOMAIN = 'soyspace.cyou';
-const NEW_M3U8_SERVER = 'sec.ai-hls.site';
+const LOOKUP_DOMAINS = ['embedkclx.sbs', 'enviromentalanimal.horse', 'vovlacosa.sbs', 'soyspace.cyou'];
+const CDN_DOMAIN = 'embedkclx.sbs';
+const NEW_M3U8_SERVER = 'chevy.embedkclx.sbs';
 
 /** Fetch a URL via https and return the body as a string */
 function httpGet(url: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {

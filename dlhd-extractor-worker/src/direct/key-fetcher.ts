@@ -1,13 +1,16 @@
 /**
- * DLHD Key Fetcher — March 27, 2026
+ * DLHD Key Fetcher — April 10, 2026
  *
  * Fetches encryption keys from DLHD key servers.
  *
- * Keys require ZERO auth headers — only reCAPTCHA IP whitelist.
+ * Keys require ZERO auth headers — reCAPTCHA enforcement appears disabled.
  *
- * Key servers (CORS *):
- *   - sec.ai-hls.site (primary — Mar 27 2026)
+ * Key servers (CORS *, all chevy.{domain} pattern):
+ *   - chevy.embedkclx.sbs (primary — Apr 10 2026)
+ *   - chevy.enviromentalanimal.horse (new fallback)
  *   - chevy.soyspace.cyou (fallback)
+ *
+ * DEAD: sec.ai-hls.site (403 blocked as of Apr 10 2026)
  *
  * SECURITY FEATURES:
  * - Rate limiting per channel (prevents abuse)
@@ -26,8 +29,8 @@ const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 key requests per channel per minute
 
 // Key servers to try (ordered by reliability for server-side fetching)
-// UPDATED Mar 27 2026: sec.ai-hls.site is new primary (no chevy. prefix)
-const KEY_SERVERS = ['sec.ai-hls.site', 'chevy.soyspace.cyou', 'chevy.vovlacosa.sbs'] as const;
+// UPDATED Apr 10 2026: sec.ai-hls.site is DEAD (403). All use chevy.{domain} pattern now.
+const KEY_SERVERS = ['chevy.embedkclx.sbs', 'chevy.enviromentalanimal.horse', 'chevy.soyspace.cyou', 'chevy.vovlacosa.sbs'] as const;
 
 export interface KeyFetchResult {
   success: boolean;
@@ -110,7 +113,7 @@ function isFakeKey(keyHex: string): boolean {
  * Keys require NO auth headers — only reCAPTCHA IP whitelist.
  * The authData parameter is kept for API compatibility but ignored.
  *
- * Tries multiple key servers (sec.ai-hls.site, chevy.soyspace.cyou).
+ * Tries multiple key servers (chevy.embedkclx.sbs, chevy.soyspace.cyou, etc).
  * Returns fake key detection so callers can trigger reCAPTCHA whitelist.
  */
 export async function fetchKeyWithAuth(
