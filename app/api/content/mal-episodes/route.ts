@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { type MALEpisode } from '@/lib/services/mal';
+import { getMALAnimeEpisodes } from '@/lib/services/mal';
 
 export const runtime = 'edge';
 
-const JIKAN_BASE_URL = 'https://api.jikan.moe/v4';
-
+/**
+ * GET /api/content/mal-episodes?malId=X&page=Y
+ *
+ * Returns a paginated episode list for an anime. Previously hit Jikan
+ * directly; now uses the AniList-backed malService which synthesises
+ * episode stubs from the anime's total episode count (AniList doesn't
+ * expose per-episode titles/filler flags).
+ */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const malId = searchParams.get('malId');
@@ -25,69 +31,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid page parameter' }, { status: 400 });
   }
 
-  const jikanUrl = `${JIKAN_BASE_URL}/anime/${malIdNum}/episodes?page=${pageNum}`;
+  const result = await getMALAnimeEpisodes(malIdNum, pageNum);
 
-  // Try direct fetch first, then fall back to RPI proxy
-  let data: any = null;
-
-  // Attempt 1: Direct fetch to Jikan
-  try {
-    const response = await fetch(jikanUrl, {
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (response.ok) {
-      data = await response.json();
-    } else {
-      console.warn(`[MAL Episodes API] Direct Jikan fetch returned ${response.status}`);
-    }
-  } catch (err) {
-    console.warn(`[MAL Episodes API] Direct Jikan fetch failed:`, err instanceof Error ? err.message : err);
-  }
-
-  // Attempt 2: Route through RPI proxy if direct failed
-  if (!data) {
-    try {
-      const { cfFetch } = await import('@/lib/utils/cf-fetch');
-      const response = await cfFetch(jikanUrl);
-      if (response.ok) {
-        data = await response.json();
-      } else {
-        console.error(`[MAL Episodes API] RPI proxy Jikan fetch returned ${response.status}`);
-      }
-    } catch (err) {
-      console.error(`[MAL Episodes API] RPI proxy Jikan fetch failed:`, err instanceof Error ? err.message : err);
-    }
-  }
-
-  // Both attempts failed — return error WITHOUT caching
-  if (!data || !data.data) {
+  if (!result.episodes.length && !result.hasNextPage && result.lastPage <= 1) {
+    // No episodes found — anime doesn't exist or has zero episode count
     return new NextResponse(
-      JSON.stringify({ success: false, error: 'Jikan API unavailable' }),
+      JSON.stringify({ success: false, error: 'No episodes found' }),
       {
-        status: 502,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-        },
+        status: 404,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       }
     );
   }
 
-  const episodes: MALEpisode[] = data.data || [];
-  const hasNextPage = data.pagination?.has_next_page || false;
-  const lastPage = data.pagination?.last_visible_page || 1;
-
-  // Only cache successful responses
   return new NextResponse(
     JSON.stringify({
       success: true,
       data: {
         malId: malIdNum,
         page: pageNum,
-        totalPages: lastPage,
-        hasNextPage,
-        episodes: episodes.map((ep: MALEpisode) => ({
+        totalPages: result.lastPage,
+        hasNextPage: result.hasNextPage,
+        episodes: result.episodes.map(ep => ({
           number: ep.mal_id,
           title: ep.title,
           titleJapanese: ep.title_japanese,

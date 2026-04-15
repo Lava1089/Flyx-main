@@ -1,26 +1,23 @@
 /**
  * MyAnimeList (MAL) API Service
- * Fetches anime data from Jikan API (unofficial MAL API)
- * Used to get accurate season/episode information for anime
+ *
+ * Previously backed by Jikan (api.jikan.moe), but Jikan's MongoDB backend
+ * is chronically unstable (~87% 500 error rate under load as of Apr 2026),
+ * so this module now uses AniList GraphQL with Jikan-shaped adapters.
+ *
+ * AniList exposes `idMal` on every anime, so MAL IDs keep working as the
+ * canonical key that downstream consumers (hianime extractor, URL routes,
+ * absolute-episode mapping tables) already depend on.
  */
 
-const JIKAN_BASE_URL = 'https://api.jikan.moe/v4';
-
-// Rate limiting: Jikan has a 3 requests/second limit
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 350; // ms between requests
-
-async function rateLimitedFetch(url: string): Promise<Response> {
-  const now = Date.now();
-  const timeSinceLastRequest = now - lastRequestTime;
-  
-  if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-    await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_INTERVAL - timeSinceLastRequest));
-  }
-  
-  lastRequestTime = Date.now();
-  return fetch(url);
-}
+import {
+  getAnimeByMalId as anilistGetAnime,
+  searchAnime as anilistSearch,
+  anilistMediaToMALAnime,
+  anilistMediaToMALSearchResult,
+  syntheticEpisodesForAnime,
+} from './anilist';
+import { scrapeMALEpisodePage, scrapeMALEpisodes } from './mal-scrape';
 
 export interface MALAnime {
   mal_id: number;
@@ -98,63 +95,69 @@ export interface MALAnimeDetails {
  * Search for anime on MAL by title
  */
 export async function searchMALAnime(query: string, limit: number = 10): Promise<MALSearchResult[]> {
-  try {
-    const url = `${JIKAN_BASE_URL}/anime?q=${encodeURIComponent(query)}&limit=${limit}&order_by=members&sort=desc`;
-    const response = await rateLimitedFetch(url);
-    
-    if (!response.ok) {
-      console.error('[MAL] Search failed:', response.status);
-      return [];
-    }
-    
-    const data = await response.json();
-    return data.data || [];
-  } catch (error) {
-    console.error('[MAL] Search error:', error);
-    return [];
-  }
+  const results = await anilistSearch(query, limit);
+  return results
+    .map(anilistMediaToMALSearchResult)
+    .filter((r): r is MALSearchResult => r !== null);
 }
 
 /**
  * Get anime details by MAL ID
  */
 export async function getMALAnimeById(malId: number): Promise<MALAnime | null> {
-  try {
-    const url = `${JIKAN_BASE_URL}/anime/${malId}/full`;
-    const response = await rateLimitedFetch(url);
-    
-    if (!response.ok) {
-      console.error('[MAL] Get anime failed:', response.status);
-      return null;
-    }
-    
-    const data = await response.json();
-    return data.data || null;
-  } catch (error) {
-    console.error('[MAL] Get anime error:', error);
-    return null;
-  }
+  const media = await anilistGetAnime(malId);
+  if (!media) return null;
+  return anilistMediaToMALAnime(media);
 }
 
 /**
+ * AniList relation type → Jikan relation name
+ * Jikan uses: Sequel, Prequel, Side story, Summary, Parent story, Alternative version,
+ * Spin-off, Character, Other, Adaptation, Alternative setting, Full story
+ */
+const RELATION_MAP: Record<string, string> = {
+  SEQUEL: 'Sequel',
+  PREQUEL: 'Prequel',
+  SIDE_STORY: 'Side story',
+  SUMMARY: 'Summary',
+  PARENT: 'Parent story',
+  ALTERNATIVE: 'Alternative version',
+  SPIN_OFF: 'Spin-off',
+  CHARACTER: 'Character',
+  OTHER: 'Other',
+  ADAPTATION: 'Adaptation',
+  SOURCE: 'Adaptation',
+  COMPILATION: 'Summary',
+  CONTAINS: 'Side story',
+};
+
+/**
  * Get anime relations (sequels, prequels, etc.)
+ *
+ * Data sourced from AniList's relations.edges and remapped to the Jikan shape
+ * used by collectSequelChain. Only ANIME entries with a MAL ID are included
+ * (manga adaptations and AniList-only entries are filtered out).
  */
 export async function getMALAnimeRelations(malId: number): Promise<MALRelation[]> {
-  try {
-    const url = `${JIKAN_BASE_URL}/anime/${malId}/relations`;
-    const response = await rateLimitedFetch(url);
-    
-    if (!response.ok) {
-      console.error('[MAL] Get relations failed:', response.status);
-      return [];
-    }
-    
-    const data = await response.json();
-    return data.data || [];
-  } catch (error) {
-    console.error('[MAL] Get relations error:', error);
-    return [];
+  const media = await anilistGetAnime(malId);
+  if (!media?.relations?.edges) return [];
+
+  // Group edges by relation type (Jikan returns one entry per relation type)
+  const groups = new Map<string, MALRelation['entry']>();
+  for (const edge of media.relations.edges) {
+    if (edge.node.type !== 'ANIME' || !edge.node.idMal) continue;
+    const relationName = RELATION_MAP[edge.relationType] ?? 'Other';
+    const existing = groups.get(relationName) ?? [];
+    existing.push({
+      mal_id: edge.node.idMal,
+      type: 'anime',
+      name: edge.node.title.romaji || edge.node.title.english || 'Unknown',
+      url: `https://myanimelist.net/anime/${edge.node.idMal}`,
+    });
+    groups.set(relationName, existing);
   }
+
+  return Array.from(groups.entries()).map(([relation, entry]) => ({ relation, entry }));
 }
 
 // Known title mappings from TMDB to MAL search terms
@@ -770,48 +773,50 @@ export interface MALEpisode {
 }
 
 /**
- * Get episodes for an anime from Jikan API
- * Episodes are paginated (100 per page)
+ * Get episodes for an anime.
+ *
+ * Primary source is MAL's public episode page (scraped), which gives us real
+ * titles, air dates, filler/recap flags, and episode scores — everything
+ * Jikan used to provide. If the scrape fails (network issue, rate limit,
+ * MAL down), we fall back to synthetic "Episode N" stubs generated from
+ * the AniList episode count so the UI still renders.
+ *
+ * Paginated 100 per page to match the old Jikan contract.
  */
 export async function getMALAnimeEpisodes(malId: number, page: number = 1): Promise<{ episodes: MALEpisode[]; hasNextPage: boolean; lastPage: number }> {
-  try {
-    const response = await rateLimitedFetch(`${JIKAN_BASE_URL}/anime/${malId}/episodes?page=${page}`);
-    
-    if (!response.ok) {
-      console.error(`[MAL] Episodes fetch failed for ${malId}:`, response.status);
-      return { episodes: [], hasNextPage: false, lastPage: 1 };
-    }
-    
-    const data = await response.json();
-    
-    return {
-      episodes: data.data || [],
-      hasNextPage: data.pagination?.has_next_page || false,
-      lastPage: data.pagination?.last_visible_page || 1,
-    };
-  } catch (error) {
-    console.error(`[MAL] Episodes fetch error for ${malId}:`, error);
-    return { episodes: [], hasNextPage: false, lastPage: 1 };
+  const anime = await getMALAnimeById(malId);
+  const total = anime?.episodes ?? undefined;
+
+  const scraped = await scrapeMALEpisodePage(malId, page, total);
+  if (scraped && scraped.episodes.length > 0) {
+    return scraped;
   }
+
+  // Fallback: synthetic stubs from AniList episode count
+  if (!anime) return { episodes: [], hasNextPage: false, lastPage: 1 };
+  const totalEps = anime.episodes ?? 0;
+  const perPage = 100;
+  const lastPage = Math.max(1, Math.ceil(totalEps / perPage));
+  const pageEpisodes = syntheticEpisodesForAnime(totalEps).slice((page - 1) * perPage, page * perPage);
+  return {
+    episodes: pageEpisodes,
+    hasNextPage: page < lastPage,
+    lastPage,
+  };
 }
 
 /**
- * Get all episodes for an anime (handles pagination)
+ * Get all episodes for an anime. Tries MAL scrape first, falls back to
+ * synthetic stubs.
  */
 export async function getAllMALAnimeEpisodes(malId: number): Promise<MALEpisode[]> {
-  const allEpisodes: MALEpisode[] = [];
-  let page = 1;
-  let hasNextPage = true;
-  
-  // Max 15 pages (1500 episodes) - enough for One Piece (1100+ eps)
-  while (hasNextPage && page <= 15) {
-    const result = await getMALAnimeEpisodes(malId, page);
-    allEpisodes.push(...result.episodes);
-    hasNextPage = result.hasNextPage;
-    page++;
-  }
-  
-  return allEpisodes;
+  const anime = await getMALAnimeById(malId);
+  const total = anime?.episodes ?? undefined;
+
+  const scraped = await scrapeMALEpisodes(malId, total);
+  if (scraped && scraped.length > 0) return scraped;
+
+  return syntheticEpisodesForAnime(anime?.episodes ?? 0);
 }
 
 export const malService = {

@@ -273,7 +273,7 @@ export default function SearchPageClient({
     }
   }, [sessionId]);
 
-  // Perform anime search via MAL API
+  // Perform anime search via internal /api/content/anime-search (AniList-backed)
   const performAnimeSearch = useCallback(async (
     searchQuery: string,
     searchFilters: SearchFilters,
@@ -282,46 +282,41 @@ export default function SearchPageClient({
   ) => {
     try {
       let animeResults: AnimeResult[] = [];
-      
-      // Build MAL API URL
-      const malUrl = new URL('https://api.jikan.moe/v4/anime');
-      malUrl.searchParams.set('page', pageNum.toString());
-      malUrl.searchParams.set('limit', '24');
-      malUrl.searchParams.set('order_by', searchFilters.sortBy === 'rating' ? 'score' : searchFilters.sortBy === 'release_date' ? 'start_date' : 'members');
-      malUrl.searchParams.set('sort', 'desc');
-      
+
+      const searchUrl = new URL('/api/content/anime-search', window.location.origin);
+      searchUrl.searchParams.set('page', pageNum.toString());
+      searchUrl.searchParams.set('limit', '24');
+      searchUrl.searchParams.set('order_by', searchFilters.sortBy === 'rating' ? 'score' : searchFilters.sortBy === 'release_date' ? 'start_date' : 'members');
+
       if (searchQuery.trim()) {
-        malUrl.searchParams.set('q', searchQuery);
+        searchUrl.searchParams.set('q', searchQuery);
       }
-      
-      // Add genre filter if selected
+
       if (searchFilters.genres.length > 0) {
         const genreIds = searchFilters.genres
           .map(slug => MAL_GENRE_IDS[slug])
           .filter(id => id !== undefined);
         if (genreIds.length > 0) {
-          malUrl.searchParams.set('genres', genreIds.join(','));
+          searchUrl.searchParams.set('genres', genreIds.join(','));
         }
       }
-      
-      // Add year filter
+
       if (searchFilters.yearRange[0] > 1900) {
-        malUrl.searchParams.set('start_date', `${searchFilters.yearRange[0]}-01-01`);
+        searchUrl.searchParams.set('start_date', `${searchFilters.yearRange[0]}-01-01`);
       }
       if (searchFilters.yearRange[1] < new Date().getFullYear()) {
-        malUrl.searchParams.set('end_date', `${searchFilters.yearRange[1]}-12-31`);
-      }
-      
-      // Add rating filter
-      if (searchFilters.minRating > 0) {
-        malUrl.searchParams.set('min_score', searchFilters.minRating.toString());
+        searchUrl.searchParams.set('end_date', `${searchFilters.yearRange[1]}-12-31`);
       }
 
-      const response = await fetch(malUrl.toString());
+      if (searchFilters.minRating > 0) {
+        searchUrl.searchParams.set('min_score', searchFilters.minRating.toString());
+      }
+
+      const response = await fetch(searchUrl.toString());
       const data = await response.json();
 
       if (!response.ok) {
-        console.error('MAL API error:', response.status, data);
+        console.error('Anime search API error:', response.status, data);
         if (response.status === 429) {
           setHasMore(false);
         }
