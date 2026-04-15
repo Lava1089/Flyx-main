@@ -8,6 +8,7 @@
 
 import {
   fetchListing,
+  anilistQuery,
   anilistMediaToMALAnime,
   JIKAN_GENRE_ID_TO_ANILIST,
   type AniListMedia,
@@ -193,9 +194,8 @@ export async function searchAnime(query: string, page: number = 1, limit: number
   if (cached) return cached;
 
   try {
-    // Search uses the base anilistSearch (not fetchListing — search term takes a
-    // different code path in AniList's query). We build a one-off query here.
-    const { anilistQuery } = await import('./anilist');
+    // Search uses its own query (not fetchListing — search term takes a
+    // different code path in AniList's query).
     const gql = `
       query ($search: String, $page: Int, $perPage: Int) {
         Page(page: $page, perPage: $perPage) {
